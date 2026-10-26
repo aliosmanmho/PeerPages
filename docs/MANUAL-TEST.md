@@ -1,22 +1,24 @@
 # Faz 1'i elle deneme
 
-Bu belge **elle signaling** (`--manual`) yolunu anlatır: ziyaretçi sayfasının
-ürettiği `offer`'ı ajana yapıştırırsın, ajanın bastığı `answer`'ı sayfaya geri
-yapıştırırsın. Amaç Service Worker + WebRTC + reverse proxy zincirinin
-gerçekten çalıştığını görmek.
+İki yol var:
 
-> **Yön Faz 2'de değişti.** Artık **sayfa** offer üretiyor, ajan answer
-> dönüyor. Nedeni: Nostr signaling'de ajan, ziyaretçinin geçici pubkey'ini
-> önceden bilemediği için ilk mesajı gönderemez. Tek bir kod yolu olması için
-> elle signaling de aynı yönü kullanıyor (README §8).
+- **Nostr (varsayılan, asıl yol):** ziyaretçi sadece URL'yi açar. Kopyala-yapıştır
+  yok. Aşağıdaki 1–6. adımlar bunu anlatıyor.
+- **Elle (`--manual`):** signaling'i sen taşırsın. Nostr'un çalışmadığı yerde
+  ya da zinciri izole etmek istediğinde işe yarar. "Elle signaling" bölümünde.
 
-Nostr ile (URL'yi açmak yeterli) bağlanmak Faz 2'nin konusu; o akış
-tamamlandığında bu belgeye "Nostr ile" bölümü eklenecek.
+Otomatik karşılığı: `cd web && npx playwright test` (16 test: 8 elle yol +
+8 Nostr yolu). Gerçek relay'lerle:
 
-Otomatik karşılığı: `cd web && npx playwright test` (8 test, Faz 1 kabul
-kriterlerinin tamamını doğruluyor). Aşağısı aynı şeyi elle yapmak için.
+```bash
+cd web
+PEERPAGES_E2E_RELAYS="wss://nos.lol,wss://nostr.mom" npx playwright test nostr.spec.ts
+```
 
----
+> **Yön notu.** Faz 2'de roller değişti: **ziyaretçi** offer üretir, ajan
+> answer döner. Nedeni: Nostr'da ajan ziyaretçinin geçici pubkey'ini önceden
+> bilemediği için ilk mesajı gönderemez. Elle yol da aynı yönü kullanıyor ki
+> tek bir kod yolu olsun (README §8).
 
 ## 0. Hazırlık (bir kez)
 
@@ -74,66 +76,79 @@ npx vite preview --port 4173
 
 Aşağıda (b) varsayılıyor. (a) için adresleri `http://localhost:5173/…` diye oku.
 
-## 3. Ajanı başlat
-
-İkinci terminalde:
+## 3. Relay'leri kontrol et (önerilir)
 
 ```bash
 cd agent
-go run . serve --manual --target http://localhost:3000
+go run . doctor
 ```
+
+Her relay için bağlantı, NIP-11 ve **ephemeral yankı** testi yapar. Sonuncusu
+en önemlisi: bir relay event'i "OK" ile kabul edip sessizce düşürebilir, o
+zaman signaling çalışmaz ama hata da görünmez. Ayrıca iki STUN sunucusunun
+gördüğü dış portu karşılaştırıp NAT tipi tahmini verir.
+
+"NAT tahmini: simetrik" görürsen not et: karşı taraf da simetrik NAT
+arkasındaysa doğrudan bağlantı kurulamaz ve TURN gerekir (Faz 5).
+
+## 4. Ajanı Nostr modunda başlat
+
+```bash
+cd agent
+go run . serve --target http://localhost:3000 --app-url "http://localhost:4173/PeerPages/"
+```
+
+İlk çalıştırmada `~/.peerpages/key` oluşur (nsec olarak). **Bu dosyayı
+yedekle:** kaybedersen peer-id'n, yani paylaştığın URL değişir.
 
 Çıktı:
 
 ```
-Ziyaretci sayfasini ac (baglanti ekrani), "Offer uret" butonuna bas ve
-uretilen offer'i asagiya yapistirip Enter'a bas.
+PeerPages ajani hazir.
 
----PEERPAGES-OFFER-BEKLENIYOR---
+  peer-id : npub1yl4dshp…pdnn
+  hedef   : default
+  relay   : 4 adet (bagli)
+  sir     : yok (peer-id'yi bilen herkes baglanabilir)
+
+Ziyaretcinin acmasi gereken adres:
+
+  http://localhost:4173/PeerPages/#npub1yl4dshp…
+---PEERPAGES-READY---
 ```
 
-Ajan şimdi senden offer bekliyor. Terminali açık bırak.
+"hazir" satırı **gerçekten dinlemeye başladıktan sonra** basılır (önce
+relay'lere bağlanır, sonra abone olur). Bu sıra önemli: ephemeral event'ler
+saklanmadığı için daha önce gelen bir offer geri dönüşü olmadan kaybolur.
 
-## 4. Bağlantı ekranını aç ve offer üret
+İsterseniz paylaşılan sır ekleyin — peer-id'yi bilen ama sırrı bilmeyen
+bağlanamaz:
 
-Tarayıcıda:
-
-```
-http://localhost:4173/PeerPages/connect/
-```
-
-- Durum satırında **Service Worker** adımı yeşile dönmeli
-  ("Service Worker aktif").
-- **Offer uret** düğmesine bas. Birkaç saniye içinde (ICE toplanması) alttaki
-  alanda tek satırlık base64 offer oluşur.
-- **Kopyala**'ya bas.
-
-> **Bu sekmeyi kapatma.** WebRTC bağlantısını bu sayfa tutuyor; Service
-> Worker'ın içinde WebRTC yok (README §2). Sekme kapanırsa tünel kapanır.
-
-## 5. Offer'ı ajana, answer'ı sayfaya taşı
-
-1. Ajanın terminaline geç, offer'ı **yapıştır** ve **Enter**'a bas.
-2. Ajan answer'ı basar:
-
-   ```
-   ---PEERPAGES-ANSWER-BEGIN---
-   eyJ0eXBlIjoiYW5zd2VyIiwic2RwIjoi…
-   ---PEERPAGES-ANSWER-END---
-   ```
-
-3. İki işaretçi arasındaki **tek satırı** kopyala, sayfadaki
-   "Ajanin answer'ini yapistir" alanına yapıştır ve **Answer'i uygula**'ya bas.
-
-Ajan şunu yazar:
-
-```
----PEERPAGES-TUNNEL-OPEN---
-time=… level=INFO msg="tunel acik" target=default
+```bash
+go run . serve --target http://localhost:3000 --secret kedi-balik-7 \
+  --app-url "http://localhost:4173/PeerPages/"
 ```
 
-Bağlantı ekranında "Tunel acik" paneli görünür: istek sayısı, aktarılan bayt,
-gecikme ve hedef listesi.
+URL `#npub1…:kedi-balik-7` olur. Hash sunucuya gitmez, yani sır GitHub
+Pages'e ulaşmaz.
+
+## 5. Ziyaretçi: sadece URL'yi aç
+
+Ajanın bastığı adresi tarayıcıya yapıştır. Beklenen akış, durum satırında:
+
+```
+Service Worker → Signaling → ICE → Tunel
+```
+
+Yaklaşık bir saniye içinde "Tunel acik" paneli görünür. **Kopyala-yapıştır
+yok.** Bu sekme tünel sahibidir, kapatma.
+
+Kendi relay listenizi denemek isterseniz (README §4: liste kullanıcı
+tarafından değiştirilebilir):
+
+```
+http://localhost:4173/PeerPages/connect/?relay=wss://nos.lol&relay=wss://nostr.mom#npub1…
+```
 
 ## 6. Siteyi gez — kontrol listesi
 
@@ -171,14 +186,82 @@ yeniden bağlanma Faz 4).
 
 ---
 
-## İki cihazla deneme (ör. laptop + telefon)
+## Elle signaling (`--manual`)
 
-Faz 1'de signaling elle taşındığı için ikinci cihazda yapman gereken tek şey
-offer/answer metinlerini taşımak. En kolayı: metinleri kendine mesaj olarak
-gönder ya da bir not uygulamasıyla senkronla.
+Nostr'u atlamak istediğinde. Yön: **sayfa** offer üretir, ajan
+answer basar.
 
-1. **Laptop'ta** yayınlanacak siteyi ve ajanı çalıştır (adım 1 ve 3).
-2. **Laptop'ta** web uygulamasını ağdan erişilebilir yayınla:
+### Ajanı başlat
+
+İkinci terminalde:
+
+```bash
+cd agent
+go run . serve --manual --target http://localhost:3000
+```
+
+Çıktı:
+
+```
+Ziyaretci sayfasini ac (baglanti ekrani), "Offer uret" butonuna bas ve
+uretilen offer'i asagiya yapistirip Enter'a bas.
+
+---PEERPAGES-OFFER-BEKLENIYOR---
+```
+
+Ajan şimdi senden offer bekliyor. Terminali açık bırak.
+
+### Bağlantı ekranını aç ve offer üret
+
+Tarayıcıda:
+
+```
+http://localhost:4173/PeerPages/connect/
+```
+
+- Durum satırında **Service Worker** adımı yeşile dönmeli
+  ("Service Worker aktif").
+- **Offer uret** düğmesine bas. Birkaç saniye içinde (ICE toplanması) alttaki
+  alanda tek satırlık base64 offer oluşur.
+- **Kopyala**'ya bas.
+
+> **Bu sekmeyi kapatma.** WebRTC bağlantısını bu sayfa tutuyor; Service
+> Worker'ın içinde WebRTC yok (README §2). Sekme kapanırsa tünel kapanır.
+
+### Offer'ı ajana, answer'ı sayfaya taşı
+
+1. Ajanın terminaline geç, offer'ı **yapıştır** ve **Enter**'a bas.
+2. Ajan answer'ı basar:
+
+   ```
+   ---PEERPAGES-ANSWER-BEGIN---
+   eyJ0eXBlIjoiYW5zd2VyIiwic2RwIjoi…
+   ---PEERPAGES-ANSWER-END---
+   ```
+
+3. İki işaretçi arasındaki **tek satırı** kopyala, sayfadaki
+   "Ajanin answer'ini yapistir" alanına yapıştır ve **Answer'i uygula**'ya bas.
+
+Ajan şunu yazar:
+
+```
+---PEERPAGES-TUNNEL-OPEN---
+time=… level=INFO msg="tunel acik" target=default
+```
+
+Bağlantı ekranında "Tunel acik" paneli görünür: istek sayısı, aktarılan bayt,
+gecikme ve hedef listesi.
+
+## İki cihazla deneme (Faz 2'nin asıl kabul kriteri)
+
+**Bunu benim yerime sen doğrulamalısın:** iki ayrı cihazı iki ayrı ağda
+bağlamayı tek makineden test edemem.
+
+Nostr ile signaling taşımak gerekmiyor — tek yapman gereken URL'yi taşımak.
+
+1. **Laptop'ta** yayınlanacak siteyi ve ajanı çalıştır (1. ve 4. adım).
+   `--app-url` değerini telefondan erişilebilir adres yap.
+2. **Laptop'ta** web uygulamasını ağa aç:
 
    ```bash
    cd web
@@ -186,32 +269,31 @@ gönder ya da bir not uygulamasıyla senkronla.
    npx vite preview --port 4173 --host
    ```
 
-   Çıktıdaki `Network:` adresini not et (ör. `http://192.168.1.97:4173/`).
+   > **Git Bash'te** derleme satırını
+   > `MSYS_NO_PATHCONV=1 node scripts/build.mjs /PeerPages/` diye yaz.
 
-3. **Telefonda** o adresin `connect/` yolunu aç:
-   `http://192.168.1.97:4173/PeerPages/connect/`
+3. Ajanın bastığı URL'deki `localhost` yerine laptop'ın ağ adresini koy ve
+   **telefonda aç**. URL'yi taşımanın kolay yolu: kendine mesaj at ya da
+   `peerpages key --app-url …` çıktısını QR'a çevir (QR butonu Faz 3'te
+   gelecek).
 
-   > **Önemli:** Service Worker yalnızca güvenli bağlamda çalışır. `localhost`
-   > ve `127.0.0.1` güvenli sayılır ama **düz IP adresi sayılmaz**. Telefonda
-   > Service Worker kurulmazsa seçenekler:
-   > - `vite preview` yerine HTTPS veren bir sunucu kullan (kendi
-   >   sertifikanla), ya da
+   > **Service Worker güvenli bağlam ister.** `localhost` ve `127.0.0.1`
+   > güvenli sayılır ama **düz IP adresi sayılmaz**. Telefonda Service Worker
+   > kurulmazsa seçenekler:
+   > - HTTPS veren bir sunucu kullan (kendi sertifikanla),
    > - Chrome'da `chrome://flags/#unsafely-treat-insecure-origin-as-secure`
-   >   ayarına o adresi ekle (yalnızca test için), ya da
-   > - Faz 7'de gerçek dağıtımda bu sorun yok: GitHub Pages HTTPS veriyor.
+   >   ayarına o adresi ekle (yalnızca test için),
+   > - Faz 7'de gerçek dağıtımda sorun yok: GitHub Pages HTTPS veriyor.
 
-4. Telefonda **Offer uret**'e bas ve üretilen offer'ı laptop'a taşı; ajanın
-   terminaline yapıştır.
-5. Ajanın bastığı answer'ı telefona taşı ve sayfadaki answer alanına
-   yapıştırıp **Answer'i uygula**'ya bas.
-6. Telefonda `http://192.168.1.97:4173/PeerPages/` adresini aç: laptop'taki
-   `localhost:3000` telefonda açılır.
+4. Telefonda sayfa kendiliğinden bağlanmalı: durum satırı
+   `Service Worker → Signaling → ICE → Tunel` ilerler.
 
-Aynı Wi-Fi'daysanız WebRTC doğrudan bağlanır. **Farklı ağlardan** (telefon
-mobil veride, laptop ev Wi-Fi'ında) bağlanmak da çoğu NAT'ta çalışır çünkü
-ajan STUN kullanıyor; simetrik NAT'ta TURN gerekir (Faz 5).
-
----
+**Farklı ağlardan** (telefon mobil veride, laptop ev Wi-Fi'ında) bağlanmak
+çoğu NAT'ta çalışır çünkü ajan STUN kullanıyor. Ama `doctor` bu ağda
+**simetrik NAT** gördü: karşı taraf da simetrik NAT arkasındaysa doğrudan
+bağlantı kurulamaz ve **TURN gerekir (Faz 5)**. Bu durumda tarayıcıda
+"Veri kanallari acilmadi" hatası görürsün — bu bir yazılım hatası değil, ağ
+topolojisinin sonucu.
 
 ## Sorun giderme
 
@@ -221,6 +303,11 @@ ajan STUN kullanıyor; simetrik NAT'ta TURN gerekir (Faz 5).
 | "base64 cozulemedi" | Metin eksik kopyalanmış. İki işaretçi arasındaki **tüm** satırı al. |
 | Offer alanı boş kalıyor | ICE toplanması bitmemiş olabilir; 10 sn bekle. Konsolda hata var mı? |
 | Ajan "girdi okunamadi: girdi bitti" | Terminale yapıştırıp Enter'a basmadan ajan kapanmış. Yeniden başlat. |
+| "Ajan yanit vermedi" | Ajan çalışmıyor, ya da relay'ler mesajı iletmiyor. `go run . doctor` çalıştır: relay'ler "uygun" mu? |
+| "Paylasilan sir uyusmuyor" | URL'deki sır ajanın `--secret` değeriyle aynı değil. |
+| "Veri kanallari acilmadi" | Signaling çalıştı ama WebRTC kurulamadı. Büyük olasılıkla simetrik NAT; TURN gerekiyor (Faz 5). `doctor`'ın NAT tahminine bak. |
+| "hicbir relay'e baglanilamadi" | Ağ WebSocket'i engelliyor olabilir. `--relay` ile kendi relay'ini ver. |
+| peer-id hatası | URL'nin `#` sonrasını eksiksiz kopyalamadın. npub 63 karakter. |
 | Site sekmesi bağlantı ekranına düşüyor | Tünel sahibi sekme kapalı. `/connect/` sekmesinin açık olduğundan emin ol. |
 | Alt kaynaklar 503 | Aynı sebep: tünel yok. |
 | Kök mutlak yollar (`/style.css`) 404 | Alt yolda (`/PeerPages/`) yayınlanan sitelerin yapısal sınırı: o yol Service Worker'ın kapsamı dışına düşer. Custom domain ya da `kullanici.github.io/` kökünde sorun kalmaz (README §8). |

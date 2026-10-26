@@ -102,10 +102,36 @@ calisir (`DOM` ve `WebWorker` lib'leri ayni anda kullanilamaz):
 
 ```sh
 cd agent
+
+# Nostr signaling (varsayilan): ziyaretci yalnizca URL'yi acar
 go run . serve --target http://localhost:3000
+
+# Paylasilan sirla
+go run . serve --target http://localhost:3000 --secret kedi-balik-7
+
+# Elle signaling (kopyala-yapistir)
+go run . serve --target http://localhost:3000 --manual
+
+# Kendi relay listen
+go run . serve --target http://localhost:3000 --relay wss://nos.lol
+
+# Coklu hedef (URL ile secim Faz 3'te)
 go run . serve -t http://localhost:3000 -t admin=http://localhost:4000
-go run . serve --target http://localhost:3000 --verbose   # path'ler maskelenmez
+
+# Teshis: relay sagligi + NAT tipi
+go run . doctor
+go run . doctor --json
+
+# Kimlik
+go run . key                   # peer-id ve ziyaretci URL'si
+go run . key --reveal-secret   # gizli anahtari da goster
+
+# Ayrintili log (path'ler MASKELENMEZ)
+go run . serve --target http://localhost:3000 --verbose
 ```
+
+Testler icin gizli komutlar: `peerpages testsite` (yerel test sitesi),
+`peerpages fakerelay` (surec ici Nostr relay'i).
 
 Loglar varsayilan olarak URL path'lerini maskeler (`/api/items` → `/*3/*5`);
 `--verbose` bunu kapatir (README guvenlik ilkesi 6).

@@ -70,3 +70,92 @@ cd agent && go test ./internal/proxy/ -run TestIntegration -v 2>&1 | grep OLCUM
 # Tam zincir (Chromium)
 cd web && npx playwright test 2>&1 | grep OLCUM
 ```
+
+---
+
+## Faz 2 — 2026-10-26 (Nostr signaling)
+
+### Relay sağlığı (`peerpages doctor`, gerçek relay'ler)
+
+Bu geliştirme ağından, gerçek public relay'lere karşı:
+
+| Relay | Durum | Bağlantı | Yayın | Yankı |
+|---|---|---|---|---|
+| `wss://nos.lol` | uygun | 142 ms | 50 ms | 72 ms |
+| `wss://relay.primal.net` | uygun | 238 ms | 83 ms | 78 ms |
+| `wss://nostr.mom` | uygun | 137 ms | 47 ms | 101 ms |
+| `wss://relay.damus.io` | uygun | 319 ms | 196 ms | 103 ms |
+| `wss://relay.nostr.band` | **ulaşılamadı** | — | — | — |
+
+"Yankı" = yayınlanan ephemeral event'in aboneye geri gelmesi. Bu adım en
+önemlisi: relay event'i "OK" ile kabul edip sessizce düşürebilir.
+
+### NAT / STUN
+
+| | Görülen dış adres |
+|---|---|
+| `stun.l.google.com:19302` | `91.93.232.50:18450` |
+| `stun1.l.google.com:19302` | `91.93.232.50:18836` |
+
+**Farklı portlar → simetrik NAT.** Bu makine karşı tarafı da simetrik NAT
+arkasındaysa doğrudan bağlanamaz; TURN gerekir (Faz 5). Tek makinede ve aynı
+ağda sorun değil.
+
+### URL'den açık tünele kadar
+
+| Kurulum | Süre |
+|---|---|
+| Sahte relay (loopback) | **356 ms** |
+| Gerçek relay'ler (nos.lol + primal + nostr.mom) | **979 ms** |
+
+Yani ziyaretçi URL'yi açtıktan ~1 saniye sonra site geliyor. Bu süre
+signaling'in gidiş-dönüşü + ICE kurulumu; relay gecikmesi baskın.
+
+### Nostr ile kurulan tünelden veri
+
+| Ölçüm | Değer |
+|---|---|
+| 5 MB indirme | 88–93 ms (~54–57 MB/s) |
+| `ctrl` ping RTT | medyan 0.20 ms |
+| Küçük GET (SW + tünel) | medyan 1.2–1.4 ms |
+
+**Signaling yolu veri yolunu etkilemiyor** — beklenen davranış: signaling
+yalnızca bağlantıyı kurar, veri doğrudan WebRTC üzerinden akar. Faz 1'deki
+loopback değerleriyle aynı mertebede.
+
+### Bundle boyutu
+
+| | gzip |
+|---|---|
+| Faz 1 (Nostr yok) | 6.8 KB |
+| Faz 2 (Nostr dahil) | **35.8 KB** |
+
++29 KB: tarayıcıda Nostr kriptosunun dürüst maliyeti (secp256k1 schnorr,
+ChaCha20-Poly1305, HKDF, bech32). Kaynak haritasından doğrulandı: bundle'da
+yalnızca `@noble/hashes`, `@noble/curves`, `@noble/ciphers`, `@scure/base` ve
+`nostr-tools` var; `@scure/bip32`/`bip39`, wordlist ve `nostr-wasm`
+**girmedi** (alt yol import'ları sayesinde).
+
+### Henüz ölçülmeyenler (dürüstçe)
+
+- **İki cihaz / iki ağ.** Faz 2'nin asıl kabul kriteri. Tek makineden
+  doğrulanamaz; `docs/MANUAL-TEST.md` → "İki cihaz" bölümü. Bu ağda NAT
+  simetrik olduğu için karşı taraf da simetrikse TURN (Faz 5) gerekebilir.
+- **Firefox ve Safari.** Hâlâ ölçülmedi; e2e yalnızca Chromium koşuyor.
+- **Relay dayanıklılığı.** Oturum ortasında relay düşmesi, yeniden bağlanma
+  (Faz 4 konusu).
+- **Eşzamanlı ziyaretçi.** `--max-sessions` varsayılanı 4; gerçek yük altında
+  ölçülmedi.
+
+### Ölçümü yeniden üretme
+
+```bash
+# Relay sağlığı ve NAT
+cd agent && go run . doctor
+
+# Sahte relay ile (deterministik)
+cd web && npx playwright test nostr.spec.ts 2>&1 | grep OLCUM
+
+# Gerçek relay'lerle
+cd web && PEERPAGES_E2E_RELAYS="wss://nos.lol,wss://nostr.mom" npx playwright test nostr.spec.ts
+```

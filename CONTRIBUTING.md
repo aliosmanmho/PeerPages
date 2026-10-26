@@ -30,15 +30,30 @@ Bu kararlar brief'te (`README.md`) sabitlendi; değiştirmek için önce tartı�
 5. Binary framing payload sınırı **16 KiB**.
 6. `README.md` §6'daki güvenlik ilkeleri her fazda geçerlidir. Özellikle:
    ajan yalnızca CLI'da verilen hedeflere istek atar (path'ten host türetmek yasak).
+7. Signaling içeriği her zaman **NIP-44** ile şifreli; relay'ler yalnızca
+   "bir pubkey bir şey aldı" görür.
+8. Ziyaretçi güvenilmez: replay, saat kayması, hız limiti ve oturum tavanı
+   korumaları `agent/internal/connect/guard.go`'da.
 
 ## Protokol değişikliği
 
-`protocol/` içindeki framing veya ctrl mesajları değişirse:
+İki protokol var ve ikisi de aynı kurala tabi:
 
-1. `protocol/README.md` güncellenir,
-2. `protocol/testvectors.json`'a vektör eklenir,
-3. **hem** TS (`web/src/protocol/`) **hem** Go (`agent/internal/protocol/`) tarafı
-   aynı vektörlerle yeşile geçer.
+| Ne | Tanım | Vektörler | TS | Go |
+|---|---|---|---|---|
+| Data channel | `protocol/README.md` | `testvectors.json` | `web/src/protocol/` | `agent/internal/protocol/` |
+| Signaling | `protocol/signaling.md` | `signaling-testvectors.json` | `web/src/nostr/` | `agent/internal/signaling/` |
+
+Değişiklik yaparsan:
+
+1. ilgili tanım dosyası güncellenir,
+2. vektör dosyasına vektör eklenir,
+3. **hem** TS **hem** Go tarafı aynı vektörlerle yeşile geçer.
+
+Signaling vektörleri `protocol/gen-signaling-vectors.py` ile üretiliyor —
+**üçüncü bir bağımsız uygulama** (python `cryptography`). Bu kasıtlı: Go ve TS,
+hiçbirinin üretmediği vektörlere karşı doğrulanıyor, böylece ikisinin aynı
+hatayı birlikte yapması mümkün olmuyor.
 
 Tek taraflı protokol değişikliği kabul edilmez.
 

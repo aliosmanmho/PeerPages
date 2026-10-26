@@ -104,3 +104,75 @@ Ayrinti: `docs/MEASUREMENTS.md`.
 - `docs/MEASUREMENTS.md`: olculenler ve **olculmeyenler** (Firefox/Safari,
   gercek ag, eszamanli yuk).
 - README bolum 8: iki karar kapatildi, Firefox/Safari acik kaldi.
+
+### Faz 2 - Nostr signaling
+
+Kopyala-yapistir kalkti: ziyaretci yalnizca URL'yi aciyor. Signaling herkese
+acik Nostr relay'leri uzerinden; hala sunucu yok, relay'ler icerigi goremiyor
+(NIP-44).
+
+#### Degisen README kararlari (ikisi de soruldu ve onaylandi)
+
+1. **peer-id = TAM npub** (ekranda kisaltilmis gosterim). README "npub'in kisa
+   formu" diyordu ama NIP-44 ve `#p` tag'i tam 32 baytlik pubkey istiyor;
+   kisaltilmis id'den turetilemez.
+2. **Offer'i ZIYARETCI yayinlar**, ajan answer doner. Ajan ziyaretcinin gecici
+   pubkey'ini onceden bilemedigi icin ilk mesaji gonderemez. Bu yonle mesaj
+   listesi aynen gecerli kaldi ve baglanti 3 yerine 2 bacakta kuruluyor.
+   Kanallari da ziyaretci aciyor; Session artik yalnizca answerer (tek kod
+   yolu, elle signaling dahil).
+
+#### Protokol
+
+- `protocol/signaling.md` normatif tanim, `signaling-testvectors.json` makine
+  karsiligi. Vektorler UCUNCU bir bagimsiz uygulama ile uretildi
+  (`gen-signaling-vectors.py`); Go ve TS ikisi de ona karsi dogrulaniyor.
+- Mesajlar: offer / answer / candidate / bye. `sid` (16 hex) oturum kimligi.
+- `--secret` katmani NIP-44'un ALTINDA: HKDF-SHA256 + ChaCha20-Poly1305,
+  `pps1.` onekli payload. Uc uygulama da ayni anahtari ve ayni nonce ile
+  bayt bayt ayni payload'i uretiyor.
+
+#### Ajan
+
+- `internal/nostr`: relay havuzu (hedged yayin, onceden baglanma), NIP-44.
+- `internal/nostr/fakerelay`: surec ici test relay'i; ephemeral dusurme,
+  auth isteme, reddetme senaryolari.
+- `internal/doctor` + `peerpages doctor`: NIP-11, baglanti ve **ephemeral
+  yanki** testi; iki STUN sunucusuyla NAT tipi tahmini.
+- `internal/identity` + `peerpages key`: keypair, `~/.peerpages/key` (nsec),
+  peer-id. Var olan anahtarin uzerine YAZILMIYOR.
+- `internal/connect`: offer'lari oturumlara ceviren akis + ziyaretci
+  kurallari (replay, saat kaymasi, hiz limiti, oturum tavani).
+- `serve` varsayilani Nostr; `--manual` elle yol. Yeni bayraklar: `--relay`,
+  `--secret`, `--key`, `--app-url`, `--max-sessions`.
+
+#### Web
+
+- `src/nostr/`: peer-id ayristirma, relay havuzu, ziyaretci akisi, relay
+  listesi (`?relay=`).
+- Baglanti ekrani: URL'de peer-id varsa kendiliginden baglaniyor; hata
+  ekranlari ("ajan yanit vermedi", "sir uyusmuyor", "veri kanallari
+  acilmadi").
+
+#### Olculen ve bulunan
+
+- Relay listesi canli dogrulandi; `relay.nostr.band` bu agdan erisilemedigi
+  icin varsayilandan cikarildi, yerine primal ve nostr.mom geldi.
+- **Bu agda NAT simetrik** (iki STUN farkli dis port gordu): karsi taraf da
+  simetrikse TURN gerekir (Faz 5). `doctor` bunu onceden soyluyor.
+- **Gercek relay'lerle kosumda bulunan hata:** ajan abonelik kurulmadan
+  "hazir" diyordu; ephemeral event'ler saklanmadigi icin hemen gelen offer
+  kayboluyordu. Sira duzeltildi: baglan -> abone ol -> hazir de.
+- URL'den acik tunele: 356 ms (sahte relay), **979 ms (gercek relay'ler)**.
+- Bundle 6.8 KB -> 35.8 KB gzip; bip32/bip39/wasm girmedi.
+
+#### Testler
+
+216 TS birim testi, 13 Go paketi (connect akisi sahte relay uzerinde gercek
+NIP-44 ve gercek WebRTC ile test ediliyor), 16 Playwright testi (8 elle yol +
+8 Nostr yolu). Gercek relay'lerle Nostr e2e 7/7.
+
+#### Kabul durumu
+
+Faz 2'nin "farkli aglardaki iki cihaz" kriteri **kullanici dogrulamasi
+bekliyor**: tek makineden test edilemez. Yontem `docs/MANUAL-TEST.md`'de.

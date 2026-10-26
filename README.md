@@ -77,12 +77,16 @@ Kurallar:
 
 ## 4. Signaling (Nostr)
 
-- Ajan başlarken bir Nostr keypair üretir (ya da `~/.peerpages/key` dosyasından okur). **peer-id** = npub'ın kısa/okunur formu (ör. bech32 ilk 12 karakter + checksum) — URL'de `#` sonrası taşınır.
+- Ajan başlarken bir Nostr keypair üretir (ya da `~/.peerpages/key` dosyasından okur; nsec olarak tutulur). **peer-id = TAM npub** — URL'de `#` sonrası taşınır.
+  - Faz 2'de düzeltildi: önce "npub'ın kısa formu (ilk 12 karakter)" yazıyordu, ama NIP-44 şifreleme ve `#p` tag'i tam 32 baytlık pubkey gerektiriyor; kısaltılmış id'den türetilemez ve relay'lerde pubkey önek araması güvenilir değil. **Okunur form ekranda**: `npub1yl4dshp…pdnn` gösterilir, URL tamını taşır. Gerekçe: §8.
 - Ziyaretçi sayfası da geçici keypair üretir.
-- Event türü: ephemeral kind **25050** (hashtree/remotekit ekosistemiyle uyumlu). İçerik **NIP-44** ile şifreli, `#p` tag'i alıcı pubkey. Mesaj tipleri: `offer`, `answer`, `candidate`, `bye`.
-- Varsayılan relay listesi (en az 3, kullanıcı değiştirebilir): `wss://relay.damus.io`, `wss://nos.lol`, `wss://relay.nostr.band` — gerçek listeyi Faz 2'de canlı test edip güncelle; NIP-42 auth isteyen relay'leri atla.
+- Event türü: ephemeral kind **25050**. İçerik **NIP-44** ile şifreli, `#p` tag'i alıcı pubkey. Mesaj tipleri: `offer`, `answer`, `candidate`, `bye`.
+- **Offer'ı ziyaretçi yayınlar, ajan `answer` döner.** Faz 2'de düzeltildi: önce "ajan offer yayınlar" yazıyordu, ama ajan ziyaretçinin geçici pubkey'ini önceden bilemediği için ilk mesajı gönderemez (kime şifreleyeceğini bilemez). Bu yönle mesaj listesi aynen geçerli kalıyor ve bağlantı 3 yerine 2 bacakta kuruluyor. Veri kanallarını da ziyaretçi açar. Normatif tanım: `protocol/signaling.md`.
+- Varsayılan relay listesi (kullanıcı `--relay` ya da `?relay=` ile değiştirebilir), **Faz 2'de `peerpages doctor` ile canlı doğrulandı**:
+  `wss://nos.lol`, `wss://relay.primal.net`, `wss://nostr.mom`, `wss://relay.damus.io` (dördü de ephemeral kind 25050'yi kabul edip aboneye iletti).
+  `wss://relay.nostr.band` listeden çıkarıldı: geliştirme ağından WebSocket el sıkışması zaman aşımına uğradı. Dört tutuyoruz ki biri düşünce yine 3 kalsın. NIP-42 auth isteyen relay'leri `doctor` işaretliyor ve atlıyoruz.
 - Aynı mesajı tüm relay'lere yolla, ilk gelene göre devam et (hedged). Relay düşerse yeniden bağlan.
-- Opsiyonel paylaşılan sır: ajan `--secret` ile başlatılırsa URL `#peer-id:secret` olur; sır signaling içeriğini ek olarak şifreler ve ajan sırsız teklifleri reddeder.
+- Opsiyonel paylaşılan sır: ajan `--secret` ile başlatılırsa URL `#peer-id:secret` olur; sır signaling içeriğini **NIP-44'ün altında** ek olarak şifreler (HKDF-SHA256 + ChaCha20-Poly1305) ve ajan sırsız/yanlış sırlı teklifleri reddeder. Sırrın **neyi korumadığı** da yazılı: relay'ler yine "bu npub bir şey aldı" görür. Ayrıntı: `protocol/signaling.md`.
 
 ## 5. Fazlar
 
@@ -213,6 +217,27 @@ Signaling'i **kopyala-yapıştır** ile yap (sunucu yok, Nostr yok): ajan `offer
   olculmedi**; Faz 1 e2e'si yalnizca Chromium kosuyor. Elle matris (bolum 7)
   Faz 4 oncesinde yapilacak, Safari'de streaming cevap davranisi ozellikle
   kontrol edilecek.
+- **(Faz 2'de ölçüldü, KAPANDI) Relay'lerin ephemeral event davranışı.**
+  `peerpages doctor` her relay için NIP-11, bağlantı ve **ephemeral yankı**
+  testi yapıyor: kind 25050 yayınlanıp aboneden geri okunuyor. Kritik olan
+  bu: bir relay event'i "OK" ile kabul edip sessizce düşürebilir, o zaman
+  signaling çalışmaz ama hata da görünmez. 2026-10-26 ölçümü: dört relay
+  uygun, `relay.nostr.band` bu ağdan erişilemedi. Liste buna göre güncellendi.
+
+- **(Faz 2'de ölçüldü, AÇIK — TURN gerekebilir) Bu geliştirme ağında NAT simetrik.**
+  `doctor` iki STUN sunucusunun gördüğü dış portu karşılaştırıyor; farklı
+  çıktı, yani endpoint-dependent mapping. Karşı taraf da simetrik NAT
+  arkasındaysa doğrudan WebRTC kurulamaz ve **TURN gerekir (Faz 5)**. Faz 2'nin
+  "farklı ağlardaki iki cihaz" kabul kriterini denerken bu çıkabilir; `doctor`
+  artık önceden söylüyor. Tek makinede ve aynı ağda sorun yok.
+
+- **(Faz 2'de bulundu, KAPANDI) Ajan "hazır" demeden önce gerçekten dinlemeli.**
+  Gerçek relay'lerle yapılan e2e koşumunda ortaya çıktı: ajan abonelik
+  kurulmadan hazır olduğunu bildiriyordu ve URL'yi hemen açan ziyaretçinin
+  offer'ı **geri dönüşü olmadan** kayboluyordu (ephemeral event'ler
+  saklanmaz). Sahte relay localhost'ta olduğu için bu hiç görünmüyordu.
+  Sıra artık: relay'lere bağlan → abone ol → "hazır" de.
+
 - Nostr relay'lerinin ephemeral event'leri bazı relay'ler düşürebilir → `doctor` ile relay sağlığı; liste güncel tutulur.
 - GitHub Pages kullanım şartları: statik vitrin için uygun; projeyi ticari proxy gibi sunma, README'de "demo/paylaşım aracı" de.
 - Ajan Go; .NET ajanı istenirse `agent-dotnet/` olarak ayrı faz.

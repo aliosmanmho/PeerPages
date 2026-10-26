@@ -83,8 +83,11 @@ jobs:
       - name: Chromium
         working-directory: web
         run: npx playwright install --with-deps chromium
-      - name: E2E (web derlemesini kendisi yapar)
+      - name: E2E (elle yol + Nostr yolu, sahte relay)
         working-directory: web
+        # Nostr testleri surec ici sahte relay kullaniyor: CI gercek internet
+        # relay'lerine bagimli olmasin. Gercek relay'lerle kosum elle:
+        # PEERPAGES_E2E_RELAYS="wss://nos.lol" npm run e2e
         run: npm run e2e
       - uses: actions/upload-artifact@v4
         if: failure()

@@ -171,40 +171,34 @@ Signaling'i **kopyala-yapıştır** ile yap (sunucu yok, Nostr yok): ajan `offer
 
 ## 8. Bilinen riskler ve açık sorular
 
-- **(Faz 1'de olculdu, KARAR BEKLIYOR) `ctrl` ve `data` kanallari arasinda siralama garantisi yok.**
+- **(Faz 1'de olculdu, KAPANDI) `ctrl` ve `data` kanallari arasinda siralama garantisi yok.**
   Iki data channel iki ayri SCTP stream'idir; her biri kendi icinde `ordered`
   ama aralarinda siralama yoktur. Olcum (pion loopback, 90 KB cevap): `end`
   mesaji `ctrl` uzerinden geldikten **sonra** 6 gövde cercevesi `data`
   uzerinden geldi. Yani alici `end`'i "gövde bitti" diye yorumlayamaz; bugunki
-  tanimla cevap bos gorunur. Secenekler:
-  1. `end` mesajina gövde olcusu eklemek (`{"t":"end","id":17,"frames":3}` ya
-     da `"len":90000`): alici beklenen tum cerceveleri aldiktan sonra akisi
-     kapatir. Iki kanal ve 16 KiB framing kararlari degismez.
-  2. Gövde sonunu `data` kanalina tasimak (ozel EOF cercevesi): siralama
-     dogal olarak korunur, ama `end` ctrl'den cikar.
-  3. Tek kanal + 1 bayt tip prefiksi (README §3'teki alternatif): en buyuk
-     degisiklik.
+  tanimla cevap bos gorunurdu.
+  **Secilen cozum:** `end` mesaji artik `frames` ve `len` sayaclarini
+  tasiyor (`{"t":"end","id":17,"frames":6,"len":90000}`). Alici `end`'i
+  gorunce beklenen cerceve/bayt sayisina ulasana kadar `data` dinlemeye devam
+  eder; fazla gelirse `abort` (`body-length-mismatch`). Istek yonunde de ayni
+  sorun vardi (govde cerceveleri `req`'ten once gelebiliyor): ajan sahibi
+  bilinmeyen cerceveleri kisa sureli tamponda tutup `req` gelince sirasiyla
+  isliyor. Iki kanal, 16 KiB framing ve ctrl'deki `end` kararlari korundu.
+  Ayrinti: `protocol/README.md`.
 
-- **(Faz 1'de ortaya cikti, KARAR BEKLIYOR) App shell ile yerel sitenin koku ayni URL'yi istiyor.**
+- **(Faz 1'de ortaya cikti, KAPANDI) App shell ile yerel sitenin koku ayni URL'yi istiyor.**
   Baglanti ekrani + tunel sahibi sayfa scope kokunde (`/peerpages/`) duruyor;
   yerel sitenin koku de ayni yerde olmali ki goreli linkler calissin. Ikisi
   ayni URL'de olamaz: e2e testinde `/peerpages/index.html` istegi app shell'e
   dustu ve test sitesi yerine baglanti ekrani goruldu. Ayrica tunel sahibi
   sayfa scope kokundeyse, o sekme yenilenince kendi URL'si tunelden gecer ve
-  tunel kendini kapatir.
-  Secenekler:
-  1. Baglanti ekranini ayri bir yola tasimak (`/peerpages/connect/`), scope
-     kokunu yerel siteye birakmak. Tunel sahibi sayfanin URL'si hicbir zaman
-     tunelden gecmez; ilk ziyarette SW yokken scope koku statik app shell'i
-     servis eder ve o da `connect/`e yonlendirir. README'deki URL bicimi
-     `#peer-id` olarak kalir, yalnizca baglanti ekraninin yolu degisir.
-     Derlemeye ikinci bir HTML girdisi eklenir.
-  2. Yerel siteyi bir onek altina almak (`/peerpages/s/...`). App shell scope
-     kokunde kalir ama ziyaretcinin gordugu URL'ler uzar.
-  3. Oldugu gibi birakmak: app shell scope kokunde, yerel site diger tum
-     yollarda. Sitenin koku yalnizca `/index.html` gibi bir yolla aciliyor ve
-     sunucu onu `./`ya yonlendirirse yine app shell'e dusuyor (test sitesinde
-     `http.FileServer` tam bunu yapiyor). Kirilgan.
+  tunel kendini kapatirdi.
+  **Secilen cozum:** baglanti ekrani + tunel sahibi sayfa
+  `/peerpages/connect/` yolunda; scope koku (`/peerpages/`) yerel sitenin
+  koku. Tunel sahibi sayfanin URL'si hicbir zaman tunelden gecmez, o sekme
+  yenilense bile tunel yasar. Ilk ziyarette (SW henuz yokken) scope koku
+  kucuk bir onyukleyici servis eder: SW'yi kurar ve hash'i koruyarak
+  `connect/`e gecer. README'deki `#peer-id` URL bicimi korundu.
 
   Not: scope bir alt yolda oldugu surece yerel sitenin KOKTEN MUTLAK yollari
   (`/style.css`) her durumda scope disina duser ve SW onlari yakalamaz. Bu,
@@ -212,7 +206,13 @@ Signaling'i **kopyala-yapıştır** ile yap (sunucu yok, Nostr yok): ajan `offer
   kullanici sayfasi (`kullanici.github.io/`) ile kalkar. README'nin "sinirlar"
   bolumune durustce yazilmali.
 
-- Firefox/Safari'de SW `ReadableStream` cevapları ve `postMessage` performansı — Faz 1'de ölçülecek; gerekirse büyük cevaplar için geçici buffer.
+- Firefox/Safari'de SW `ReadableStream` cevaplari ve `postMessage` performansi —
+  **Chromium'da olculdu ve sorun yok**: 5 MB indirme ~103 ms (~48 MB/s), kucuk
+  istekte SW koprusunun ek maliyeti ~1 ms, ilk bayt < 1 ms (gecici buffer'a
+  gerek kalmadi). Ayrintilar: `docs/MEASUREMENTS.md`. **Firefox ve Safari hala
+  olculmedi**; Faz 1 e2e'si yalnizca Chromium kosuyor. Elle matris (bolum 7)
+  Faz 4 oncesinde yapilacak, Safari'de streaming cevap davranisi ozellikle
+  kontrol edilecek.
 - Nostr relay'lerinin ephemeral event'leri bazı relay'ler düşürebilir → `doctor` ile relay sağlığı; liste güncel tutulur.
 - GitHub Pages kullanım şartları: statik vitrin için uygun; projeyi ticari proxy gibi sunma, README'de "demo/paylaşım aracı" de.
 - Ajan Go; .NET ajanı istenirse `agent-dotnet/` olarak ayrı faz.

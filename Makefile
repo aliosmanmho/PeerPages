@@ -26,13 +26,14 @@ test-web: ## Web birim testleri (vitest)
 test-agent: testdata ## Ajan birim testleri (go test)
 	cd $(AGENT) && go test ./...
 
-e2e: build-agent testdata ## Playwright e2e (Faz 1 kabul kriterleri)
-	cd $(WEB) && npm run build && npm run e2e
+e2e: ## Playwright e2e (Faz 1 kabul kriterleri)
+	# Playwright kendisi derler: web'i dogru alt yolla, test verisini ve ajani.
+	cd $(WEB) && npm run e2e
 
 build: build-web build-agent ## Her ikisini derle
 
-build-web: ## Web'i derle (app shell + sw.js)
-	cd $(WEB) && PEERPAGES_BASE=$(PEERPAGES_BASE) npm run build
+build-web: ## Web'i derle (onyukleyici + baglanti ekrani + sw.js)
+	cd $(WEB) && node scripts/build.mjs $(PEERPAGES_BASE)
 
 build-agent: ## Ajan binary'sini derle
 	cd $(AGENT) && go build -o peerpages .

@@ -49,9 +49,11 @@ export default defineConfig({
   ],
 
   webServer: {
-    // `base` CLI yerine ortam degiskeniyle veriliyor: vite.config.ts bunu
-    // okuyor ve derleme ile preview ayni degeri kullaniyor.
-    command: `npx vite preview --port ${PORT} --strictPort`,
+    // Derleme BURADA yapiliyor, globalSetup'ta degil: Playwright webServer'i
+    // globalSetup'tan ONCE baslatiyor ve dist henuz yoksa preview cikiyor.
+    // `base` CLI yerine ortam degiskeniyle veriliyor (scripts/build.mjs);
+    // boylece derleme ile preview ayni degeri kullaniyor.
+    command: `node scripts/build.mjs ${BASE} && npx vite preview --port ${PORT} --strictPort`,
     env: { PEERPAGES_BASE: BASE },
     url: `${ORIGIN}${BASE}`,
     reuseExistingServer: !process.env.CI,

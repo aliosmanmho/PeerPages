@@ -26,7 +26,7 @@ cd ../web && npx playwright install chromium   # yalnizca e2e icin
 | Web birim testleri | `make test-web` | `npm test` | — |
 | Ajan birim testleri | `make test-agent` | — | `cd agent; go test ./...` |
 | Derleme (web + ajan) | `make build` | — | `.\scripts\build.ps1` |
-| Pages derlemesi | `make build PEERPAGES_BASE=/PeerPages/` | — | `.\scripts\build.ps1 -Base "/PeerPages/"` |
+| Pages derlemesi | `make build PEERPAGES_BASE=/PeerPages/` | `node scripts/build.mjs /PeerPages/` | `.\scripts\build.ps1 -Base "/PeerPages/"` |
 | Lint / format kontrolu | `make lint` | `npm run lint` | `.\scripts\lint.ps1` |
 | Bicimlendir | — | `npm run format` | — |
 | E2E (Faz 1 kabul) | `make e2e` | `npm run e2e` | `.\scripts\e2e.ps1` |
@@ -39,21 +39,40 @@ zamani `PEERPAGES_BASE` ortam degiskeniyle verilir ve `import.meta.env.BASE_URL`
 olarak koda gecer. Service Worker scope'u da bu degerden turetilir
 (`src/base.ts`).
 
-> **Git Bash uyarisi:** MSYS, `/PeerPages/` gibi ortam degiskeni degerlerini
-> Windows yoluna cevirir (`C:/Program Files/Git/PeerPages/`). Git Bash'te
-> derlerken degiskeni korumak icin:
+Derleme `scripts/build.mjs` uzerinden yapilir; base'i ortam degiskeni olarak
+alt sureclere kendisi gecirir. Boylece "Windows'ta `VAR=x cmd` calismaz" ve
+"Git Bash `/PeerPages/` degerini Windows yoluna cevirir" sorunlarinin ikisi de
+asilir.
+
+> **Git Bash uyarisi:** base'i ARGUMAN olarak verirken MSYS yine araya girer:
 >
 > ```sh
-> MSYS2_ENV_CONV_EXCL=PEERPAGES_BASE PEERPAGES_BASE=/PeerPages/ npm run build
+> MSYS_NO_PATHCONV=1 node scripts/build.mjs /PeerPages/
 > ```
 >
+> Script boyle bir donusumu tespit ederse anlasilir bir hata verir.
 > PowerShell'de (`scripts\build.ps1`) boyle bir sorun yok.
+
+## URL yerlesimi
+
+| Yol | Ne |
+|---|---|
+| `/<base>/` | **Yerel sitenin koku.** Tunel acikken SW burayi proxy'ler. Tunel yokken kucuk bir onyukleyici servis edilir: SW'yi kurar ve `connect/`e gecer. |
+| `/<base>/connect/` | **Baglanti ekrani + tunel sahibi sayfa.** SW bu yolu asla tunelden gecirmez, boylece bu sekme yenilense bile tunel yasar. |
+| `/<base>/sw.js` | Service Worker. Hash'siz ve scope kokunde olmak zorunda. |
+| `/<base>/assets/…` | App shell'in JS/CSS dosyalari. |
+
+Gerekcesi README bolum 8'de ("App shell ile yerel sitenin koku ayni URL'yi
+istiyor"). SW kapsamini **calisma zamaninda** `registration.scope`'tan
+turetiyor (`src/sw.ts`), derleme zamani bir sabitten degil.
 
 ## Web derlemesi neden iki adim
 
-`npm run build` sirayla iki Vite derlemesi calistirir:
+`npm run build` (yani `node scripts/build.mjs`) sirayla iki Vite derlemesi
+calistirir:
 
-1. `vite build` — app shell (`index.html` + hash'li `assets/`).
+1. `vite build` — iki HTML girdisi (`index.html` onyukleyici,
+   `connect/index.html` baglanti ekrani) ve hash'li `assets/`.
 2. `vite build --config vite.sw.config.ts` — Service Worker, `dist/sw.js`.
 
 Service Worker ayri derlenir cunku:

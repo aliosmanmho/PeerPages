@@ -29,10 +29,13 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
-      - name: Derleme (app shell + sw.js)
-        run: PEERPAGES_BASE=/PeerPages/ npm run build
-      - name: sw.js scope kokunde ve hash'siz mi
-        run: test -f dist/sw.js
+      - name: Derleme (onyukleyici + baglanti ekrani + sw.js)
+        run: node scripts/build.mjs /PeerPages/
+      - name: Beklenen cikti dosyalari
+        run: |
+          test -f dist/sw.js            # scope kokunde, hash'siz
+          test -f dist/index.html       # onyukleyici
+          test -f dist/connect/index.html  # baglanti ekrani
 
   agent:
     name: agent (lint + birim test)
@@ -80,10 +83,7 @@ jobs:
       - name: Chromium
         working-directory: web
         run: npx playwright install --with-deps chromium
-      - name: Web derlemesi
-        working-directory: web
-        run: npm run build
-      - name: E2E
+      - name: E2E (web derlemesini kendisi yapar)
         working-directory: web
         run: npm run e2e
       - uses: actions/upload-artifact@v4

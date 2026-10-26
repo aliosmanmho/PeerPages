@@ -11,13 +11,9 @@ $root = Split-Path -Parent $PSScriptRoot
 Write-Host "== web derleniyor (base=$Base) ==" -ForegroundColor Cyan
 Push-Location (Join-Path $root "web")
 try {
-  $env:PEERPAGES_BASE = $Base
-  npm run build
+  node scripts/build.mjs $Base
   if ($LASTEXITCODE -ne 0) { throw "web derlemesi basarisiz" }
-} finally {
-  Remove-Item Env:\PEERPAGES_BASE -ErrorAction SilentlyContinue
-  Pop-Location
-}
+} finally { Pop-Location }
 
 Write-Host "== ajan derleniyor ==" -ForegroundColor Cyan
 Push-Location (Join-Path $root "agent")

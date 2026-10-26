@@ -31,6 +31,7 @@ func NewRootCmd(version string) *cobra.Command {
 	// kullaniliyor, ikisi karismasin.
 	root.Flags().Bool("version", false, "peerpages surumunu yazdir")
 	root.AddCommand(newServeCmd())
+	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newTestSiteCmd())
 	return root
 }

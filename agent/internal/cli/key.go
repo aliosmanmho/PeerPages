@@ -16,10 +16,11 @@ const DefaultAppURL = "https://<kullanici>.github.io/PeerPages/"
 
 func newKeyCmd() *cobra.Command {
 	var (
-		keyPath string
-		appURL  string
-		create  bool
-		reveal  bool
+		keyPath    string
+		appURL     string
+		targetName string
+		create     bool
+		reveal     bool
 	)
 
 	cmd := &cobra.Command{
@@ -62,13 +63,15 @@ calismaz. Dosyayi yedekle ve kimseyle paylasma.`,
 				}
 			}
 
-			return printIdentity(cmd, id, path, appURL, reveal)
+			return printIdentity(cmd, id, path, appURL, targetName, reveal)
 		},
 	}
 
 	fl := cmd.Flags()
 	fl.StringVar(&keyPath, "path", "", "anahtar dosyasi (varsayilan: ~/.peerpages/key)")
 	fl.StringVar(&appURL, "app-url", DefaultAppURL, "app shell'in yayinlandigi adres")
+	fl.StringVar(&targetName, "target", "",
+		"ziyaretci URL'sine eklenecek hedef adi (bos ya da 'default' ise eklenmez)")
 	fl.BoolVar(&create, "new", false, "yeni anahtar olustur (var olan dosyanin uzerine yazmaz)")
 	fl.BoolVar(&reveal, "reveal-secret", false,
 		"GIZLI ANAHTARI ekrana yazdir — yalnizca yedeklemek icin, dikkatli ol")
@@ -82,7 +85,9 @@ func resolveKeyPath(flagValue string) (string, error) {
 	return identity.DefaultKeyPath()
 }
 
-func printIdentity(cmd *cobra.Command, id identity.Identity, path, appURL string, reveal bool) error {
+func printIdentity(
+	cmd *cobra.Command, id identity.Identity, path, appURL, targetName string, reveal bool,
+) error {
 	out := cmd.OutOrStdout()
 
 	npub, err := id.Npub()
@@ -95,7 +100,7 @@ func printIdentity(cmd *cobra.Command, id identity.Identity, path, appURL string
 	fmt.Fprintf(out, "kisa gosterim   : %s\n", identity.ShortenNpub(npub))
 	fmt.Fprintf(out, "pubkey (hex)    : %s\n", id.PublicKey)
 
-	url, err := id.VisitorURL(appURL, "")
+	url, err := id.VisitorURL(appURL, "", targetName)
 	if err == nil {
 		fmt.Fprintf(out, "\nziyaretci URL'si:\n  %s\n", url)
 	}

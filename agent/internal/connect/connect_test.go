@@ -45,12 +45,14 @@ func (echoProxy) Serve(_ context.Context, req protocol.Req, _ io.Reader, sink tu
 
 // visitor ziyaretci tarafini taklit eder: Nostr uzerinden signaling + WebRTC.
 type visitor struct {
-	t      *testing.T
-	id     identity.Identity
-	pool   *nostr.Pool
-	codec  codec
-	agent  string // ajan pubkey (hex)
-	sid    string
+	t     *testing.T
+	id    identity.Identity
+	pool  *nostr.Pool
+	codec codec
+	agent string // ajan pubkey (hex)
+	sid   string
+	// target offer'da bildirilecek hedef adi; bos ise alan hic gonderilmez.
+	target string
 	pc     *webrtc.PeerConnection
 	ctrl   *webrtc.DataChannel
 	data   *webrtc.DataChannel
@@ -104,7 +106,7 @@ func startAgent(t *testing.T, relayURL, secret string) *agentFixture {
 		Identity: id,
 		Pool:     pool,
 		Sealer:   sealer,
-		NewProxy: func() (tunnel.Proxy, error) { return echoProxy{}, nil },
+		NewProxy: func(string) (tunnel.Proxy, error) { return echoProxy{}, nil },
 		Targets:  []string{"default"},
 		// STUN yok: loopback'te host adaylari yeterli ve test hizli kalir.
 		MaxSessions:   2,
@@ -258,7 +260,9 @@ func (v *visitor) offer() {
 	if err := v.pc.SetLocalDescription(offer); err != nil {
 		v.t.Fatal(err)
 	}
-	v.send(signaling.Msg{Type: signaling.TypeOffer, SID: v.sid, SDP: offer.SDP})
+	v.send(signaling.Msg{
+		Type: signaling.TypeOffer, SID: v.sid, SDP: offer.SDP, Target: v.target,
+	})
 }
 
 // nextSignaling ajandan gelen bir sonraki signaling mesajini bekler.
@@ -612,7 +616,7 @@ func TestConfigValidation(t *testing.T) {
 	ok := connect.Config{
 		Identity:      id,
 		Pool:          pool,
-		NewProxy:      func() (tunnel.Proxy, error) { return echoProxy{}, nil },
+		NewProxy:      func(string) (tunnel.Proxy, error) { return echoProxy{}, nil },
 		Targets:       []string{"default"},
 		MaxSessions:   1,
 		MaxConcurrent: 1,

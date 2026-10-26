@@ -36,14 +36,17 @@ type ServeConfig struct {
 	MaxSessions   int
 	// Manual true ise signaling elle (kopyala-yapistir) yapilir; false ise
 	// Nostr relay'leri uzerinden (varsayilan).
-	Manual  bool
-	STUN    []string
-	Relays  []string
-	Secret  string
-	KeyPath string
-	AppURL  string
-	Verbose bool
-	Logger  *slog.Logger
+	Manual bool
+	// ManualTarget --manual yolunda kullanilacak hedef adi. Elle signaling'de
+	// ziyaretcinin URL'si yok, dolayisiyla hedefi bayrak soyler.
+	ManualTarget string
+	STUN         []string
+	Relays       []string
+	Secret       string
+	KeyPath      string
+	AppURL       string
+	Verbose      bool
+	Logger       *slog.Logger
 }
 
 type serveFlags struct {
@@ -52,6 +55,7 @@ type serveFlags struct {
 	maxConcurrent int
 	maxSessions   int
 	manual        bool
+	manualTarget  string
 	stun          []string
 	relays        []string
 	secret        string
@@ -101,6 +105,8 @@ Ornekler:
 		"ayni anda kabul edilecek en fazla ziyaretci")
 	fl.BoolVar(&f.manual, "manual", false,
 		"elle signaling: sayfanin urettigi offer yapistirilir, ajan answer basar")
+	fl.StringVar(&f.manualTarget, "manual-target", "",
+		"--manual yolunda yayinlanacak hedefin adi (varsayilan: default)")
 	fl.StringArrayVar(&f.relays, "relay", nil,
 		"Nostr relay adresi (tekrarlanabilir; verilmezse varsayilan liste)")
 	fl.StringVar(&f.secret, "secret", "",
@@ -153,6 +159,19 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 		relays = normalized
 	}
 
+	// Elle yolda hedefi bayrak secer; adin gercekten var oldugunu burada
+	// dogruluyoruz ki hata tunel kurulduktan sonra degil, baslangicta cikisin.
+	manualTarget := f.manualTarget
+	if manualTarget == "" {
+		manualTarget = target.DefaultName
+		if !targets.Has(manualTarget) {
+			manualTarget = targets.Names()[0]
+		}
+	} else if !targets.Has(manualTarget) {
+		return nil, fmt.Errorf("--manual-target %q: boyle bir hedef yok (tanimli: %v)",
+			manualTarget, targets.Names())
+	}
+
 	keyPath := f.keyPath
 	if keyPath == "" && !f.manual {
 		p, kerr := identity.DefaultKeyPath()
@@ -168,6 +187,7 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 		MaxConcurrent: f.maxConcurrent,
 		MaxSessions:   f.maxSessions,
 		Manual:        f.manual,
+		ManualTarget:  manualTarget,
 		STUN:          f.stun,
 		Relays:        relays,
 		Secret:        f.secret,

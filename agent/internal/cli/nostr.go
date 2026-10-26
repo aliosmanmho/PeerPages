@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/aliosmanmho/PeerPages/agent/internal/connect"
@@ -12,7 +13,6 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/nostr"
 	"github.com/aliosmanmho/PeerPages/agent/internal/proxy"
 	"github.com/aliosmanmho/PeerPages/agent/internal/signaling"
-	"github.com/aliosmanmho/PeerPages/agent/internal/target"
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
 
@@ -24,6 +24,36 @@ const ReadyMarker = "---PEERPAGES-READY---"
 
 // relayConnectTimeout relay'lere onceden baglanmak icin taninan sure.
 const relayConnectTimeout = 20 * time.Second
+
+// visitorTargetLines her hedef icin "ad, yerel adres, ziyaretci URL'si"
+// bloklarini uretir.
+//
+// Coklu hedefte tek bir URL yetmez: ziyaretcinin hangi projeyi acacagi
+// URL'nin kendisinde yaziyor (`#npub1…/admin`).
+func visitorTargetLines(id identity.Identity, cfg *ServeConfig) (string, error) {
+	var b strings.Builder
+	names := cfg.Targets.Names()
+	width := 0
+	for _, n := range names {
+		if len(n) > width {
+			width = len(n)
+		}
+	}
+
+	for _, name := range names {
+		base, err := cfg.Targets.Resolve(name, "/")
+		if err != nil {
+			return "", err
+		}
+		url, err := id.VisitorURL(cfg.AppURL, cfg.Secret, name)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "  %-*s  %s\n", width, name, base.String())
+		fmt.Fprintf(&b, "  %-*s  %s\n\n", width, "", url)
+	}
+	return b.String(), nil
+}
 
 // runNostr Nostr signaling ile calisir: ziyaretci yalnizca URL'yi acar.
 func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
@@ -54,13 +84,9 @@ func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
 		}
 	}
 
-	// Faz 1'de tek hedef; URL ile hedef secimi Faz 3'te.
-	targetName := target.DefaultName
-	if !cfg.Targets.Has(targetName) {
-		targetName = cfg.Targets.Names()[0]
-	}
-
-	newProxy := func() (tunnel.Proxy, error) {
+	// Hedef artik oturum basina: ziyaretci URL'de soyler, offer'da gelir.
+	// Dogrulamasi connect katmaninda; buraya yalnizca gecerli adlar duser.
+	newProxy := func(targetName string) (tunnel.Proxy, error) {
 		return proxy.New(proxy.Config{
 			Targets:    cfg.Targets,
 			TargetName: targetName,
@@ -87,7 +113,7 @@ func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
 		return err
 	}
 
-	visitorURL, err := id.VisitorURL(cfg.AppURL, cfg.Secret)
+	targetLines, err := visitorTargetLines(id, cfg)
 	if err != nil {
 		return err
 	}
@@ -123,22 +149,19 @@ func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
 PeerPages ajani hazir.
 
   peer-id : %s
-  hedef   : %s
   relay   : %d adet (bagli)
   sir     : %s
 
-Ziyaretcinin acmasi gereken adres:
+Yayinlanan hedefler ve ziyaretcinin acmasi gereken adresler:
 
-  %s
-
+%s
 Bu sekmeyi/terminali acik tut: tunel ajan calistigi surece ayakta.
 %s
 `,
 		identity.ShortenNpub(npub),
-		targetName,
 		len(connReport.OK),
 		secretNote(cfg.Secret),
-		visitorURL,
+		targetLines,
 		ReadyMarker,
 	)
 

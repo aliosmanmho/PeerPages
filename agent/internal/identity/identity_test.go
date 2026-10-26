@@ -325,7 +325,7 @@ func TestVisitorURL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := id.VisitorURL("https://kullanici.github.io/PeerPages/", "")
+	got, err := id.VisitorURL("https://kullanici.github.io/PeerPages/", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestVisitorURL(t *testing.T) {
 	}
 
 	// Sondaki bolu eksikse eklenmeli.
-	got, err = id.VisitorURL("https://kullanici.github.io/PeerPages", "")
+	got, err = id.VisitorURL("https://kullanici.github.io/PeerPages", "", "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +344,7 @@ func TestVisitorURL(t *testing.T) {
 	}
 
 	// Sir varsa `#npub:secret`.
-	got, err = id.VisitorURL("https://x.example/", "gizli")
+	got, err = id.VisitorURL("https://x.example/", "gizli", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,33 @@ func TestVisitorURL(t *testing.T) {
 		t.Errorf("sirli URL: %s", got)
 	}
 
-	if _, err := id.VisitorURL("", ""); err == nil {
+	// Hedef varsa npub'dan SONRA, sirdan ONCE gelir.
+	got, err = id.VisitorURL("https://x.example/", "", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "https://x.example/#"+npub+"/admin" {
+		t.Errorf("hedefli URL: %s", got)
+	}
+
+	got, err = id.VisitorURL("https://x.example/", "gizli", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "https://x.example/#"+npub+"/admin:gizli" {
+		t.Errorf("hedefli + sirli URL: %s", got)
+	}
+
+	// "default" varsayilan hedef: URL'ye eklenmez, kisa kalir.
+	got, err = id.VisitorURL("https://x.example/", "", "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "https://x.example/#"+npub {
+		t.Errorf("default hedef URL'ye eklenmemeli: %s", got)
+	}
+
+	if _, err := id.VisitorURL("", "", ""); err == nil {
 		t.Error("bos app URL'si reddedilmeliydi")
 	}
 }

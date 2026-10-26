@@ -39,6 +39,53 @@ func TestServeFlagsValidation(t *testing.T) {
 		}
 	})
 
+	// Faz 3: --manual yolunda hedefi bayrak secer, ziyaretcinin URL'si yok.
+	t.Run("manual-target varsayilani default", func(t *testing.T) {
+		cfg, err := base().toConfig(&bytes.Buffer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.ManualTarget != "default" {
+			t.Errorf("ManualTarget = %q, beklenen default", cfg.ManualTarget)
+		}
+	})
+
+	t.Run("manual-target verilen hedefi secer", func(t *testing.T) {
+		f := base()
+		f.targets = []string{"http://localhost:3000", "admin=http://localhost:4000"}
+		f.manualTarget = "admin"
+		cfg, err := f.toConfig(&bytes.Buffer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.ManualTarget != "admin" {
+			t.Errorf("ManualTarget = %q, beklenen admin", cfg.ManualTarget)
+		}
+	})
+
+	// Hata tunel kurulduktan sonra degil, baslangicta cikmali.
+	t.Run("manual-target tanimsiz hedefi reddeder", func(t *testing.T) {
+		f := base()
+		f.manualTarget = "yok"
+		_, err := f.toConfig(&bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "--manual-target") {
+			t.Errorf("--manual-target hatasi beklenirdi, geldi: %v", err)
+		}
+	})
+
+	// Varsayilan ad yoksa alfabetik ilk hedefe duser.
+	t.Run("default yoksa ilk hedef", func(t *testing.T) {
+		f := base()
+		f.targets = []string{"zeta=http://localhost:3000", "admin=http://localhost:4000"}
+		cfg, err := f.toConfig(&bytes.Buffer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.ManualTarget != "admin" {
+			t.Errorf("ManualTarget = %q, beklenen admin (alfabetik ilk)", cfg.ManualTarget)
+		}
+	})
+
 	t.Run("gecersiz max-body", func(t *testing.T) {
 		f := base()
 		f.maxBody = "coook"

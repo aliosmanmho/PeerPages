@@ -20,6 +20,8 @@ import (
 
 	gonostr "github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
+
+	"github.com/aliosmanmho/PeerPages/agent/internal/target"
 )
 
 // Dosya ve dizin izinleri.
@@ -227,7 +229,15 @@ func LoadOrCreate(path string) (id Identity, created bool, err error) {
 //
 // appURL app shell'in yayinlandigi adres (ornegin
 // https://kullanici.github.io/PeerPages/). secret bossa URL'ye eklenmez.
-func (i Identity) VisitorURL(appURL, secret string) (string, error) {
+//
+// Fragment dilbilgisi (protocol/signaling.md ve web/src/nostr/peerid.ts):
+//
+//	npub [ "/" hedef ] [ ":" sir ]
+//
+// Hedef "" ya da "default" ise eklenmez: varsayilan hedef icin kisa URL.
+// Sira onemli — hedef sirdan ONCE gelir, cunku sir serbest metindir ve
+// icinde "/" bulunabilir.
+func (i Identity) VisitorURL(appURL, secret, targetName string) (string, error) {
 	npub, err := i.Npub()
 	if err != nil {
 		return "", err
@@ -240,6 +250,9 @@ func (i Identity) VisitorURL(appURL, secret string) (string, error) {
 		base += "/"
 	}
 	frag := npub
+	if targetName != "" && targetName != target.DefaultName {
+		frag += "/" + targetName
+	}
 	if secret != "" {
 		frag += ":" + secret
 	}

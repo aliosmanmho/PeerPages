@@ -25,6 +25,7 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/nostr"
 	"github.com/aliosmanmho/PeerPages/agent/internal/protocol"
 	"github.com/aliosmanmho/PeerPages/agent/internal/signaling"
+	"github.com/aliosmanmho/PeerPages/agent/internal/target"
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
 
@@ -40,11 +41,13 @@ const (
 	SubscribeBacklog = time.Minute
 )
 
-// ProxyFactory her oturum icin bir Proxy uretir.
+// ProxyFactory verilen hedef icin bir Proxy uretir.
 //
-// Fonksiyon olarak aliyoruz cunku Faz 3'te hedef ziyaretcinin URL'sinden
-// (`#peer-id/admin`) gelecek ve oturum basina farkli olabilecek.
-type ProxyFactory func() (tunnel.Proxy, error)
+// Hedef oturum basina degisir: ziyaretci URL'de soyler
+// (`#npub1…/admin`), offer'da tasinir (protocol/signaling.md). targetName
+// her zaman Config.Targets icindeki adlardan biridir — dogrulama cagiran
+// tarafta yapilir.
+type ProxyFactory func(targetName string) (tunnel.Proxy, error)
 
 // Config kabul akisinin yapilandirmasi.
 type Config struct {
@@ -56,7 +59,8 @@ type Config struct {
 	Sealer *signaling.Sealer
 	// NewProxy her oturum icin proxy uretir.
 	NewProxy ProxyFactory
-	// Targets hello mesajinda bildirilecek hedef adlari.
+	// Targets yayinlanan hedeflerin adlari: hem hello mesajinda bildirilir
+	// hem de offer'daki hedef adi buna karsi dogrulanir.
 	Targets []string
 	// STUN ICE sunuculari.
 	STUN []string
@@ -278,6 +282,19 @@ func (a *Acceptor) onEvent(ctx context.Context, ev *gonostr.Event) {
 func (a *Acceptor) onOffer(ctx context.Context, peerPub string, msg signaling.Msg) {
 	short := nostr.ShortPubKey(peerPub)
 
+	// Hedef once: en ucuz kontrol ve basarisizsa WebRTC'ye hic girmiyoruz.
+	// Sessizce default'a dusmuyoruz — ziyaretci yanlis projeyi gezdigini
+	// fark etmeyebilir (README bolum 8).
+	targetName, ok := a.resolveTarget(msg.Target)
+	if !ok {
+		a.log.Warn("bilinmeyen hedef, offer reddedildi",
+			slog.String("peer", short), slog.String("hedef", msg.Target))
+		a.publish(ctx, peerPub, signaling.Msg{
+			Type: signaling.TypeBye, SID: msg.SID, Reason: "unknown-target",
+		})
+		return
+	}
+
 	a.mu.Lock()
 	if _, dup := a.sessions[msg.SID]; dup {
 		a.mu.Unlock()
@@ -301,9 +318,10 @@ func (a *Acceptor) onOffer(ctx context.Context, peerPub string, msg signaling.Ms
 	a.mu.Unlock()
 
 	a.log.Info("offer alindi",
-		slog.String("peer", short), slog.String("sid", msg.SID))
+		slog.String("peer", short), slog.String("sid", msg.SID),
+		slog.String("hedef", targetName))
 
-	if err := a.startSession(ctx, peerPub, msg, placeholder); err != nil {
+	if err := a.startSession(ctx, peerPub, msg, targetName, placeholder); err != nil {
 		a.log.Warn("oturum kurulamadi",
 			slog.String("peer", short), slog.String("err", err.Error()))
 		a.dropSession(msg.SID)
@@ -313,10 +331,32 @@ func (a *Acceptor) onOffer(ctx context.Context, peerPub string, msg signaling.Ms
 	}
 }
 
+// resolveTarget offer'daki hedef adini yayinlanan hedeflerden birine cevirir.
+//
+// Bos ad "belirtilmedi" demektir: default varsa o, yoksa alfabetik ilk hedef
+// (Targets, target.Set.Names() ciktisidir ve siralidir).
+func (a *Acceptor) resolveTarget(name string) (string, bool) {
+	if name == "" {
+		for _, n := range a.cfg.Targets {
+			if n == target.DefaultName {
+				return n, true
+			}
+		}
+		return a.cfg.Targets[0], true
+	}
+	for _, n := range a.cfg.Targets {
+		if n == name {
+			return n, true
+		}
+	}
+	return "", false
+}
+
 func (a *Acceptor) startSession(
-	ctx context.Context, peerPub string, offerMsg signaling.Msg, slot *visitorSession,
+	ctx context.Context, peerPub string, offerMsg signaling.Msg,
+	targetName string, slot *visitorSession,
 ) error {
-	px, err := a.cfg.NewProxy()
+	px, err := a.cfg.NewProxy(targetName)
 	if err != nil {
 		return fmt.Errorf("proxy kurulamadi: %w", err)
 	}

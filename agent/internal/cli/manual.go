@@ -12,7 +12,6 @@ import (
 
 	"github.com/aliosmanmho/PeerPages/agent/internal/proxy"
 	"github.com/aliosmanmho/PeerPages/agent/internal/signal"
-	"github.com/aliosmanmho/PeerPages/agent/internal/target"
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
 
@@ -43,12 +42,9 @@ const (
 func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io.Writer) error {
 	log := cfg.Logger
 
-	// Faz 1'de tek hedef kullanilir; URL ile hedef secimi Faz 3'te gelecek.
-	targetName := target.DefaultName
-	if !cfg.Targets.Has(targetName) {
-		names := cfg.Targets.Names()
-		targetName = names[0]
-	}
+	// Elle yolda ziyaretcinin URL'si yok, hedefi bayrak soyler
+	// (--manual-target); dogrulamasi serve.go'da yapildi.
+	targetName := cfg.ManualTarget
 
 	px, err := proxy.New(proxy.Config{
 		Targets:    cfg.Targets,

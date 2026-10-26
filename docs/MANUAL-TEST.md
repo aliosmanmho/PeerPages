@@ -252,6 +252,54 @@ time=… level=INFO msg="tunel acik" target=default
 Bağlantı ekranında "Tunel acik" paneli görünür: istek sayısı, aktarılan bayt,
 gecikme ve hedef listesi.
 
+## Çoklu hedef (Faz 3)
+
+Tek ajan birden çok yerel projeyi yayınlayabilir:
+
+```bash
+cd agent
+go run . serve   --target http://localhost:3000   --target admin=http://localhost:4000   --app-url "http://localhost:4173/PeerPages/"
+```
+
+Ajan her hedef için ayrı bir adres basar:
+
+```
+  default  http://localhost:3000
+           http://localhost:4173/PeerPages/#npub1yl4dshp…
+
+  admin    http://localhost:4000
+           http://localhost:4173/PeerPages/#npub1yl4dshp…/admin
+```
+
+Kontrol listesi:
+
+- İki adresi **iki ayrı sekmede** aç: her biri kendi projesini göstermeli.
+  Her sekme kendi tünelini kurar.
+- Bağlantı ekranında peer-id'nin yanında aktif hedef görünür (`… / admin`),
+  ölçümlerde "Hedefler" satırı iki hedefi birlikte listeler (bu liste ctrl
+  `hello` mesajından gelir).
+- URL'ye olmayan bir hedef yaz (`#npub1…/yokboyle`): bağlanmamalı ve
+  "Bu ajanda 'yokboyle' hedefi yok" demeli. **Sessizce `default`'a düşmez** —
+  yanlış projeyi gezdiğini fark etmemenden daha iyisi bunu söylemek.
+- Elle signaling yolunda URL olmadığı için hedefi bayrak seçer:
+  `--manual --manual-target admin`.
+
+> Aynı sekmede hedef değiştirmek mümkün değil: hedef oturum başına sabit,
+> değiştirmek yeni bir adres (yeni bağlantı) demek.
+
+## Boşta kalan oturum (Faz 3)
+
+Ziyaretçi gidince ajan kaynağı bırakmalı:
+
+1. Tünel aç, sonra tünel sahibi sekmeyi kapat.
+2. Ajanın logunda (stderr) en geç ~30 saniye içinde `tunel kapandi` ya da
+   `oturum bosta, kapatiliyor` görmelisin.
+3. `[durum]` satırındaki `oturum` sayısı 0'a dönmeli.
+
+Sekmeyi kapatmak yerine **görev yöneticisinden tarayıcıyı öldürmeyi** de
+dene: sayfanın "gidiyorum" haberi bu durumda hiç gitmez, yani 30 saniyelik
+denetim tek koruma olur. Asıl test bu.
+
 ## İki cihazla deneme (Faz 2'nin asıl kabul kriteri)
 
 **Bunu benim yerime sen doğrulamalısın:** iki ayrı cihazı iki ayrı ağda
@@ -273,9 +321,15 @@ Nostr ile signaling taşımak gerekmiyor — tek yapman gereken URL'yi taşımak
    > `MSYS_NO_PATHCONV=1 node scripts/build.mjs /PeerPages/` diye yaz.
 
 3. Ajanın bastığı URL'deki `localhost` yerine laptop'ın ağ adresini koy ve
-   **telefonda aç**. URL'yi taşımanın kolay yolu: kendine mesaj at ya da
-   `peerpages key --app-url …` çıktısını QR'a çevir (QR butonu Faz 3'te
-   gelecek).
+   **telefonda aç**. URL'yi taşımanın en kolay yolu artık **QR**: laptop'ta
+   tünel açıldıktan sonra bağlantı ekranındaki **QR kod** butonuna bas ve
+   telefonun kamerasıyla okut ("Adresi kopyala" butonu da var).
+
+   > **QR'ın gerçekten okunduğunu doğrulayan tek şey bu adım.** Kodlayıcı
+   > üçüncü bir bağımsız uygulamanın vektörlerine karşı bayt bayt test
+   > ediliyor ve canvas'ın çizildiği e2e'de kontrol ediliyor, ama "telefon
+   > kamerası bunu okuyor mu" sorusunu otomatik test cevaplayamaz.
+   > Okunmazsa haber ver.
 
    > **Service Worker güvenli bağlam ister.** `localhost` ve `127.0.0.1`
    > güvenli sayılır ama **düz IP adresi sayılmaz**. Telefonda Service Worker

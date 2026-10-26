@@ -109,8 +109,12 @@ go run . serve --target http://localhost:3000
 # Paylasilan sirla
 go run . serve --target http://localhost:3000 --secret kedi-balik-7
 
-# Elle signaling (kopyala-yapistir)
+# Coklu hedef: ajan her hedef icin ayri ziyaretci URL'si basar
+go run . serve -t http://localhost:3000 -t admin=http://localhost:4000
+
+# Elle signaling (kopyala-yapistir); hedefi bayrak secer
 go run . serve --target http://localhost:3000 --manual
+go run . serve -t http://localhost:3000 -t admin=http://localhost:4000 --manual --manual-target admin
 
 # Kendi relay listen
 go run . serve --target http://localhost:3000 --relay wss://nos.lol
@@ -124,6 +128,7 @@ go run . doctor --json
 
 # Kimlik
 go run . key                   # peer-id ve ziyaretci URL'si
+go run . key --target admin    # hedefli ziyaretci URL'si
 go run . key --reveal-secret   # gizli anahtari da goster
 
 # Ayrintili log (path'ler MASKELENMEZ)

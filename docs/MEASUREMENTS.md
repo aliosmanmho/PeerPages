@@ -159,3 +159,93 @@ cd web && npx playwright test nostr.spec.ts 2>&1 | grep OLCUM
 # Gerçek relay'lerle
 cd web && PEERPAGES_E2E_RELAYS="wss://nos.lol,wss://nostr.mom" npx playwright test nostr.spec.ts
 ```
+
+---
+
+## Faz 3 — 2026-10-26 (çoklu hedef ve ziyaretçi deneyimi)
+
+### Bundle boyutu
+
+| | gzip |
+|---|---|
+| Faz 1 (Nostr yok) | 6.8 KB |
+| Faz 2 (Nostr dahil) | 35.8 KB |
+| Faz 3 (+ QR kodlayıcı) | **39.7 KB** |
+
++3.9 KB: elle yazılan QR kodlayıcı (byte modu, seviye M, sürüm 1–10).
+Hazır paket (`qrcode`) ayrı bir chunk olarak ~15–20 KB gzip gelirdi ve
+ikinci bir çalışma zamanı bağımlılığı demekti.
+
+### Veri yolu değişmedi
+
+| Ölçüm | Faz 2 | Faz 3 |
+|---|---|---|
+| URL'den açık tünele (sahte relay) | 356 ms | 357 ms |
+| URL'den açık tünele (gerçek relay) | 979 ms | 962–987 ms |
+| 5 MB indirme (Nostr yolu) | 88–93 ms | 86–106 ms |
+| 5 MB indirme (elle yol) | ~100 ms | 95 ms |
+| `ctrl` ping RTT | 0.20 ms | 0.20 ms |
+| Küçük GET (SW + tünel) | 1.2–1.4 ms | medyan 1.25 ms, p95 1.90 ms |
+
+Beklenen sonuç: Faz 3 hedef seçimi ve ekran işi yaptı, veri yoluna
+dokunmadı. Ajanın 10 saniyede bir yolladığı canlılık ping'i ölçülebilir bir
+etki yapmıyor.
+
+### QR
+
+| | Değer |
+|---|---|
+| Ziyaretçi URL'si (npub + hedef) | 100 karakter → sürüm 5 |
+| Canvas | 228 px (modül başına 4 px + 4 modül sessiz bölge) |
+| Koyu modül oranı | 0.378–0.388 |
+
+Koyu oran e2e'de kontrol ediliyor: boş ya da tamamen siyah bir canvas da
+böyle yakalanır.
+
+### Ajan sayaçları
+
+`peerpages serve` stdout'una 5 saniyede bir, **yalnızca değiştiğinde** durum
+satırı basıyor:
+
+```
+[durum] oturum 1 | istek 42 (basari 42, hata 0) | gelen 1.2 KB | giden 5.0 MB
+```
+
+Giden bayt yalnızca **gövde**: ctrl JSON ve çerçeve başlıkları sayılmıyor,
+gerçek tel trafiği bundan biraz fazla.
+
+### Boşta kalma denetimi
+
+| | Değer |
+|---|---|
+| Canlılık ping aralığı | 10 sn |
+| Boşta kalma sınırı | 30 sn |
+| SW'de tünel sahibine güven süresi | 5 sn (sonra yeniden yoklama) |
+
+Go testleri bu süreleri enjekte edilmiş kısa değerlerle doğruluyor
+(`agent/internal/tunnel/idle_test.go`); e2e'de sekme kapanınca ajanın
+oturumu bıraktığı kontrol ediliyor.
+
+### Henüz ölçülmeyenler (dürüstçe)
+
+- **İki cihaz / iki ağ ve QR'ın gerçekten okunması.** Tek makineden
+  doğrulanamaz; `docs/MANUAL-TEST.md` → "İki cihazla deneme".
+- **Tarayıcıdan öldürülen sekme.** Testlerde sekme düzgün kapanıyor, yani
+  sayfa `bye` yolluyor. 30 saniyelik denetimin TEK koruma olduğu durum
+  (tarayıcı çökmesi) elle denenmeli.
+- **Firefox ve Safari.** Hâlâ ölçülmedi; e2e yalnızca Chromium koşuyor.
+- **Eşzamanlı çok hedef yükü.** İki hedefe aynı anda ağır trafik ölçülmedi.
+
+### Ölçümü yeniden üretme
+
+```bash
+# Faz 3 e2e (coklu hedef, ekran, QR, bosta kalma)
+cd web && npx playwright test faz3.spec.ts 2>&1 | grep OLCUM
+
+# Bundle boyutu
+cd web && MSYS_NO_PATHCONV=1 node scripts/build.mjs /PeerPages/
+
+# Gercek relay'lerle (TEK relay ver: ust uste ajan baslatinca public
+# relay'ler hizli tekrar baglantilari reddediyor)
+cd web && PEERPAGES_E2E_RELAYS="wss://nos.lol" npx playwright test nostr.spec.ts
+```

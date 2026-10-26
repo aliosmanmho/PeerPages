@@ -86,6 +86,10 @@ Kurallar:
   `wss://nos.lol`, `wss://relay.primal.net`, `wss://nostr.mom`, `wss://relay.damus.io` (dördü de ephemeral kind 25050'yi kabul edip aboneye iletti).
   `wss://relay.nostr.band` listeden çıkarıldı: geliştirme ağından WebSocket el sıkışması zaman aşımına uğradı. Dört tutuyoruz ki biri düşünce yine 3 kalsın. NIP-42 auth isteyen relay'leri `doctor` işaretliyor ve atlıyoruz.
 - Aynı mesajı tüm relay'lere yolla, ilk gelene göre devam et (hedged). Relay düşerse yeniden bağlan.
+- **Çoklu hedef (Faz 3):** hedef adı URL'de `#npub1…/admin` biçiminde taşınır ve signaling
+  `offer`'ına konur. Oturum başına tek hedef: tünel kurulduktan sonra değişmez. Hedef adlarının
+  listesi tünel açılınca ctrl `hello` mesajında da bildirilir. Bilinmeyen hedef reddedilir
+  (`bye`/`unknown-target`).
 - Opsiyonel paylaşılan sır: ajan `--secret` ile başlatılırsa URL `#peer-id:secret` olur; sır signaling içeriğini **NIP-44'ün altında** ek olarak şifreler (HKDF-SHA256 + ChaCha20-Poly1305) ve ajan sırsız/yanlış sırlı teklifleri reddeder. Sırrın **neyi korumadığı** da yazılı: relay'ler yine "bu npub bir şey aldı" görür. Ayrıntı: `protocol/signaling.md`.
 
 ## 5. Fazlar
@@ -120,13 +124,25 @@ Signaling'i **kopyala-yapıştır** ile yap (sunucu yok, Nostr yok): ajan `offer
 
 **Kabul:** Farklı ağlardaki iki cihaz (ör. telefon mobil veri + laptop ev Wi-Fi) sadece URL ile bağlanıyor; manuel signaling yolu `--manual` bayrağına taşındı, varsayılan Nostr.
 
-### Faz 3 — Çoklu hedef ve ziyaretçi deneyimi (1 gün)
+### Faz 3 — Çoklu hedef ve ziyaretçi deneyimi (1 gün) — **tamamlandı**
 - `--target default=http://localhost:3000 --target admin=http://localhost:4000`; URL `#peer-id/admin`.
-- Bağlantı ekranı: durum (SW kuruluyor → relay → ICE → bağlı), gecikme, aktarılan byte, "kopyala" butonu, QR kod.
-- `hello` mesajıyla hedef listesi; ajan tarafında istek/başarı/hata sayacı.
-- Ziyaretçi sekmeyi kapatınca SW 30 sn içinde bağlantıyı düşürür (ajan kaynak sızdırmasın).
+  - Hedef adı signaling `offer`'ında taşınır (`protocol/signaling.md`); oturum başına sabittir.
+    Bilinmeyen hedef `bye`/`unknown-target` ile **reddedilir** — sessizce `default`'a düşmek yok.
+  - Elle signaling yolunda URL olmadığı için hedefi `--manual-target` seçer.
+- Bağlantı ekranı: durum (SW → signaling → ICE → tünel), **sürekli** ölçülen gecikme (5 sn'de bir
+  ping, son değer + medyan), istek/hata, alınan ve gönderilen byte, anlık hız, hedef listesi,
+  aktif hedef, "kopyala" butonu ve QR kod.
+  - QR kodlayıcı **elle yazıldı** (`web/src/ui/qr.ts`, byte modu / seviye M / sürüm 1–10): web
+    tarafında tek çalışma zamanı bağımlılığı (`nostr-tools`) olarak kalsın diye. Doğrulaması
+    üçüncü bir bağımsız uygulamayla üretilen vektörlere karşı.
+- `hello` mesajıyla hedef listesi; ajan tarafında hedef başına istek/başarı/hata ve byte sayacı
+  (`agent/internal/stats`), stdout'ta yalnızca değiştiğinde yenilenen durum satırı.
+- Ziyaretçi sekmeyi kapatınca kaynak bırakılır: **ajan** 10 sn'de bir ctrl `ping` yollar ve 30 sn
+  yanıt gelmezse oturumu kapatır; **SW** bayatlamış tünel sahibini yeniden yoklar.
+  Gerekçe ve sınırlar: §8.
 
 **Kabul:** Tek ajan iki projeyi yayınlıyor; ekranda anlamlı durum bilgisi var.
+**Durum:** karşılandı — `web/e2e/faz3.spec.ts` (6 test) bunu otomatik doğruluyor.
 
 ### Faz 4 — Dağıtım ve dayanıklılık (1 gün)
 - Otomatik yeniden bağlanma (ICE restart, relay düşmesi, uyku/uyanma).
@@ -237,6 +253,38 @@ Signaling'i **kopyala-yapıştır** ile yap (sunucu yok, Nostr yok): ajan `offer
   offer'ı **geri dönüşü olmadan** kayboluyordu (ephemeral event'ler
   saklanmaz). Sahte relay localhost'ta olduğu için bu hiç görünmüyordu.
   Sıra artık: relay'lere bağlan → abone ol → "hazır" de.
+
+- **(Faz 3'te bulundu ve KAPANDI) Tavanı aşan gövde `req`'ten önce gelirse istek askıda kalıyordu.**
+  `ctrl` ve `data` ayrı SCTP akışları olduğu için aralarında sıralama garantisi yok (Faz 1'de
+  ölçüldü, aşağıda). Gövde çerçevesi `req`'ten önce geldiğinde ve `--max-body` tavanını aştığında
+  çerçeve **sessizce düşürülüyordu**: gövde hiç gelmediği için proxy sonsuza kadar bekliyor,
+  ziyaretçi `abort` almıyor ve istek askıda kalıyordu — yani tavan koruması bir kaynak
+  sızıntısına dönüşüyordu. Bunu kırılgan bir test (6 koşumda 3 kırmızı) ortaya çıkardı; sorun
+  testin değil davranışın kendisiydi. Artık ihlal işaretlenip ziyaretçiye hemen
+  `abort body-too-large` gidiyor ve istek proxy'ye hiç düşmüyor.
+
+- **(Faz 3'te kapandı, SW tarafı bilinçli olarak sınırlı) Ziyaretçi gidince kaynak bırakma.**
+  İki ayrı boşluk vardı. (a) Ajanda hiç boşta kalma denetimi yoktu: oturum yalnızca ICE/DTLS
+  durumu değişince kapanıyordu, bu da 30 saniyeden çok daha uzun sürebilir ve `Disconnected`
+  geri de dönebilir. Artık ajan 10 sn'de bir ctrl `ping` yolluyor ve 30 sn yanıt gelmezse
+  oturumu kapatıyor (protokol değişmedi: sayfa gelen ping'e zaten `pong` dönüyordu).
+  (b) SW'de `clients.get` sekme **hayatta** olduğu sürece client döndürüyordu, tünelini
+  kaybetmiş olsa bile; sayfanın `pagehide`'da gönderdiği haber ise en iyi çabadır (sekme çökerse
+  hiç gelmez). Artık bayatlamış tünel sahibi yeniden yoklanıyor.
+  **Dürüst sınır:** SW tarafındaki tespit **tembeldir** — istek gelmezse kontrol de olmaz.
+  Zaman sınırlı gerçek koruma ajandaki denetimdir. SW'de periyodik zamanlayıcı güvenilmez:
+  worker boştayken öldürülür.
+
+- **(Faz 3, AÇIK) QR'ın gerçekten okunduğu elle doğrulanmalı.** Kodlayıcı üçüncü bir bağımsız
+  uygulamanın vektörlerine karşı bayt bayt doğrulanıyor ve canvas'ın çizildiği e2e'de kontrol
+  ediliyor, ama "telefon kamerası bunu okuyor mu" sorusu otomatik testle cevaplanamaz.
+  Yöntem: `docs/MANUAL-TEST.md` → "İki cihazla deneme".
+
+- **(Faz 3, AÇIK — dış kaynaklı) Gerçek relay'lerle aynı koşumda üst üste ajan başlatmak.**
+  `PEERPAGES_E2E_RELAYS` ile iki gerçek relay verildiğinde testlerden biri
+  "hiçbir relay'e bağlanılamadı" ile düşüyor: her test yeni bir ajan başlatıyor ve public
+  relay'ler aynı adresten gelen hızlı tekrar bağlantıları reddediyor. Tek relayle (nos.lol)
+  7/7 yeşil. Kodumuzdan değil; Faz 4'te yeniden bağlanma çalışması bunu da iyileştirebilir.
 
 - Nostr relay'lerinin ephemeral event'leri bazı relay'ler düşürebilir → `doctor` ile relay sağlığı; liste güncel tutulur.
 - GitHub Pages kullanım şartları: statik vitrin için uygun; projeyi ticari proxy gibi sunma, README'de "demo/paylaşım aracı" de.

@@ -176,3 +176,75 @@ NIP-44 ve gercek WebRTC ile test ediliyor), 16 Playwright testi (8 elle yol +
 
 Faz 2'nin "farkli aglardaki iki cihaz" kriteri **kullanici dogrulamasi
 bekliyor**: tek makineden test edilemez. Yontem `docs/MANUAL-TEST.md`'de.
+
+### Faz 3 - Coklu hedef ve ziyaretci deneyimi
+
+Tek ajan birden cok yerel projeyi yayinliyor ve baglanti ekrani artik
+anlamli bilgi gosteriyor.
+
+#### Coklu hedef
+
+- Hedef adi URL'de tasiniyor: `#npub1…/admin`. Fragment dilbilgisi
+  `npub [ "/" hedef ] [ ":" sir ]`; '/' yalnizca ':' ONCESINDE araniyor,
+  cunku sir serbest metin ve icinde '/' bulunabilir.
+- Hedef signaling `offer`'inda tasiniyor (`protocol/signaling.md`), data
+  channel protokolu ve Faz 1'in kanonik anahtar sirasi degismedi. Oturum
+  basina tek hedef.
+- Bilinmeyen hedef `bye`/`unknown-target` ile reddediliyor ve oturum HIC
+  kurulmuyor. Sessizce `default`'a dusmek yok.
+- Ajan her hedef icin ayri ziyaretci URL'si basiyor. Elle signaling yolunda
+  hedefi `--manual-target` seciyor.
+
+#### Baglanti ekrani
+
+- Gecikme SUREKLI olculuyor (5 sn'de bir ping): son deger + medyan + n.
+- Istek/hata, alinan ve gonderilen bayt, anlik hiz, devam eden istek, hedef
+  listesi (ctrl `hello`'dan), aktif hedef.
+- "Adresi kopyala" butonu (guvenli olmayan baglam icin execCommand yedegi —
+  iki cihazla denemede clipboard API yok) ve QR paneli.
+
+#### QR kodlayici
+
+- `web/src/ui/qr.ts`: elle yazilmis, bagimlilik yok. Byte modu, seviye M,
+  surum 1-10. Cizim yapmaz, matris donduru — DOM'suz test edilebiliyor.
+- Vektorler UCUNCU bir bagimsiz uygulama (python `qrcode`) ile uretildi.
+  15 maske-zorlanmis vektor bayt bayt, 5 vektor otomatik maske secimi.
+  Vektorler iki hata yakaladi (bicim bilgisi kopyalari, veri yerlestirmede
+  kolon kaydirmasi).
+- Bundle 35.8 -> 39.7 KB gzip.
+
+#### Sayaclar
+
+- `agent/internal/stats`: hedef basina istek/basari/hata ve bayt, atomik.
+- Hedefin 404/500'u BASARI sayiliyor: proxy isini yapti. Hata sayaci
+  yalnizca ajanin cevabi tasiyamadigi durumlar.
+- stdout'ta 5 sn'de bir, yalnizca degistiginde durum satiri.
+
+#### Kaynak birakma
+
+- Ajan 10 sn'de bir ctrl `ping` yolluyor, 30 sn yanitsiz oturumu kapatiyor.
+  Protokol degismedi: sayfa gelen ping'e zaten pong donuyordu.
+- SW bayatlamis tunel sahibini yeniden yokluyor (`clients.get` sekme hayatta
+  oldugu surece client donduruyordu).
+- SW tarafindaki tespit TEMBEL: istek gelmezse kontrol de olmaz. Zaman
+  sinirli gercek koruma ajandaki denetim.
+
+#### Yolda bulunan hata
+
+Tavani asan govde cercevesi `req`'TEN ONCE gelirse sessizce dusuruluyordu:
+govde hic gelmedigi icin proxy sonsuza kadar bekliyor, ziyaretci abort
+almiyor, istek askida kaliyordu — tavan korumasi kaynak sizintisina
+donusuyordu. Kirilgan bir test (6 kosumda 3 kirmizi) ortaya cikardi; sorun
+testin degil davranisin kendisiydi.
+
+#### Testler
+
+276 TS birim testi, 15 Go paketi, 22 Playwright testi (8 elle yol +
+8 Nostr + 6 Faz 3). Gercek relay'lerle (tek relay) Nostr e2e 7/7.
+
+#### Kabul durumu
+
+Faz 3 kabul kriteri (tek ajan iki projeyi yayinliyor, ekranda anlamli durum
+bilgisi var) otomatik testlerle karsilandi. QR'in telefonla gercekten
+okundugu ve iki cihaz/iki ag dogrulamasi kullanici tarafinda:
+`docs/MANUAL-TEST.md`.

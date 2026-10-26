@@ -50,6 +50,11 @@ Değişiklik yaparsan:
 2. vektör dosyasına vektör eklenir,
 3. **hem** TS **hem** Go tarafı aynı vektörlerle yeşile geçer.
 
+Aynı desen protokol dışında da geçerli: QR kodlayıcı (`web/src/ui/qr.ts`)
+`web/src/ui/qr-testvectors.json`'a karşı test ediliyor ve o dosyayı
+`web/scripts/gen-qr-vectors.py` (python `qrcode`) üretiyor. Kodlayıcıyı
+değiştirirsen vektörleri yeniden üret ve testleri yeşile geçir.
+
 Signaling vektörleri `protocol/gen-signaling-vectors.py` ile üretiliyor —
 **üçüncü bir bağımsız uygulama** (python `cryptography`). Bu kasıtlı: Go ve TS,
 hiçbirinin üretmediği vektörlere karşı doğrulanıyor, böylece ikisinin aynı

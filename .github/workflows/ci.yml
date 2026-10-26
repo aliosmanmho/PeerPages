@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: web (lint + birim test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - name: Derleme (app shell + sw.js)
+        run: PEERPAGES_BASE=/PeerPages/ npm run build
+      - name: sw.js scope kokunde ve hash'siz mi
+        run: test -f dist/sw.js
+
+  agent:
+    name: agent (lint + birim test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.x"
+          cache-dependency-path: agent/go.sum
+      - run: gofmt -l . | tee /dev/stderr | (! read)
+      - run: go vet ./...
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: agent
+      - run: go test ./... -race
+
+  e2e:
+    name: e2e (Faz 1 kabul kriterleri)
+    runs-on: ubuntu-latest
+    needs: [web, agent]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.x"
+          cache-dependency-path: agent/go.sum
+      - name: Ajani derle ve test verisini uret
+        working-directory: agent
+        run: |
+          if [ -d internal/testsite/gen ]; then go run ./internal/testsite/gen; fi
+          go build -o peerpages .
+      - name: Web bagimliliklari
+        working-directory: web
+        run: npm ci
+      - name: Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Web derlemesi
+        working-directory: web
+        run: npm run build
+      - name: E2E
+        working-directory: web
+        run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: web/playwright-report
+          retention-days: 7

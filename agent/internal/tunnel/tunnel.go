@@ -37,6 +37,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/webrtc/v4"
@@ -82,6 +83,29 @@ const (
 	earlyTTL = 30 * time.Second
 )
 
+// Bosta kalma denetimi (README Faz 3: ziyaretci gidince ajan kaynak
+// sizdirmasin).
+const (
+	// DefaultIdleTimeout hic trafik gelmeden gecen bu sureden sonra oturum
+	// kapatilir.
+	//
+	// Neden gerekli: tek basina WebRTC durum degisikligine guvenemiyoruz.
+	// Sayfanin pagehide'da gonderdigi haber EN IYI CABADIR — sekme cokerse,
+	// oldurulurse ya da isletim sistemi sekmeyi atarsa hic gelmez. ICE'in
+	// Disconnected'a gecmesi ise 30 saniyeden cok daha uzun surebilir ve
+	// geri de donebilir.
+	DefaultIdleTimeout = 30 * time.Second
+	// DefaultPingInterval ajanin canlilik icin ctrl ping yollama araligi.
+	//
+	// Ziyaretci sayfasi gelen ping'e pong donuyor (web/src/tunnel.ts), yani
+	// protokol degisikligi gerekmiyor: sessiz ama acik bir tunelde bile
+	// lastSeen tazelenir.
+	DefaultPingInterval = 10 * time.Second
+)
+
+// ErrIdle oturum bosta kaldigi icin kapatildi.
+var ErrIdle = errors.New("oturum bosta kaldi: ziyaretci yanit vermiyor")
+
 // Config oturum yapilandirmasi.
 type Config struct {
 	// STUN ICE icin kullanilacak STUN sunuculari. Bos ise yalnizca host
@@ -105,6 +129,12 @@ type Config struct {
 	// OnLocalCandidate ile tek tek akar (Nostr yolu). false ise Answer tam
 	// SDP dondurur, cunku elle signaling'de tek parca kopyalanacak.
 	Trickle bool
+	// IdleTimeout bosta kalma siniri; 0 ise DefaultIdleTimeout.
+	IdleTimeout time.Duration
+	// PingInterval canlilik ping'i araligi; 0 ise DefaultPingInterval.
+	//
+	// Testler bu ikisini kisaltarak denetimi hizlandirir.
+	PingInterval time.Duration
 }
 
 func (c *Config) validate() error {
@@ -167,6 +197,14 @@ type earlyBody struct {
 	bytes  int64
 	end    *protocol.End
 	at     time.Time
+	// abortReason bos degilse bu id icin govde kabul EDILMEYECEK ve `req`
+	// gelince istek dogrudan iptal edilir.
+	//
+	// Neden isaret tutuyoruz: ihlal eden cerceveyi sessizce dusurmek istegi
+	// askida birakiyordu. Govde hic gelmedigi icin proxy sonsuza kadar
+	// bekliyor, ziyaretci de abort almiyordu — tavan korumasi bir kaynak
+	// sizintisina donusuyordu.
+	abortReason string
 }
 
 // Session tek bir ziyaretci baglantisi.
@@ -207,6 +245,10 @@ type Session struct {
 	closed   chan struct{}
 	closeOn  sync.Once
 	closeErr error
+
+	// lastSeen ziyaretciden en son bir sey duyuldugu an (unix nano).
+	// Atomik: ctrl ve data kanallari ayri goroutine'lerden gelir.
+	lastSeen atomic.Int64
 }
 
 // New oturumu kurar; kanallar acilir ama henuz offer uretilmez.
@@ -234,6 +276,7 @@ func New(cfg Config) (*Session, error) {
 		ready:  make(chan struct{}),
 		closed: make(chan struct{}),
 	}
+	s.touch()
 
 	// Kanallari ZIYARETCI aciyor; biz aliyoruz.
 	pc.OnDataChannel(s.onDataChannel)
@@ -308,6 +351,8 @@ func (s *Session) onChannelOpen() {
 	s.readyOn.Do(func() {
 		close(s.ready)
 		s.log.Info("kanallar acildi")
+		s.touch()
+		go s.watchIdle()
 		if err := s.sendCtrl(protocol.Hello{
 			V:       protocol.Version,
 			Targets: s.cfg.Targets,
@@ -458,6 +503,9 @@ func (s *Session) sendCtrl(m protocol.Msg) error {
 }
 
 func (s *Session) onCtrlMessage(msg webrtc.DataChannelMessage) {
+	// Bozuk mesaj bile canlilik kanitidir: karsi taraf orada.
+	s.touch()
+
 	m, err := protocol.ParseCtrl(string(msg.Data))
 	if err != nil {
 		// Ziyaretci guvenilmez: bozuk mesaj baglantiyi dusurmez, loglanir.
@@ -512,6 +560,16 @@ func (s *Session) onReq(req protocol.Req) {
 	// `req`'ten once gelmis govde olaylari.
 	early := s.early[req.ID]
 	delete(s.early, req.ID)
+
+	if early != nil && early.abortReason != "" {
+		s.reqMu.Unlock()
+		cancel()
+		<-s.sem
+		s.log.Warn("erken govde ihlali nedeniyle istek reddedildi",
+			slog.Uint64("id", uint64(req.ID)), slog.String("reason", early.abortReason))
+		// abort cerceve geldiginde zaten yollandi; burada tekrar etmiyoruz.
+		return
+	}
 
 	switch {
 	case req.HasBody:
@@ -718,6 +776,8 @@ func (s *Session) finish(id uint32) {
 
 // onDataMessage gelen govde cercevelerini ilgili istege yonlendirir.
 func (s *Session) onDataMessage(msg webrtc.DataChannelMessage) {
+	s.touch()
+
 	frame, err := protocol.DecodeFrame(msg.Data)
 	if err != nil {
 		s.log.Warn("gecersiz data cercevesi", slog.String("err", err.Error()))
@@ -759,9 +819,19 @@ func (s *Session) bufferEarlyFrameLocked(frame protocol.Frame) {
 		e = &earlyBody{at: time.Now()}
 		s.early[frame.ID] = e
 	}
+	if e.abortReason != "" {
+		// Bu id zaten iptal edildi; gerisini saymaya gerek yok.
+		return
+	}
 	if e.bytes+int64(len(frame.Payload)) > s.cfg.MaxBody {
-		s.log.Warn("erken govde tavani asti, cerceve dusuruldu",
-			slog.Uint64("id", uint64(frame.ID)))
+		s.log.Warn("erken govde tavani asti, istek iptal ediliyor",
+			slog.Uint64("id", uint64(frame.ID)), slog.Int64("tavan", s.cfg.MaxBody))
+		e.abortReason = "body-too-large"
+		e.frames = nil
+		e.bytes = 0
+		// Ziyaretciyi BEKLETMEDEN haberdar et: istek kaydini `req`'ten once
+		// olusturuyor, yani abort'u yerine ulasir (protocol/README.md).
+		_ = s.sendCtrl(protocol.Abort{ID: frame.ID, Reason: "body-too-large"})
 		return
 	}
 	e.frames = append(e.frames, frame)
@@ -824,5 +894,55 @@ func (s *Session) WaitReady(ctx context.Context, timeout time.Duration) error {
 		return ctx.Err()
 	case <-t.C:
 		return fmt.Errorf("kanallar %s icinde acilmadi", timeout)
+	}
+}
+
+// touch ziyaretciden bir sey duyuldugunu isaretler.
+func (s *Session) touch() { s.lastSeen.Store(time.Now().UnixNano()) }
+
+// idleLimits yapilandirilmis sureleri (ya da varsayilanlari) dondurur.
+func (s *Session) idleLimits() (idle, ping time.Duration) {
+	idle, ping = s.cfg.IdleTimeout, s.cfg.PingInterval
+	if idle <= 0 {
+		idle = DefaultIdleTimeout
+	}
+	if ping <= 0 {
+		ping = DefaultPingInterval
+	}
+	return idle, ping
+}
+
+// watchIdle ziyaretci sessizlige gomulurse oturumu kapatir.
+//
+// Ping'i AJAN yolluyor: sessiz ama acik bir tunelde (ziyaretci sayfayi acik
+// birakip hicbir istek yapmiyorsa) tek trafik kaynagi bu olur, ve sekme
+// gercekten gittiyse pong gelmez. Boylece kapanis WebRTC'nin durum
+// makinesine degil kendi saatimize bagli olur.
+func (s *Session) watchIdle() {
+	idle, interval := s.idleLimits()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.closed:
+			return
+		case <-ticker.C:
+		}
+
+		since := time.Since(time.Unix(0, s.lastSeen.Load()))
+		if since >= idle {
+			s.log.Info("oturum bosta, kapatiliyor",
+				slog.Duration("sessizlik", since.Round(time.Second)))
+			s.closeWith(ErrIdle)
+			_ = s.pc.Close()
+			return
+		}
+
+		if err := s.Ping(); err != nil {
+			// Kanal kapanmis olabilir; kapanis yolu zaten calisiyordur.
+			s.log.Debug("canlilik ping'i yollanamadi", slog.String("err", err.Error()))
+		}
 	}
 }

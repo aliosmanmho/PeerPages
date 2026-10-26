@@ -39,6 +39,24 @@ const SCOPE_PATH = new URL(self.registration.scope).pathname;
 /** Tunelin bulundugu sayfanin client id'si; SW yeniden baslarsa yeniden bulunur. */
 let tunnelClientId: string | null = null;
 
+/** O client'in tuneli oldugunu en son dogruladigimiz an. */
+let tunnelSeenAt = 0;
+
+/**
+ * Onbellekteki client id'nin yeniden yoklanmadan guvenilecegi sure.
+ *
+ * Neden gerekli: `clients.get(id)` sekme HAYATTA oldugu surece bir client
+ * dondurur — tuneli kaybetmis olsa bile. Sayfanin pagehide'da gonderdigi
+ * "tunel gitti" haberi ise EN IYI CABADIR: sekme cokerse, oldurulurse ya da
+ * sayfa gezinirse hic gelmez. Bu sure sonunda yeniden probe ediyoruz ki olu
+ * bir tunele istek yonlendirmeyelim.
+ *
+ * Tespit TEMBELDIR: istek gelmezse kontrol de olmaz. Zaman sinirli gercek
+ * koruma ajan tarafindaki bosta kalma denetimi (agent/internal/tunnel).
+ * SW'de periyodik zamanlayici guvenilmez: worker bostayken oldurulur.
+ */
+const TUNNEL_TRUST_MS = 5000;
+
 self.addEventListener("install", () => {
   // Yeni SW'yi hemen devreye al: kullanici sekmeyi kapatip acmak zorunda kalmasin.
   self.skipWaiting();
@@ -57,11 +75,13 @@ self.addEventListener("message", (event: ExtendableMessageEvent) => {
       const source = event.source;
       if (source && "id" in source) {
         tunnelClientId = source.id;
+        tunnelSeenAt = Date.now();
       }
       break;
     }
     case "bridge-tunnel-gone":
       tunnelClientId = null;
+      tunnelSeenAt = 0;
       break;
     default:
       break;
@@ -267,14 +287,24 @@ function statusAllowsBody(status: number): boolean {
 async function findTunnelClient(): Promise<Client | null> {
   if (tunnelClientId) {
     const cached = await self.clients.get(tunnelClientId);
-    if (cached) return cached;
+    if (cached) {
+      // Taze ise oldugu gibi kullan; bayatladiysa gercekten tuneli var mi
+      // diye sor (sekme hayatta ama tunelsiz olabilir).
+      if (Date.now() - tunnelSeenAt < TUNNEL_TRUST_MS) return cached;
+      if (await probe(cached)) {
+        tunnelSeenAt = Date.now();
+        return cached;
+      }
+    }
     tunnelClientId = null;
+    tunnelSeenAt = 0;
   }
 
   const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
   for (const candidate of windows) {
     if (await probe(candidate)) {
       tunnelClientId = candidate.id;
+      tunnelSeenAt = Date.now();
       return candidate;
     }
   }

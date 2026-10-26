@@ -364,7 +364,13 @@ async function connectViaNostr(target: PeerTarget): Promise<void> {
 
   if (el.panelManual) el.panelManual.hidden = true;
   if (el.panelNostr) el.panelNostr.hidden = false;
-  if (el.nostrPeer) el.nostrPeer.textContent = shortenNpub(target.npub);
+  // Hedef adi varsa ekranda da gorunsun: ziyaretci hangi projeye
+  // baglandigini bilsin.
+  if (el.nostrPeer) {
+    el.nostrPeer.textContent = target.target
+      ? `${shortenNpub(target.npub)} / ${target.target}`
+      : shortenNpub(target.npub);
+  }
   if (el.retryBtn) el.retryBtn.disabled = true;
 
   status.step("signal", "active");

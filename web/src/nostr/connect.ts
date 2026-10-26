@@ -139,7 +139,7 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
           break;
         }
         case "bye":
-          answerArrived.reject(new ConnectError(byeMessage(msg.reason)));
+          answerArrived.reject(new ConnectError(byeMessage(msg.reason, target.target)));
           break;
         case "offer":
           // Ajan offer yollamaz.
@@ -169,7 +169,13 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
     const localSDP = pc.localDescription?.sdp;
     if (!localSDP) throw new ConnectError("yerel SDP olusturulamadi");
 
-    await send({ t: "offer", sid, sdp: localSDP });
+    // Hedef adi varsa offer'da tasinir; yoksa alan hic gonderilmez ve ajan
+    // default'a duser (protocol/signaling.md).
+    await send(
+      target.target
+        ? { t: "offer", sid, sdp: localSDP, target: target.target }
+        : { t: "offer", sid, sdp: localSDP },
+    );
 
     stage("answer");
     const answerSDP = await withDeadline(
@@ -203,8 +209,15 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
 }
 
 /** Ajandan gelen `bye` nedenini kullaniciya anlasilir hale getirir. */
-function byeMessage(reason: string): string {
+function byeMessage(reason: string, targetName: string | null): string {
   switch (reason) {
+    case "unknown-target":
+      // Sessizce default'a dusmuyoruz: ziyaretci yanlis projeyi gezdigini
+      // fark etmeyebilir.
+      return targetName
+        ? `Bu ajanda '${targetName}' hedefi yok. URL'deki '/${targetName}' kismini kontrol et ` +
+            "ya da ajani yayinlayan kisiden dogru adresi iste."
+        : "Ajan istenen hedefi tanimadi.";
     case "too-many-sessions":
       return "Ajan su an baska ziyaretcilerle mesgul (oturum tavani dolu).";
     case "setup-failed":

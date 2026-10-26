@@ -83,3 +83,53 @@ describe("shortenNpub", () => {
     expect(shortenNpub(NPUB)).toBe(`${NPUB.slice(0, 12)}…${NPUB.slice(-4)}`);
   });
 });
+
+// Faz 3: URL'de hedef secimi (`#npub1…/admin`).
+describe("parseHash — hedef", () => {
+  it("hedefsiz URL'de target null", () => {
+    expect(parseHash(`#${NPUB}`)?.target).toBe(null);
+  });
+
+  it("hedefi okur", () => {
+    const t = parseHash(`#${NPUB}/admin`);
+    expect(t?.target).toBe("admin");
+    expect(t?.npub).toBe(NPUB);
+    expect(t?.secret).toBe(null);
+  });
+
+  it("hedef ve sir birlikte", () => {
+    const t = parseHash(`#${NPUB}/admin:gizli`);
+    expect(t?.target).toBe("admin");
+    expect(t?.secret).toBe("gizli");
+  });
+
+  // Sira kurali: '/' yalnizca ':' ONCESINDE aranir, cunku sir serbest
+  // metindir ve icinde '/' bulunabilir.
+  it("sirrin icindeki bolu hedef sayilmaz", () => {
+    const t = parseHash(`#${NPUB}:a/b`);
+    expect(t?.target).toBe(null);
+    expect(t?.secret).toBe("a/b");
+  });
+
+  it("hedefli URL'de sirrin icindeki bolu korunur", () => {
+    const t = parseHash(`#${NPUB}/admin:a/b/c`);
+    expect(t?.target).toBe("admin");
+    expect(t?.secret).toBe("a/b/c");
+  });
+
+  it("bos hedef reddedilir", () => {
+    expect(() => parseHash(`#${NPUB}/`)).toThrow(/hedef adi bos/);
+  });
+
+  it("gecersiz hedef adlari reddedilir", () => {
+    for (const bad of ["-admin", "_admin", "a b", "a.b", "a".repeat(33), "a/b"]) {
+      expect(() => parseHash(`#${NPUB}/${bad}`)).toThrow();
+    }
+  });
+
+  it("gecerli hedef adlarini kabul eder", () => {
+    for (const good of ["a", "A", "0", "default", "web-2_eski", "a".repeat(32)]) {
+      expect(parseHash(`#${NPUB}/${good}`)?.target).toBe(good);
+    }
+  });
+});

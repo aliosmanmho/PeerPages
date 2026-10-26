@@ -123,11 +123,21 @@ func TestParseCtrlFields(t *testing.T) {
 	})
 
 	t.Run("bilinmeyen fazladan alanlar yok sayilir", func(t *testing.T) {
-		msg, err := ParseCtrl(`{"t":"end","id":1,"gelecekteAlan":true}`)
+		msg, err := ParseCtrl(`{"t":"end","id":1,"frames":0,"len":0,"gelecekteAlan":true}`)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if msg != (End{ID: 1}) {
+			t.Errorf("geldi %#v", msg)
+		}
+	})
+
+	t.Run("end sayaclari", func(t *testing.T) {
+		msg, err := ParseCtrl(`{"t":"end","id":2,"frames":6,"len":90000}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if msg != (End{ID: 2, Frames: 6, Len: 90000}) {
 			t.Errorf("geldi %#v", msg)
 		}
 	})

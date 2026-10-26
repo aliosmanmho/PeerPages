@@ -80,7 +80,21 @@ describe("parseCtrl — alan ayrintilari", () => {
   });
 
   it("bilinmeyen fazladan alanlari yok sayar", () => {
-    expect(parseCtrl('{"t":"end","id":1,"gelecekteAlan":true}')).toEqual({ t: "end", id: 1 });
+    expect(parseCtrl('{"t":"end","id":1,"frames":0,"len":0,"gelecekteAlan":true}')).toEqual({
+      t: "end",
+      id: 1,
+      frames: 0,
+      len: 0,
+    });
+  });
+
+  it("end sayaclarini okur", () => {
+    expect(parseCtrl('{"t":"end","id":2,"frames":6,"len":90000}')).toEqual({
+      t: "end",
+      id: 2,
+      frames: 6,
+      len: 90000,
+    });
   });
 });
 

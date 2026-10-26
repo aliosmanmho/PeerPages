@@ -197,9 +197,19 @@
         "canonical": "{\"t\":\"res\",\"id\":3,\"status\":599,\"headers\":{}}"
       },
       {
-        "name": "end",
-        "text": "{\"t\":\"end\",\"id\":17}",
-        "canonical": "{\"t\":\"end\",\"id\":17}"
+        "name": "end-bos-govde",
+        "text": "{\"t\":\"end\",\"id\":17,\"frames\":0,\"len\":0}",
+        "canonical": "{\"t\":\"end\",\"id\":17,\"frames\":0,\"len\":0}"
+      },
+      {
+        "name": "end-tek-cerceve",
+        "text": "{\"t\":\"end\",\"id\":1,\"frames\":1,\"len\":5}",
+        "canonical": "{\"t\":\"end\",\"id\":1,\"frames\":1,\"len\":5}"
+      },
+      {
+        "name": "end-coklu-cerceve",
+        "text": "{\"t\":\"end\",\"id\":2,\"frames\":6,\"len\":90000}",
+        "canonical": "{\"t\":\"end\",\"id\":2,\"frames\":6,\"len\":90000}"
       },
       {
         "name": "abort-client-cancel",
@@ -370,8 +380,48 @@
       },
       {
         "name": "end-id-yok",
-        "text": "{\"t\":\"end\"}",
+        "text": "{\"t\":\"end\",\"frames\":0,\"len\":0}",
         "error": "missing-field"
+      },
+      {
+        "name": "end-frames-yok",
+        "text": "{\"t\":\"end\",\"id\":1,\"len\":0}",
+        "error": "missing-field"
+      },
+      {
+        "name": "end-len-yok",
+        "text": "{\"t\":\"end\",\"id\":1,\"frames\":0}",
+        "error": "missing-field"
+      },
+      {
+        "name": "end-frames-negatif",
+        "text": "{\"t\":\"end\",\"id\":1,\"frames\":-1,\"len\":0}",
+        "error": "bad-field"
+      },
+      {
+        "name": "end-len-negatif",
+        "text": "{\"t\":\"end\",\"id\":1,\"frames\":1,\"len\":-5}",
+        "error": "bad-field"
+      },
+      {
+        "name": "end-len-metin",
+        "text": "{\"t\":\"end\",\"id\":1,\"frames\":1,\"len\":\"5\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "end-frames-ondalik",
+        "text": "{\"t\":\"end\",\"id\":1,\"frames\":1.5,\"len\":5}",
+        "error": "bad-field"
+      },
+      {
+        "name": "end-cerceve-var-ama-len-sifir",
+        "text": "{\"t\":\"end\",\"id\":1,\"frames\":2,\"len\":0}",
+        "error": "bad-field"
+      },
+      {
+        "name": "end-len-var-ama-cerceve-sifir",
+        "text": "{\"t\":\"end\",\"id\":1,\"frames\":0,\"len\":10}",
+        "error": "bad-field"
       },
       {
         "name": "abort-reason-yok",

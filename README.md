@@ -171,6 +171,20 @@ Signaling'i **kopyala-yapıştır** ile yap (sunucu yok, Nostr yok): ajan `offer
 
 ## 8. Bilinen riskler ve açık sorular
 
+- **(Faz 1'de olculdu, KARAR BEKLIYOR) `ctrl` ve `data` kanallari arasinda siralama garantisi yok.**
+  Iki data channel iki ayri SCTP stream'idir; her biri kendi icinde `ordered`
+  ama aralarinda siralama yoktur. Olcum (pion loopback, 90 KB cevap): `end`
+  mesaji `ctrl` uzerinden geldikten **sonra** 6 gövde cercevesi `data`
+  uzerinden geldi. Yani alici `end`'i "gövde bitti" diye yorumlayamaz; bugunki
+  tanimla cevap bos gorunur. Secenekler:
+  1. `end` mesajina gövde olcusu eklemek (`{"t":"end","id":17,"frames":3}` ya
+     da `"len":90000`): alici beklenen tum cerceveleri aldiktan sonra akisi
+     kapatir. Iki kanal ve 16 KiB framing kararlari degismez.
+  2. Gövde sonunu `data` kanalina tasimak (ozel EOF cercevesi): siralama
+     dogal olarak korunur, ama `end` ctrl'den cikar.
+  3. Tek kanal + 1 bayt tip prefiksi (README §3'teki alternatif): en buyuk
+     degisiklik.
+
 - Firefox/Safari'de SW `ReadableStream` cevapları ve `postMessage` performansı — Faz 1'de ölçülecek; gerekirse büyük cevaplar için geçici buffer.
 - Nostr relay'lerinin ephemeral event'leri bazı relay'ler düşürebilir → `doctor` ile relay sağlığı; liste güncel tutulur.
 - GitHub Pages kullanım şartları: statik vitrin için uygun; projeyi ticari proxy gibi sunma, README'de "demo/paylaşım aracı" de.

@@ -73,7 +73,15 @@ type Res struct {
 }
 
 // End o id icin govdenin bittigini bildirir.
-type End struct{ ID uint32 }
+//
+// Frames ve Len zorunlu: ctrl ve data ayri SCTP stream'leri oldugundan End,
+// govde cercevelerinden ONCE varabilir. Alici bu sayaclara ulasana kadar data
+// kanalini dinlemeye devam eder (protocol/README.md).
+type End struct {
+	ID     uint32
+	Frames uint32
+	Len    int64
+}
 
 // Abort o id icin akisin iptal edildigini bildirir.
 type Abort struct {
@@ -135,7 +143,9 @@ func (m Res) Canonical() string {
 
 // Canonical kanonik serilestirme.
 func (m End) Canonical() string {
-	return `{"t":"end","id":` + strconv.FormatUint(uint64(m.ID), 10) + `}`
+	return `{"t":"end","id":` + strconv.FormatUint(uint64(m.ID), 10) +
+		`,"frames":` + strconv.FormatUint(uint64(m.Frames), 10) +
+		`,"len":` + strconv.FormatInt(m.Len, 10) + `}`
 }
 
 // Canonical kanonik serilestirme.
@@ -268,11 +278,7 @@ func ParseCtrl(text string) (Msg, error) {
 	case "res":
 		return parseRes(o, t)
 	case "end":
-		id, err := uint32Field(o, "id", t)
-		if err != nil {
-			return nil, err
-		}
-		return End{ID: id}, nil
+		return parseEnd(o, t)
 	case "abort":
 		id, err := uint32Field(o, "id", t)
 		if err != nil {
@@ -322,6 +328,40 @@ func parseReq(o map[string]json.RawMessage, t string) (Msg, error) {
 		return nil, err
 	}
 	return Req{ID: id, Method: method, Path: path, Headers: headers, HasBody: hasBody}, nil
+}
+
+func parseEnd(o map[string]json.RawMessage, t string) (Msg, error) {
+	id, err := uint32Field(o, "id", t)
+	if err != nil {
+		return nil, err
+	}
+	frames, err := uint32Field(o, "frames", t)
+	if err != nil {
+		return nil, err
+	}
+	rawLen, ok := o["len"]
+	if !ok {
+		return nil, &CtrlError{CodeMissingField, t + ".len yok"}
+	}
+	if !rawIsJSONNumber(rawLen) {
+		return nil, &CtrlError{CodeBadField, t + ".len tamsayi olmali, verilen: " + string(rawLen)}
+	}
+	var n json.Number
+	if uerr := json.Unmarshal(rawLen, &n); uerr != nil {
+		return nil, &CtrlError{CodeBadField, t + ".len tamsayi olmali, verilen: " + string(rawLen)}
+	}
+	length, perr := strconv.ParseInt(n.String(), 10, 64)
+	if perr != nil {
+		return nil, &CtrlError{CodeBadField, t + ".len tamsayi olmali, verilen: " + n.String()}
+	}
+	if length < 0 {
+		return nil, &CtrlError{CodeBadField, "end.len negatif olamaz: " + n.String()}
+	}
+	// frames ve len tutarli olmali: biri 0 ise digeri de 0.
+	if (frames == 0) != (length == 0) {
+		return nil, &CtrlError{CodeBadField, fmt.Sprintf("end.frames=%d ile end.len=%d tutarsiz", frames, length)}
+	}
+	return End{ID: id, Frames: frames, Len: length}, nil
 }
 
 func parseRes(o map[string]json.RawMessage, t string) (Msg, error) {

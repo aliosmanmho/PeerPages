@@ -42,6 +42,16 @@ export interface ResMsg {
 export interface EndMsg {
   readonly t: "end";
   readonly id: number;
+  /**
+   * Bu yonde gonderilen govde cercevesi sayisi.
+   *
+   * Gerekli cunku `ctrl` ve `data` ayri SCTP stream'leri: `end`, govde
+   * cercevelerinden ONCE varabilir. Alici bu sayiya ulasana kadar `data`
+   * dinlemeye devam eder (protocol/README.md).
+   */
+  readonly frames: number;
+  /** Govdenin toplam bayt sayisi. */
+  readonly len: number;
 }
 
 export interface AbortMsg {
@@ -198,8 +208,19 @@ export function parseCtrl(text: string): CtrlMsg {
       }
       return { t: "res", id, status, headers: headersField(o, "headers", t) };
     }
-    case "end":
-      return { t: "end", id: uint32Field(o, "id", t) };
+    case "end": {
+      const id = uint32Field(o, "id", t);
+      const frames = uint32Field(o, "frames", t);
+      const len = reqField(o, "len", t);
+      if (typeof len !== "number" || !Number.isInteger(len) || len < 0) {
+        throw new CtrlError("bad-field", `end.len negatif olmayan tamsayi olmali: ${String(len)}`);
+      }
+      // frames ve len tutarli olmali: biri 0 ise digeri de 0.
+      if ((frames === 0) !== (len === 0)) {
+        throw new CtrlError("bad-field", `end.frames=${frames} ile end.len=${len} tutarsiz`);
+      }
+      return { t: "end", id, frames, len };
+    }
     case "abort":
       return {
         t: "abort",
@@ -261,7 +282,7 @@ export function canonicalCtrl(msg: CtrlMsg): string {
         msg.headers,
       )}}`;
     case "end":
-      return `{"t":"end","id":${msg.id}}`;
+      return `{"t":"end","id":${msg.id},"frames":${msg.frames},"len":${msg.len}}`;
     case "abort":
       return `{"t":"abort","id":${msg.id},"reason":${JSON.stringify(msg.reason)}}`;
     case "ping":

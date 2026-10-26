@@ -72,7 +72,7 @@ UTF-8 JSON nesneleri. Zorunlu alan `t` (tip).
 { "t": "req",   "id": 17, "method": "GET", "path": "/api/items?x=1",
                 "headers": { "accept": "..." }, "hasBody": false }
 { "t": "res",   "id": 17, "status": 200, "headers": { "content-type": "text/html" } }
-{ "t": "end",   "id": 17 }                          // gövde bitti
+{ "t": "end",   "id": 17, "frames": 6, "len": 90000 }   // gövde bitti
 { "t": "abort", "id": 17, "reason": "client-cancel" }
 { "t": "ping" }
 { "t": "pong" }
@@ -93,6 +93,10 @@ UTF-8 JSON nesneleri. Zorunlu alan `t` (tip).
 | `v` | tamsayı | şimdilik yalnızca `1` |
 | `targets` | string dizisi | en az bir eleman, hepsi string |
 | `auth` | string | `"none"` ya da `"required"` |
+| `frames` | tamsayı | `end`: bu yönde gönderilen gövde çerçevesi sayısı (`0 … 4294967295`) |
+| `len` | tamsayı | `end`: gövdenin toplam bayt sayısı (`>= 0`) |
+
+`frames` ve `len` tutarlı olmalıdır: biri 0 ise diğeri de 0 olmalı.
 
 `path` doğrulaması **güvenlik kontrolünün ilk katmanıdır**; ikinci ve belirleyici
 katman ajan tarafındaki `internal/target.Resolve`'dur (README ilke 1).
@@ -121,7 +125,7 @@ bir biçim tanımlıdır:
    |---|---|
    | `req` | `t, id, method, path, headers, hasBody` |
    | `res` | `t, id, status, headers` |
-   | `end` | `t, id` |
+   | `end` | `t, id, frames, len` |
    | `abort` | `t, id, reason` |
    | `ping` / `pong` | `t` |
    | `hello` | `t, v, targets, auth` |
@@ -147,14 +151,31 @@ ziyaretçi                                              ajan
     │◄── ctrl: res  (id=1, 200, content-type) ───────────│
     │◄── data: [id=1][seq=0][16 KiB] ────────────────────│
     │◄── data: [id=1][seq=1][…]      ────────────────────│
-    │◄── ctrl: end  (id=1) ──────────────────────────────│
+    │◄── ctrl: end  (id=1, frames=2, len=…) ─────────────│
     │                                                   │
     │─── ctrl: req  (id=2, POST /api, hasBody) ─────────►│
     │─── data: [id=2][seq=0][…] ────────────────────────►│
-    │─── ctrl: end  (id=2) ─────────────────────────────►│
+    │─── ctrl: end  (id=2, frames=1, len=…) ────────────►│
     │◄── ctrl: res  (id=2, 201, …) ──────────────────────│
-    │◄── ctrl: end  (id=2) ──────────────────────────────│
+    │◄── ctrl: end  (id=2, frames=0, len=0) ─────────────│
 ```
+
+> **`end` neden sayaç taşıyor — kanallar arası sıralama yoktur.**
+> `ctrl` ve `data` iki ayrı SCTP stream'idir. Her biri kendi içinde
+> `ordered`'dır, **aralarında sıra garantisi yoktur**. Faz 1'de ölçüldü
+> (pion loopback, 90 KB cevap): `end` mesajı `ctrl` üzerinden geldikten
+> **sonra** altı gövde çerçevesi `data` üzerinden geldi.
+>
+> Bu yüzden alıcı `end`'i "gövde bitti" diye yorumlayamaz. Doğru davranış:
+>
+> 1. `end` geldiğinde `frames`/`len` beklentisi kaydedilir;
+> 2. akış, **beklenen çerçeve sayısı ve bayt sayısı tamamlandığında** kapatılır
+>    (`end` daha önce gelmiş olsa bile `data` dinlenmeye devam edilir);
+> 3. `end` geldiğinde sayılar zaten tamamsa akış hemen kapatılır;
+> 4. beklenenden fazla çerçeve/bayt gelirse protokol hatasıdır →
+>    `abort` (`reason: "body-length-mismatch"`).
+>
+> `README.md` §8'deki açık soru bu kararla kapandı.
 
 - `abort` her iki yönden gelebilir; alan taraf o `id` için akışı durdurur ve
   kaynakları bırakır.

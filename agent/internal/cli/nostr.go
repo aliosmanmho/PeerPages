@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/aliosmanmho/PeerPages/agent/internal/connect"
 	"github.com/aliosmanmho/PeerPages/agent/internal/identity"
@@ -20,6 +21,9 @@ import (
 // Makine de okur: e2e testi bu satiri bekleyip ziyaretci sayfasini aciyor
 // (web/e2e/fixtures/agent.ts).
 const ReadyMarker = "---PEERPAGES-READY---"
+
+// relayConnectTimeout relay'lere onceden baglanmak icin taninan sure.
+const relayConnectTimeout = 20 * time.Second
 
 // runNostr Nostr signaling ile calisir: ziyaretci yalnizca URL'yi acar.
 func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
@@ -88,12 +92,39 @@ func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
 		return err
 	}
 
+	// SIRA ONEMLI: once relay'lere baglan, sonra abone ol, EN SON "hazir" de.
+	// Ephemeral event'ler saklanmadigi icin, dinlemeye baslamadan gelen bir
+	// offer geri donusu olmadan kaybolur. (Gercek relay'lerle yapilan e2e
+	// kosumunda ilk baglanti tam bu yuzden basarisiz oluyordu.)
+	connectCtx, cancelConnect := context.WithTimeout(ctx, relayConnectTimeout)
+	defer cancelConnect()
+
+	connReport, err := pool.Connect(connectCtx)
+	if err != nil {
+		return fmt.Errorf("relay'lere baglanilamadi: %w", err)
+	}
+	for relayURL, reason := range connReport.Failed {
+		log.Warn("relay'e baglanilamadi",
+			slog.String("relay", relayURL), slog.String("err", reason))
+	}
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- acceptor.Run(ctx) }()
+
+	select {
+	case <-acceptor.Ready():
+	case runErr := <-errCh:
+		return runErr
+	case <-ctx.Done():
+		return nil
+	}
+
 	fmt.Fprintf(stdout, `
 PeerPages ajani hazir.
 
   peer-id : %s
   hedef   : %s
-  relay   : %d adet
+  relay   : %d adet (bagli)
   sir     : %s
 
 Ziyaretcinin acmasi gereken adres:
@@ -105,7 +136,7 @@ Bu sekmeyi/terminali acik tut: tunel ajan calistigi surece ayakta.
 `,
 		identity.ShortenNpub(npub),
 		targetName,
-		len(pool.URLs()),
+		len(connReport.OK),
 		secretNote(cfg.Secret),
 		visitorURL,
 		ReadyMarker,
@@ -113,8 +144,7 @@ Bu sekmeyi/terminali acik tut: tunel ajan calistigi surece ayakta.
 
 	// Relay'ler dususe de akis devam etsin; Run yalnizca tum abonelikler
 	// kapandiginda hata doner.
-	runErr := acceptor.Run(ctx)
-	if runErr != nil {
+	if runErr := <-errCh; runErr != nil {
 		return runErr
 	}
 	log.Info("ajan kapandi", slog.Int("acik_oturum", acceptor.SessionCount()))

@@ -41,7 +41,7 @@ export function ensureAgentBinary(): string {
 }
 
 /** Child process'in stdout'unu satir satir izleyip beklenen metni arayan yardimci. */
-class LineWatcher {
+export class LineWatcher {
   private buffer = "";
   private readonly lines: string[] = [];
   private readonly waiters: Array<{

@@ -117,6 +117,12 @@ type Acceptor struct {
 
 	mu       sync.Mutex
 	sessions map[string]*visitorSession // sid -> oturum
+
+	// ready abonelik kurulduktan sonra kapanir. Cagiran taraf "hazirim"
+	// demeden once bunu beklemeli: ephemeral event'ler saklanmadigi icin
+	// dinlemeye baslamadan gelen offer kaybolur.
+	ready   chan struct{}
+	readyOn sync.Once
 }
 
 // codec sirli/sirsiz kodlamayi tek arayuze indirir.
@@ -155,6 +161,7 @@ func New(cfg Config) (*Acceptor, error) {
 		// cagrilar guvenle gidiyor.
 		codec:    cfg.Sealer,
 		sessions: map[string]*visitorSession{},
+		ready:    make(chan struct{}),
 	}, nil
 }
 
@@ -167,6 +174,9 @@ func (a *Acceptor) Run(ctx context.Context) error {
 
 	filter := nostr.SignalingFilter(a.cfg.Identity.PublicKey, a.now().Add(-SubscribeBacklog))
 	events := a.cfg.Pool.Subscribe(ctx, filter)
+
+	// Abonelik kuruldu: artik gelen offer'lari yakalayabiliriz.
+	a.readyOn.Do(func() { close(a.ready) })
 
 	a.log.Info("signaling dinleniyor",
 		slog.String("peer_id", identity.ShortenNpub(npub)),
@@ -187,6 +197,12 @@ func (a *Acceptor) Run(ctx context.Context) error {
 		}
 	}
 }
+
+// Ready abonelik kuruldugunda kapanan kanali dondurur.
+//
+// "Hazirim" mesajini basmadan once bunu bekle: aksi halde ziyaretci URL'yi
+// hemen acarsa offer'i kaybolur (ephemeral event'ler saklanmaz).
+func (a *Acceptor) Ready() <-chan struct{} { return a.ready }
 
 // SessionCount acik oturum sayisi.
 func (a *Acceptor) SessionCount() int {

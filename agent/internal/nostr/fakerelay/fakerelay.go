@@ -71,9 +71,17 @@ type subscription struct {
 	writeM *sync.Mutex
 }
 
-// Start relay'i baslatir ve ws:// adresini dondurur.
+// Start relay'i bos bir portta baslatir ve ws:// adresini dondurur.
 func Start(opts Options) (*Relay, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	return StartOn(0, opts)
+}
+
+// StartOn relay'i belirtilen portta baslatir (0 = bos port sec).
+//
+// Ayri bir surecte calistirmak icin: `peerpages fakerelay --port N`.
+// Nostr e2e testi tarayicidan baglanabilsin diye gerekiyor.
+func StartOn(port int, opts Options) (*Relay, error) {
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		return nil, fmt.Errorf("dinlenemedi: %w", err)
 	}

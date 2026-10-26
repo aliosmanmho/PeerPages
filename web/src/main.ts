@@ -2,6 +2,7 @@ import "./style.css";
 import { BASE_PATH, inBase } from "./base";
 import { type ConnectResult, connectToAgent } from "./nostr/connect";
 import { PeerIDError, type PeerTarget, parseHash, shortenNpub } from "./nostr/peerid";
+import { RelayListError, relaysFromSearch } from "./nostr/relays";
 import { announceTunnelGone, announceTunnelReady, installBridge } from "./page-bridge";
 import { decodeSDP, encodeSDP } from "./signal";
 import { Tunnel } from "./tunnel";
@@ -352,6 +353,15 @@ function wireUI(): void {
 
 /** URL'de peer-id varsa Nostr ile baglanir. */
 async function connectViaNostr(target: PeerTarget): Promise<void> {
+  let relayOverride: string[] | null = null;
+  try {
+    relayOverride = relaysFromSearch(location.search);
+  } catch (err) {
+    status.step("signal", "error");
+    status.say(err instanceof RelayListError ? err.message : String(err), "error");
+    return;
+  }
+
   if (el.panelManual) el.panelManual.hidden = true;
   if (el.panelNostr) el.panelNostr.hidden = false;
   if (el.nostrPeer) el.nostrPeer.textContent = shortenNpub(target.npub);
@@ -363,6 +373,9 @@ async function connectViaNostr(target: PeerTarget): Promise<void> {
   try {
     const session = await connectToAgent({
       target,
+      // README bolum 4: relay listesi kullanici tarafindan degistirilebilir
+      // (?relay=wss://...). Verilmezse varsayilan liste.
+      ...(relayOverride ? { relays: relayOverride } : {}),
       hooks: {
         onStage: (stage, detail) => {
           switch (stage) {

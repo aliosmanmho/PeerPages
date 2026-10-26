@@ -201,6 +201,69 @@ func (p *Pool) Publish(ctx context.Context, ev gonostr.Event) (PublishReport, er
 	return report, nil
 }
 
+// ConnectReport onceden baglanma sonucu.
+type ConnectReport struct {
+	// OK baglanilabilen relay'ler.
+	OK []string
+	// Failed baglanilamayan relay'ler ve nedenleri.
+	Failed map[string]string
+	// Elapsed tum denemelerin suresi.
+	Elapsed time.Duration
+}
+
+// Connect relay'lere onceden baglanir.
+//
+// Neden gerekli: abonelik kurulmadan "hazirim" demek yanlis. Ephemeral
+// event'ler saklanmadigi icin, ajan dinlemeye baslamadan gelen bir offer
+// GERI DONUSU OLMADAN kaybolur. Bu yuzden ajan once baglanir, sonra abone
+// olur, en son "hazir" der.
+//
+// EN AZ BIR relay'e baglanilabilirse basarili sayilir (hedged).
+func (p *Pool) Connect(ctx context.Context) (ConnectReport, error) {
+	started := time.Now()
+	report := ConnectReport{Failed: map[string]string{}}
+
+	type result struct {
+		url string
+		err error
+	}
+	results := make(chan result, len(p.urls))
+
+	for _, u := range p.urls {
+		go func(u string) {
+			_, err := p.pool.EnsureRelay(u)
+			results <- result{url: u, err: err}
+		}(u)
+	}
+
+	for i := 0; i < len(p.urls); i++ {
+		select {
+		case r := <-results:
+			if r.err != nil {
+				report.Failed[r.url] = r.err.Error()
+				continue
+			}
+			report.OK = append(report.OK, r.url)
+		case <-ctx.Done():
+			report.Elapsed = time.Since(started)
+			if len(report.OK) > 0 {
+				return report, nil
+			}
+			return report, fmt.Errorf("relay baglantisi tamamlanamadi: %w", ctx.Err())
+		}
+	}
+
+	report.Elapsed = time.Since(started)
+	if len(report.OK) == 0 {
+		return report, fmt.Errorf("hicbir relay'e baglanilamadi (%d relay denendi)", len(p.urls))
+	}
+	p.log.Info("relay'lere baglanildi",
+		slog.Int("ok", len(report.OK)),
+		slog.Int("basarisiz", len(report.Failed)),
+		slog.Duration("sure", report.Elapsed))
+	return report, nil
+}
+
 // Subscribe tum relay'lerden gelen event'leri tek kanalda dondurur.
 //
 // go-nostr ayni event'i birden cok relay'den alirsa tekrarlari ayiklar;

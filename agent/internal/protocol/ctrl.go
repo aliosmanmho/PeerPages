@@ -202,6 +202,17 @@ func writeCanonicalHeaders(b *strings.Builder, h map[string]string) {
 	b.WriteString("}")
 }
 
+// QuoteJSON bir stringi JSON literali olarak kacirir (cift tirnaklar dahil).
+//
+// JS'in JSON.stringify'i ile AYNI kurallari uygular; signaling katmani da
+// (internal/signaling) ayni kanonik bicimi uretmek icin bunu kullanir.
+func QuoteJSON(s string) string {
+	var b strings.Builder
+	b.Grow(len(s) + 2)
+	writeJSONString(&b, s)
+	return b.String()
+}
+
 // writeJSONString JS'in JSON.stringify'i ile AYNI kacis kurallarini uygular.
 //
 // Go'nun encoding/json'u kullanilmiyor cunku:

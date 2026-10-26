@@ -4,5 +4,6 @@
     "lib": ["ES2022", "WebWorker"],
     "types": ["vite/client"]
   },
-  "include": ["src/sw.ts", "src/sw/**/*.ts", "src/protocol/**/*.ts"]
+  "include": ["src/sw.ts", "src/sw/**/*.ts", "src/protocol/**/*.ts"],
+  "exclude": ["src/**/*.test.ts", "src/protocol/vectors.ts"]
 }

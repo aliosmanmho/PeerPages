@@ -1,0 +1,433 @@
+{
+  "version": 1,
+  "note": "PeerPages data channel protokolunun paylasilan test vektorleri. Hem web/src/protocol (TS) hem agent/internal/protocol (Go) BU dosyayi okur. Framing: [4B id BE][4B seq BE][payload]. Ayrintilar: protocol/README.md",
+  "framing": {
+    "headerBytes": 8,
+    "maxPayload": 16384,
+    "maxFrame": 16392
+  },
+  "errors": {
+    "framing": [
+      "short-frame",
+      "payload-too-large"
+    ],
+    "ctrl": [
+      "bad-json",
+      "unknown-type",
+      "missing-field",
+      "bad-field"
+    ]
+  },
+  "frames": {
+    "valid": [
+      {
+        "name": "sifir-id-sifir-seq-bos-payload",
+        "id": 0,
+        "seq": 0,
+        "payloadHex": "",
+        "frameHex": "0000000000000000"
+      },
+      {
+        "name": "basit-hello",
+        "id": 17,
+        "seq": 3,
+        "payloadHex": "68656c6c6f",
+        "frameHex": "000000110000000368656c6c6f"
+      },
+      {
+        "name": "uint32-ust-sinir",
+        "id": 4294967295,
+        "seq": 4294967295,
+        "payloadHex": "78",
+        "frameHex": "ffffffffffffffff78"
+      },
+      {
+        "name": "utf8-coklu-bayt",
+        "id": 258,
+        "seq": 1,
+        "payloadHex": "c3a7c49fc3bc",
+        "frameHex": "0000010200000001c3a7c49fc3bc"
+      },
+      {
+        "name": "ikili-veri-null-ve-ff",
+        "id": 2,
+        "seq": 0,
+        "payloadHex": "0001ff7f",
+        "frameHex": "00000002000000000001ff7f"
+      },
+      {
+        "name": "tek-null-bayt",
+        "id": 1,
+        "seq": 0,
+        "payloadHex": "00",
+        "frameHex": "000000010000000000"
+      }
+    ],
+    "generated": [
+      {
+        "name": "tam-16384-bayt-payload",
+        "id": 7,
+        "seq": 65535,
+        "pattern": {
+          "kind": "repeat",
+          "byte": 171,
+          "len": 16384
+        }
+      },
+      {
+        "name": "sinir-eksi-bir-16383-bayt",
+        "id": 8,
+        "seq": 0,
+        "pattern": {
+          "kind": "counter",
+          "len": 16383
+        }
+      },
+      {
+        "name": "counter-4096",
+        "id": 9,
+        "seq": 2,
+        "pattern": {
+          "kind": "counter",
+          "len": 4096
+        }
+      }
+    ],
+    "encodeInvalid": [
+      {
+        "name": "payload-sinirin-bir-bayt-uzerinde",
+        "id": 1,
+        "seq": 0,
+        "pattern": {
+          "kind": "repeat",
+          "byte": 171,
+          "len": 16385
+        },
+        "error": "payload-too-large"
+      },
+      {
+        "name": "payload-cok-buyuk",
+        "id": 1,
+        "seq": 0,
+        "pattern": {
+          "kind": "repeat",
+          "byte": 0,
+          "len": 32768
+        },
+        "error": "payload-too-large"
+      }
+    ],
+    "decodeInvalid": [
+      {
+        "name": "bos-cerceve",
+        "frame": {
+          "hex": ""
+        },
+        "error": "short-frame"
+      },
+      {
+        "name": "yedi-bayt-baslik",
+        "frame": {
+          "hex": "00000001000000"
+        },
+        "error": "short-frame"
+      },
+      {
+        "name": "tek-bayt",
+        "frame": {
+          "hex": "ff"
+        },
+        "error": "short-frame"
+      },
+      {
+        "name": "payload-16385-bayt",
+        "frame": {
+          "id": 3,
+          "seq": 4,
+          "pattern": {
+            "kind": "repeat",
+            "byte": 205,
+            "len": 16385
+          }
+        },
+        "error": "payload-too-large"
+      }
+    ]
+  },
+  "ctrl": {
+    "valid": [
+      {
+        "name": "req-get-sorgulu",
+        "text": "{\"t\":\"req\",\"id\":17,\"method\":\"GET\",\"path\":\"/api/items?x=1\",\"headers\":{\"accept\":\"application/json\",\"accept-encoding\":\"identity\"},\"hasBody\":false}",
+        "canonical": "{\"t\":\"req\",\"id\":17,\"method\":\"GET\",\"path\":\"/api/items?x=1\",\"headers\":{\"accept\":\"application/json\",\"accept-encoding\":\"identity\"},\"hasBody\":false}"
+      },
+      {
+        "name": "req-get-basliksiz",
+        "text": "{\"t\":\"req\",\"id\":0,\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
+        "canonical": "{\"t\":\"req\",\"id\":0,\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}"
+      },
+      {
+        "name": "req-post-govdeli",
+        "text": "{\"t\":\"req\",\"id\":4294967295,\"method\":\"POST\",\"path\":\"/api/items\",\"headers\":{\"content-type\":\"application/json\"},\"hasBody\":true}",
+        "canonical": "{\"t\":\"req\",\"id\":4294967295,\"method\":\"POST\",\"path\":\"/api/items\",\"headers\":{\"content-type\":\"application/json\"},\"hasBody\":true}"
+      },
+      {
+        "name": "req-basliklar-siralanir",
+        "text": "{\"t\":\"req\",\"id\":2,\"method\":\"GET\",\"path\":\"/a\",\"headers\":{\"a-ilk\":\"1\",\"m-orta\":\"2\",\"z-son\":\"3\"},\"hasBody\":false}",
+        "canonical": "{\"t\":\"req\",\"id\":2,\"method\":\"GET\",\"path\":\"/a\",\"headers\":{\"a-ilk\":\"1\",\"m-orta\":\"2\",\"z-son\":\"3\"},\"hasBody\":false}"
+      },
+      {
+        "name": "res-200-html",
+        "text": "{\"t\":\"res\",\"id\":17,\"status\":200,\"headers\":{\"content-type\":\"text/html\"}}",
+        "canonical": "{\"t\":\"res\",\"id\":17,\"status\":200,\"headers\":{\"content-type\":\"text/html\"}}"
+      },
+      {
+        "name": "res-304-basliksiz",
+        "text": "{\"t\":\"res\",\"id\":1,\"status\":304,\"headers\":{}}",
+        "canonical": "{\"t\":\"res\",\"id\":1,\"status\":304,\"headers\":{}}"
+      },
+      {
+        "name": "res-100-alt-sinir",
+        "text": "{\"t\":\"res\",\"id\":2,\"status\":100,\"headers\":{}}",
+        "canonical": "{\"t\":\"res\",\"id\":2,\"status\":100,\"headers\":{}}"
+      },
+      {
+        "name": "res-599-ust-sinir",
+        "text": "{\"t\":\"res\",\"id\":3,\"status\":599,\"headers\":{}}",
+        "canonical": "{\"t\":\"res\",\"id\":3,\"status\":599,\"headers\":{}}"
+      },
+      {
+        "name": "end",
+        "text": "{\"t\":\"end\",\"id\":17}",
+        "canonical": "{\"t\":\"end\",\"id\":17}"
+      },
+      {
+        "name": "abort-client-cancel",
+        "text": "{\"t\":\"abort\",\"id\":17,\"reason\":\"client-cancel\"}",
+        "canonical": "{\"t\":\"abort\",\"id\":17,\"reason\":\"client-cancel\"}"
+      },
+      {
+        "name": "ping",
+        "text": "{\"t\":\"ping\"}",
+        "canonical": "{\"t\":\"ping\"}"
+      },
+      {
+        "name": "pong",
+        "text": "{\"t\":\"pong\"}",
+        "canonical": "{\"t\":\"pong\"}"
+      },
+      {
+        "name": "hello-tek-hedef",
+        "text": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\"],\"auth\":\"none\"}",
+        "canonical": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\"],\"auth\":\"none\"}"
+      },
+      {
+        "name": "hello-coklu-hedef-auth",
+        "text": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\",\"admin\"],\"auth\":\"required\"}",
+        "canonical": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\",\"admin\"],\"auth\":\"required\"}"
+      }
+    ],
+    "invalid": [
+      {
+        "name": "bos-metin",
+        "text": "",
+        "error": "bad-json"
+      },
+      {
+        "name": "bozuk-json",
+        "text": "{\"t\":\"ping\"",
+        "error": "bad-json"
+      },
+      {
+        "name": "json-dizi",
+        "text": "[\"ping\"]",
+        "error": "bad-json"
+      },
+      {
+        "name": "json-sayi",
+        "text": "42",
+        "error": "bad-json"
+      },
+      {
+        "name": "json-null",
+        "text": "null",
+        "error": "bad-json"
+      },
+      {
+        "name": "t-yok",
+        "text": "{\"id\":1}",
+        "error": "missing-field"
+      },
+      {
+        "name": "t-bos",
+        "text": "{\"t\":\"\"}",
+        "error": "unknown-type"
+      },
+      {
+        "name": "t-bilinmeyen",
+        "text": "{\"t\":\"zipzip\",\"id\":1}",
+        "error": "unknown-type"
+      },
+      {
+        "name": "t-sayi",
+        "text": "{\"t\":7}",
+        "error": "bad-field"
+      },
+      {
+        "name": "req-id-yok",
+        "text": "{\"t\":\"req\",\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
+        "error": "missing-field"
+      },
+      {
+        "name": "req-id-negatif",
+        "text": "{\"t\":\"req\",\"id\":-1,\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
+        "error": "bad-field"
+      },
+      {
+        "name": "req-id-uint32-ustu",
+        "text": "{\"t\":\"req\",\"id\":4294967296,\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
+        "error": "bad-field"
+      },
+      {
+        "name": "req-id-ondalik",
+        "text": "{\"t\":\"req\",\"id\":1.5,\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
+        "error": "bad-field"
+      },
+      {
+        "name": "req-method-yok",
+        "text": "{\"t\":\"req\",\"id\":1,\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
+        "error": "missing-field"
+      },
+      {
+        "name": "req-method-bos",
+        "text": "{\"t\":\"req\",\"id\":1,\"method\":\"\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
+        "error": "bad-field"
+      },
+      {
+        "name": "req-method-kucuk-harf",
+        "text": "{\"t\":\"req\",\"id\":1,\"method\":\"get\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
+        "error": "bad-field"
+      },
+      {
+        "name": "req-method-bosluklu",
+        "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET POST\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
+        "error": "bad-field"
+      },
+      {
+        "name": "req-path-yok",
+        "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"headers\":{},\"hasBody\":false}",
+        "error": "missing-field"
+      },
+      {
+        "name": "req-path-goreli",
+        "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"path\":\"api/items\",\"headers\":{},\"hasBody\":false}",
+        "error": "bad-field"
+      },
+      {
+        "name": "req-path-mutlak-url",
+        "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"path\":\"http://evil.example/\",\"headers\":{},\"hasBody\":false}",
+        "error": "bad-field"
+      },
+      {
+        "name": "req-path-protokol-goreli",
+        "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"path\":\"//evil.example/x\",\"headers\":{},\"hasBody\":false}",
+        "error": "bad-field"
+      },
+      {
+        "name": "req-header-degeri-sayi",
+        "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"path\":\"/\",\"headers\":{\"a\":1},\"hasBody\":false}",
+        "error": "bad-field"
+      },
+      {
+        "name": "req-headers-dizi",
+        "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"path\":\"/\",\"headers\":[],\"hasBody\":false}",
+        "error": "bad-field"
+      },
+      {
+        "name": "req-hasbody-metin",
+        "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":\"evet\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "res-status-yok",
+        "text": "{\"t\":\"res\",\"id\":1,\"headers\":{}}",
+        "error": "missing-field"
+      },
+      {
+        "name": "res-status-99",
+        "text": "{\"t\":\"res\",\"id\":1,\"status\":99,\"headers\":{}}",
+        "error": "bad-field"
+      },
+      {
+        "name": "res-status-600",
+        "text": "{\"t\":\"res\",\"id\":1,\"status\":600,\"headers\":{}}",
+        "error": "bad-field"
+      },
+      {
+        "name": "res-status-metin",
+        "text": "{\"t\":\"res\",\"id\":1,\"status\":\"200\",\"headers\":{}}",
+        "error": "bad-field"
+      },
+      {
+        "name": "end-id-yok",
+        "text": "{\"t\":\"end\"}",
+        "error": "missing-field"
+      },
+      {
+        "name": "abort-reason-yok",
+        "text": "{\"t\":\"abort\",\"id\":1}",
+        "error": "missing-field"
+      },
+      {
+        "name": "abort-reason-bos",
+        "text": "{\"t\":\"abort\",\"id\":1,\"reason\":\"\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "hello-v-yok",
+        "text": "{\"t\":\"hello\",\"targets\":[\"default\"],\"auth\":\"none\"}",
+        "error": "missing-field"
+      },
+      {
+        "name": "hello-v-yanlis",
+        "text": "{\"t\":\"hello\",\"v\":2,\"targets\":[\"default\"],\"auth\":\"none\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "hello-targets-yok",
+        "text": "{\"t\":\"hello\",\"v\":1,\"auth\":\"none\"}",
+        "error": "missing-field"
+      },
+      {
+        "name": "hello-targets-bos",
+        "text": "{\"t\":\"hello\",\"v\":1,\"targets\":[],\"auth\":\"none\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "hello-targets-sayi",
+        "text": "{\"t\":\"hello\",\"v\":1,\"targets\":[1],\"auth\":\"none\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "hello-auth-yok",
+        "text": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\"]}",
+        "error": "missing-field"
+      },
+      {
+        "name": "hello-auth-gecersiz",
+        "text": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\"],\"auth\":\"belki\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "req-id-metin",
+        "text": "{\"t\":\"req\",\"id\":\"1\",\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
+        "error": "bad-field"
+      },
+      {
+        "name": "hello-v-metin",
+        "text": "{\"t\":\"hello\",\"v\":\"1\",\"targets\":[\"default\"],\"auth\":\"none\"}",
+        "error": "bad-field"
+      }
+    ]
+  }
+}

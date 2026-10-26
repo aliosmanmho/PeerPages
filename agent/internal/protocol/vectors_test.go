@@ -1,0 +1,136 @@
+package protocol
+
+import (
+	"bytes"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// vectorsPath — TS tarafi (web/src/protocol/*.test.ts) AYNI dosyayi okur.
+const vectorsPath = "../../../protocol/testvectors.json"
+
+type pattern struct {
+	Kind string `json:"kind"`
+	Byte *int   `json:"byte"`
+	Len  int    `json:"len"`
+}
+
+type validFrameVector struct {
+	Name       string `json:"name"`
+	ID         uint32 `json:"id"`
+	Seq        uint32 `json:"seq"`
+	PayloadHex string `json:"payloadHex"`
+	FrameHex   string `json:"frameHex"`
+}
+
+type generatedFrameVector struct {
+	Name    string  `json:"name"`
+	ID      uint32  `json:"id"`
+	Seq     uint32  `json:"seq"`
+	Pattern pattern `json:"pattern"`
+}
+
+type encodeInvalidVector struct {
+	Name    string  `json:"name"`
+	ID      uint32  `json:"id"`
+	Seq     uint32  `json:"seq"`
+	Pattern pattern `json:"pattern"`
+	Error   string  `json:"error"`
+}
+
+type decodeInvalidVector struct {
+	Name  string `json:"name"`
+	Frame struct {
+		Hex     *string  `json:"hex"`
+		ID      uint32   `json:"id"`
+		Seq     uint32   `json:"seq"`
+		Pattern *pattern `json:"pattern"`
+	} `json:"frame"`
+	Error string `json:"error"`
+}
+
+type ctrlValidVector struct {
+	Name      string `json:"name"`
+	Text      string `json:"text"`
+	Canonical string `json:"canonical"`
+}
+
+type ctrlInvalidVector struct {
+	Name  string `json:"name"`
+	Text  string `json:"text"`
+	Error string `json:"error"`
+}
+
+type testVectors struct {
+	Version int    `json:"version"`
+	Note    string `json:"note"`
+	Framing struct {
+		HeaderBytes int `json:"headerBytes"`
+		MaxPayload  int `json:"maxPayload"`
+		MaxFrame    int `json:"maxFrame"`
+	} `json:"framing"`
+	Errors struct {
+		Framing []string `json:"framing"`
+		Ctrl    []string `json:"ctrl"`
+	} `json:"errors"`
+	Frames struct {
+		Valid         []validFrameVector     `json:"valid"`
+		Generated     []generatedFrameVector `json:"generated"`
+		EncodeInvalid []encodeInvalidVector  `json:"encodeInvalid"`
+		DecodeInvalid []decodeInvalidVector  `json:"decodeInvalid"`
+	} `json:"frames"`
+	Ctrl struct {
+		Valid   []ctrlValidVector   `json:"valid"`
+		Invalid []ctrlInvalidVector `json:"invalid"`
+	} `json:"ctrl"`
+}
+
+func loadVectors(t *testing.T) *testVectors {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Clean(vectorsPath))
+	if err != nil {
+		t.Fatalf("test vektorleri okunamadi (%s): %v", vectorsPath, err)
+	}
+	var v testVectors
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&v); err != nil {
+		t.Fatalf("test vektorleri ayristirilamadi: %v", err)
+	}
+	return &v
+}
+
+// buildPattern vektordeki uretim tarifini bayta cevirir. TS tarafindaki
+// buildPattern ile ayni kurallar.
+func buildPattern(t *testing.T, p pattern) []byte {
+	t.Helper()
+	out := make([]byte, p.Len)
+	switch p.Kind {
+	case "repeat":
+		if p.Byte == nil {
+			t.Fatalf("repeat deseni icin byte gerekli")
+		}
+		for i := range out {
+			out[i] = byte(*p.Byte)
+		}
+	case "counter":
+		for i := range out {
+			out[i] = byte(i % 256)
+		}
+	default:
+		t.Fatalf("bilinmeyen desen: %q", p.Kind)
+	}
+	return out
+}
+
+func mustHex(t *testing.T, s string) []byte {
+	t.Helper()
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		t.Fatalf("hex cozulemedi (%q): %v", s, err)
+	}
+	return b
+}

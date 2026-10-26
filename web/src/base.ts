@@ -22,14 +22,35 @@ export function inBase(path: string): string {
 }
 
 /**
+ * Baglanti ekrani ve tunel sahibi sayfanin yolu.
+ *
+ * Scope kokunde DEGIL: scope koku yerel sitenin koku. Boylece
+ *  - ziyaretci sitenin kokunu dogal URL'de gorur,
+ *  - tunel sahibi sekmenin URL'si hicbir zaman tunelden gecmez, yani o sekme
+ *    yenilendiginde tunel kendini kapatmaz.
+ * Karari ve gerekcesi: README §8.
+ */
+export const CONNECT_PATH: string = `${BASE_PATH}connect/`;
+
+/**
  * Verilen URL app shell'in kendi dosyalarindan biri mi?
  *
- * Bu dosyalar tunele gonderilmez; aksi halde baglanti ekranini getirmek icin
+ * Bu dosyalar tunele GONDERILMEZ; aksi halde baglanti ekranini getirmek icin
  * tunele ihtiyac duyardik (yumurta-tavuk).
+ *
+ * Scope kokunun KENDISI app shell degil: orasi yerel sitenin koku ve tunel
+ * acikken tunelden gecer. Tunel yoksa SW navigasyonu baglanti ekranina
+ * yonlendirir, alt kaynaklara 503 doner (src/sw.ts).
  */
 export function isAppShellPath(pathname: string, base: string = BASE_PATH): boolean {
   if (!pathname.startsWith(base)) return false;
   const rest = pathname.slice(base.length);
-  if (rest === "" || rest === "index.html") return true;
-  return rest === "sw.js" || rest.startsWith("assets/") || rest === "favicon.ico";
+  return (
+    rest === "connect" ||
+    rest === "connect/" ||
+    rest === "connect/index.html" ||
+    rest === "sw.js" ||
+    rest === "favicon.ico" ||
+    rest.startsWith("assets/")
+  );
 }

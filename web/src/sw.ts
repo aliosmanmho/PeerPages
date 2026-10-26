@@ -15,7 +15,7 @@
  *  - Istek govdesi akitilmaz, tamponlanir (bridge.ts).
  */
 
-import { BASE_PATH, isAppShellPath } from "./base";
+import { isAppShellPath } from "./base";
 import {
   type BridgeResponse,
   type BridgeToWorker,
@@ -24,6 +24,17 @@ import {
 } from "./bridge";
 
 declare const self: ServiceWorkerGlobalScope;
+
+/**
+ * SW'nin kapsami — DERLEME ZAMANI degil, CALISMA ZAMANI belirlenir.
+ *
+ * `import.meta.env.BASE_URL` kullanmiyoruz cunku SW ayri bir vite
+ * derlemesinden gecer ve iki derlemenin `base` degeri kolayca birbirinden
+ * ayrilabilir (bir kez ayrildi: SW yolun onekini yanlis kirpti ve yerel
+ * sunucuya /PeerPages/index.html gitti, 404). `registration.scope` her zaman
+ * dogru: SW'yi sayfa hangi scope ile kaydettiyse o.
+ */
+const SCOPE_PATH = new URL(self.registration.scope).pathname;
 
 /** Tunelin bulundugu sayfanin client id'si; SW yeniden baslarsa yeniden bulunur. */
 let tunnelClientId: string | null = null;
@@ -63,11 +74,11 @@ self.addEventListener("fetch", (event: FetchEvent) => {
   // Yalnizca kendi kapsamimizdaki istekler (README guvenlik ilkesi 5).
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  if (!url.pathname.startsWith(BASE_PATH)) return;
+  if (!url.pathname.startsWith(SCOPE_PATH)) return;
 
   // App shell kendi dosyalarini tunelden GECIRMEZ: aksi halde baglanti
   // ekranini acmak icin tunele ihtiyac duyardik (yumurta-tavuk).
-  if (isAppShellPath(url.pathname)) return;
+  if (isAppShellPath(url.pathname, SCOPE_PATH)) return;
 
   event.respondWith(handle(request, url));
 });
@@ -77,8 +88,11 @@ async function handle(request: Request, url: URL): Promise<Response> {
 
   if (!client) {
     if (request.mode === "navigate") {
-      // Baglanti ekranina don; app shell tunelden gecmedigi icin acilir.
-      return Response.redirect(new URL(BASE_PATH, self.location.origin).toString(), 302);
+      // Baglanti ekranina don; connect/ tunelden gecmedigi icin acilir.
+      return Response.redirect(
+        new URL(`${SCOPE_PATH}connect/`, self.location.origin).toString(),
+        302,
+      );
     }
     return new Response("peerpages: tunel acik degil\n", {
       status: 503,
@@ -219,7 +233,7 @@ function forward(
 
     // Scope oneki cikarilir: yerel sunucu "/index.html" bekler,
     // ziyaretci "/PeerPages/index.html" istemistir.
-    const path = `/${url.pathname.slice(BASE_PATH.length)}${url.search}`;
+    const path = `/${url.pathname.slice(SCOPE_PATH.length)}${url.search}`;
 
     try {
       client.postMessage(

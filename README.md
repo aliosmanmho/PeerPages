@@ -185,6 +185,33 @@ Signaling'i **kopyala-yapıştır** ile yap (sunucu yok, Nostr yok): ajan `offer
   3. Tek kanal + 1 bayt tip prefiksi (README §3'teki alternatif): en buyuk
      degisiklik.
 
+- **(Faz 1'de ortaya cikti, KARAR BEKLIYOR) App shell ile yerel sitenin koku ayni URL'yi istiyor.**
+  Baglanti ekrani + tunel sahibi sayfa scope kokunde (`/peerpages/`) duruyor;
+  yerel sitenin koku de ayni yerde olmali ki goreli linkler calissin. Ikisi
+  ayni URL'de olamaz: e2e testinde `/peerpages/index.html` istegi app shell'e
+  dustu ve test sitesi yerine baglanti ekrani goruldu. Ayrica tunel sahibi
+  sayfa scope kokundeyse, o sekme yenilenince kendi URL'si tunelden gecer ve
+  tunel kendini kapatir.
+  Secenekler:
+  1. Baglanti ekranini ayri bir yola tasimak (`/peerpages/connect/`), scope
+     kokunu yerel siteye birakmak. Tunel sahibi sayfanin URL'si hicbir zaman
+     tunelden gecmez; ilk ziyarette SW yokken scope koku statik app shell'i
+     servis eder ve o da `connect/`e yonlendirir. README'deki URL bicimi
+     `#peer-id` olarak kalir, yalnizca baglanti ekraninin yolu degisir.
+     Derlemeye ikinci bir HTML girdisi eklenir.
+  2. Yerel siteyi bir onek altina almak (`/peerpages/s/...`). App shell scope
+     kokunde kalir ama ziyaretcinin gordugu URL'ler uzar.
+  3. Oldugu gibi birakmak: app shell scope kokunde, yerel site diger tum
+     yollarda. Sitenin koku yalnizca `/index.html` gibi bir yolla aciliyor ve
+     sunucu onu `./`ya yonlendirirse yine app shell'e dusuyor (test sitesinde
+     `http.FileServer` tam bunu yapiyor). Kirilgan.
+
+  Not: scope bir alt yolda oldugu surece yerel sitenin KOKTEN MUTLAK yollari
+  (`/style.css`) her durumda scope disina duser ve SW onlari yakalamaz. Bu,
+  GitHub Pages proje sayfalarinin yapisal siniri; custom domain ya da
+  kullanici sayfasi (`kullanici.github.io/`) ile kalkar. README'nin "sinirlar"
+  bolumune durustce yazilmali.
+
 - Firefox/Safari'de SW `ReadableStream` cevapları ve `postMessage` performansı — Faz 1'de ölçülecek; gerekirse büyük cevaplar için geçici buffer.
 - Nostr relay'lerinin ephemeral event'leri bazı relay'ler düşürebilir → `doctor` ile relay sağlığı; liste güncel tutulur.
 - GitHub Pages kullanım şartları: statik vitrin için uygun; projeyi ticari proxy gibi sunma, README'de "demo/paylaşım aracı" de.

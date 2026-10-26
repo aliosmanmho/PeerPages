@@ -18,6 +18,18 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     sourcemap: true,
+    // Iki HTML girdisi:
+    //  - index.html      : scope koku. Onyukleyici; tunel acikken SW burayi
+    //                      yerel sitenin kokune proxy'ler.
+    //  - connect/index.html : baglanti ekrani + tunel sahibi sayfa. SW bu
+    //                      yolu asla tunelden gecirmez.
+    // Gerekcesi README §8.
+    rollupOptions: {
+      input: {
+        boot: "index.html",
+        connect: "connect/index.html",
+      },
+    },
   },
   server: {
     port: 5173,

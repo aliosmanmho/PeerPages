@@ -12,7 +12,10 @@ import { defineConfig } from "vite";
  * Bu yuzden `npm run build` sirasi: build:app, sonra build:sw.
  */
 export default defineConfig({
-  // `base` burada gereksiz: SW cikti dosyasi hicbir asset URL'si barindirmiyor.
+  // App derlemesiyle AYNI base: SW su an asset URL'si uretmiyor ama iki
+  // derlemenin ayri base degerleri tasimasi bir kez hataya yol acti.
+  // (Kapsam yine de calisma zamaninda registration.scope'tan okunuyor.)
+  base: process.env.PEERPAGES_BASE ?? "/",
   build: {
     target: "esnext",
     outDir: "dist",

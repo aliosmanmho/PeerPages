@@ -211,6 +211,7 @@ function onTunnelLost(state: string): void {
 function showConnected(): void {
   if (el.panelManual) el.panelManual.hidden = true;
   if (el.panelConnected) el.panelConnected.hidden = false;
+  // Yerel sitenin koku scope kokunde; bu sayfa connect/ altinda duruyor.
   if (el.linkSite) el.linkSite.href = BASE_PATH;
   renderMetrics();
   void measurePing();

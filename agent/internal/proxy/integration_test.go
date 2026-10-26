@@ -77,30 +77,13 @@ func itConnect(t *testing.T, p *Proxy, targets []string) *itVisitor {
 	ctx, cancel := context.WithTimeout(context.Background(), itTimeout)
 	defer cancel()
 
-	offer, err := sess.Offer(ctx)
+	// ZIYARETCI offerer (Faz 2 rol degisimi): kanallari acar, offer uretir.
+	offer, err := v.pc.CreateOffer(nil)
 	if err != nil {
 		t.Fatalf("offer: %v", err)
 	}
-
-	// Elle signaling yolunu da gercekten kullan: base64 kodlamasindan gecsin.
-	encoded, err := signal.Encode(offer)
-	if err != nil {
-		t.Fatalf("offer kodlanamadi: %v", err)
-	}
-	decoded, err := signal.Decode("  " + encoded[:20] + "\n" + encoded[20:] + "\n")
-	if err != nil {
-		t.Fatalf("offer cozulemedi: %v", err)
-	}
-
-	if err := v.pc.SetRemoteDescription(decoded); err != nil {
-		t.Fatalf("offer uygulanamadi: %v", err)
-	}
-	answer, err := v.pc.CreateAnswer(nil)
-	if err != nil {
-		t.Fatalf("answer: %v", err)
-	}
 	gathered := webrtc.GatheringCompletePromise(v.pc)
-	if err := v.pc.SetLocalDescription(answer); err != nil {
+	if err := v.pc.SetLocalDescription(offer); err != nil {
 		t.Fatalf("yerel SDP: %v", err)
 	}
 	select {
@@ -109,7 +92,21 @@ func itConnect(t *testing.T, p *Proxy, targets []string) *itVisitor {
 		t.Fatalf("ziyaretci ICE: %v", ctx.Err())
 	}
 
-	answerEnc, err := signal.Encode(*v.pc.LocalDescription())
+	// Elle signaling yolunu gercekten kullan: base64 kodlamasindan gecsin.
+	offerEnc, err := signal.Encode(*v.pc.LocalDescription())
+	if err != nil {
+		t.Fatalf("offer kodlanamadi: %v", err)
+	}
+	offerDec, err := signal.Decode("  " + offerEnc[:20] + "\n" + offerEnc[20:] + "\n")
+	if err != nil {
+		t.Fatalf("offer cozulemedi: %v", err)
+	}
+
+	answer, err := sess.Answer(ctx, offerDec)
+	if err != nil {
+		t.Fatalf("answer uretilemedi: %v", err)
+	}
+	answerEnc, err := signal.Encode(answer)
 	if err != nil {
 		t.Fatalf("answer kodlanamadi: %v", err)
 	}
@@ -117,8 +114,8 @@ func itConnect(t *testing.T, p *Proxy, targets []string) *itVisitor {
 	if err != nil {
 		t.Fatalf("answer cozulemedi: %v", err)
 	}
-	if err := sess.Accept(answerDec); err != nil {
-		t.Fatalf("answer uygulanamadi: %v", err)
+	if err := v.pc.SetRemoteDescription(answerDec); err != nil {
+		t.Fatalf("ziyaretci answer'i uygulayamadi: %v", err)
 	}
 
 	if err := sess.WaitReady(ctx, itTimeout); err != nil {
@@ -156,46 +153,49 @@ func newITVisitor(t *testing.T) *itVisitor {
 		ready:  make(chan struct{}),
 	}
 
-	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		switch dc.Label() {
-		case "ctrl":
-			v.mu.Lock()
-			v.ctrl = dc
-			v.mu.Unlock()
-			dc.OnMessage(func(m webrtc.DataChannelMessage) {
-				msg, err := protocol.ParseCtrl(string(m.Data))
-				if err != nil {
-					t.Errorf("gecersiz ctrl: %v (%s)", err, m.Data)
-					return
-				}
-				v.ctrlCh <- msg
-			})
-		case "data":
-			v.mu.Lock()
-			v.data = dc
-			v.mu.Unlock()
-			dc.OnMessage(func(m webrtc.DataChannelMessage) {
-				f, err := protocol.DecodeFrame(m.Data)
-				if err != nil {
-					t.Errorf("gecersiz cerceve: %v", err)
-					return
-				}
-				v.dataCh <- f
-			})
+	// Kanallari ZIYARETCI aciyor.
+	ordered := true
+	ctrl, err := pc.CreateDataChannel("ctrl", &webrtc.DataChannelInit{Ordered: &ordered})
+	if err != nil {
+		t.Fatalf("ctrl kanali: %v", err)
+	}
+	data, err := pc.CreateDataChannel("data", &webrtc.DataChannelInit{Ordered: &ordered})
+	if err != nil {
+		t.Fatalf("data kanali: %v", err)
+	}
+	v.ctrl = ctrl
+	v.data = data
+
+	ctrl.OnMessage(func(m webrtc.DataChannelMessage) {
+		msg, perr := protocol.ParseCtrl(string(m.Data))
+		if perr != nil {
+			t.Errorf("gecersiz ctrl: %v (%s)", perr, m.Data)
+			return
 		}
-		check := func() {
-			v.mu.Lock()
-			both := v.ctrl != nil && v.data != nil &&
-				v.ctrl.ReadyState() == webrtc.DataChannelStateOpen &&
-				v.data.ReadyState() == webrtc.DataChannelStateOpen
-			v.mu.Unlock()
-			if both {
-				v.readyOnce.Do(func() { close(v.ready) })
-			}
-		}
-		dc.OnOpen(check)
-		check()
+		v.ctrlCh <- msg
 	})
+	data.OnMessage(func(m webrtc.DataChannelMessage) {
+		f, derr := protocol.DecodeFrame(m.Data)
+		if derr != nil {
+			t.Errorf("gecersiz cerceve: %v", derr)
+			return
+		}
+		v.dataCh <- f
+	})
+
+	check := func() {
+		v.mu.Lock()
+		both := v.ctrl != nil && v.data != nil &&
+			v.ctrl.ReadyState() == webrtc.DataChannelStateOpen &&
+			v.data.ReadyState() == webrtc.DataChannelStateOpen
+		v.mu.Unlock()
+		if both {
+			v.readyOnce.Do(func() { close(v.ready) })
+		}
+	}
+	ctrl.OnOpen(check)
+	data.OnOpen(check)
+
 	return v
 }
 

@@ -16,8 +16,10 @@ import (
 
 // Bu dosya, ziyaretci tarayicisinin yerine gecen bir pion peer'i kurar.
 // Boylece tunnel + sink + flowControl, tarayici olmadan gercek bir WebRTC
-// baglantisi uzerinde test edilebilir. Faz 1.3'te gercek reverse proxy de
-// ayni kosumu kullanir.
+// baglantisi uzerinde test edilebilir.
+//
+// Faz 2'den sonra roller: ZIYARETCI kanallari acar ve offer'i yayinlar, ajan
+// answer doner (protocol/signaling.md). Bu kosum da oyle davraniyor.
 
 // visitor ziyaretci tarafini taklit eder.
 type visitor struct {
@@ -79,12 +81,13 @@ func connect(t *testing.T, cfg Config) (*Session, *visitor) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	offer, err := sess.Offer(ctx)
+	// Ziyaretci offerer: kanallari acar, offer'i uretir.
+	offer := v.offer(ctx)
+	answer, err := sess.Answer(ctx, offer)
 	if err != nil {
-		t.Fatalf("offer uretilemedi: %v", err)
+		t.Fatalf("answer uretilemedi: %v", err)
 	}
-	answer := v.answer(ctx, offer)
-	if err := sess.Accept(answer); err != nil {
+	if err := v.acceptAnswer(answer); err != nil {
 		t.Fatalf("answer uygulanamadi: %v", err)
 	}
 
@@ -111,40 +114,38 @@ func newVisitor(t *testing.T) *visitor {
 		ready:  make(chan struct{}),
 	}
 
-	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		switch dc.Label() {
-		case "ctrl":
-			v.mu.Lock()
-			v.ctrl = dc
-			v.mu.Unlock()
-			dc.OnMessage(func(m webrtc.DataChannelMessage) {
-				msg, err := protocol.ParseCtrl(string(m.Data))
-				if err != nil {
-					t.Errorf("ziyaretci gecersiz ctrl aldi: %v (%s)", err, m.Data)
-					return
-				}
-				v.ctrlCh <- msg
-			})
-		case "data":
-			v.mu.Lock()
-			v.data = dc
-			v.mu.Unlock()
-			dc.OnMessage(func(m webrtc.DataChannelMessage) {
-				f, err := protocol.DecodeFrame(m.Data)
-				if err != nil {
-					t.Errorf("ziyaretci gecersiz cerceve aldi: %v", err)
-					return
-				}
-				v.dataCh <- f
-			})
-		default:
-			t.Errorf("beklenmeyen kanal: %q", dc.Label())
+	// Kanallari ZIYARETCI aciyor (Faz 2 rol degisimi).
+	ordered := true
+	ctrl, err := pc.CreateDataChannel("ctrl", &webrtc.DataChannelInit{Ordered: &ordered})
+	if err != nil {
+		t.Fatalf("ctrl kanali acilamadi: %v", err)
+	}
+	data, err := pc.CreateDataChannel("data", &webrtc.DataChannelInit{Ordered: &ordered})
+	if err != nil {
+		t.Fatalf("data kanali acilamadi: %v", err)
+	}
+	v.ctrl = ctrl
+	v.data = data
+
+	ctrl.OnMessage(func(m webrtc.DataChannelMessage) {
+		msg, perr := protocol.ParseCtrl(string(m.Data))
+		if perr != nil {
+			t.Errorf("ziyaretci gecersiz ctrl aldi: %v (%s)", perr, m.Data)
+			return
 		}
-		dc.OnOpen(v.maybeReady)
-		if dc.ReadyState() == webrtc.DataChannelStateOpen {
-			v.maybeReady()
-		}
+		v.ctrlCh <- msg
 	})
+	data.OnMessage(func(m webrtc.DataChannelMessage) {
+		f, derr := protocol.DecodeFrame(m.Data)
+		if derr != nil {
+			t.Errorf("ziyaretci gecersiz cerceve aldi: %v", derr)
+			return
+		}
+		v.dataCh <- f
+	})
+
+	ctrl.OnOpen(v.maybeReady)
+	data.OnOpen(v.maybeReady)
 
 	return v
 }
@@ -160,17 +161,16 @@ func (v *visitor) maybeReady() {
 	}
 }
 
-func (v *visitor) answer(ctx context.Context, offer webrtc.SessionDescription) webrtc.SessionDescription {
+// offer ziyaretcinin offer'ini uretir ve ICE toplanmasini bekler.
+func (v *visitor) offer(ctx context.Context) webrtc.SessionDescription {
 	v.t.Helper()
-	if err := v.pc.SetRemoteDescription(offer); err != nil {
-		v.t.Fatalf("offer uygulanamadi: %v", err)
-	}
-	answer, err := v.pc.CreateAnswer(nil)
+
+	offer, err := v.pc.CreateOffer(nil)
 	if err != nil {
-		v.t.Fatalf("answer uretilemedi: %v", err)
+		v.t.Fatalf("offer uretilemedi: %v", err)
 	}
 	gathered := webrtc.GatheringCompletePromise(v.pc)
-	if err := v.pc.SetLocalDescription(answer); err != nil {
+	if err := v.pc.SetLocalDescription(offer); err != nil {
 		v.t.Fatalf("yerel SDP ayarlanamadi: %v", err)
 	}
 	select {
@@ -183,6 +183,11 @@ func (v *visitor) answer(ctx context.Context, offer webrtc.SessionDescription) w
 		v.t.Fatal("ziyaretci yerel SDP bos")
 	}
 	return *local
+}
+
+// acceptAnswer ajanin answer'ini uygular.
+func (v *visitor) acceptAnswer(answer webrtc.SessionDescription) error {
+	return v.pc.SetRemoteDescription(answer)
 }
 
 func (v *visitor) waitReady(t *testing.T, d time.Duration) {

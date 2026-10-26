@@ -18,7 +18,8 @@ import {
  *
  * Zincir: tarayici -> Service Worker -> tunel sayfasi -> WebRTC -> ajan ->
  * localhost test sitesi. Arada signaling sunucusu YOK; offer/answer bu test
- * tarafindan stdout/stdin uzerinden tasiniyor.
+ * tarafindan stdin/stdout uzerinden tasiniyor (sayfa offer uretir, ajan
+ * answer doner).
  */
 
 const BASE = "/PeerPages/";
@@ -50,6 +51,9 @@ test.afterEach(() => {
 /**
  * Baglanti ekranini acar, Service Worker'i kurar ve elle signaling ile tuneli
  * acar. Donen sayfa tunel SAHIBIDIR: kapanirsa tunel kapanir.
+ *
+ * YON: sayfa offer uretir -> ajana stdin ile gider -> ajan answer basar ->
+ * sayfaya yapistirilir.
  */
 async function openTunnelPage(context: import("@playwright/test").BrowserContext) {
   const page = await context.newPage();
@@ -62,15 +66,16 @@ async function openTunnelPage(context: import("@playwright/test").BrowserContext
     timeout: 30_000,
   });
 
-  // Ajanin offer'ini yapistir.
-  await page.locator("#offer-input").fill(agent.offer);
-  await page.locator("#btn-accept-offer").click();
+  // SAYFA offer uretir (Faz 2 rol degisimi).
+  await page.locator("#btn-make-offer").click();
+  await expect(page.locator("#offer-output")).not.toHaveValue("", { timeout: 40_000 });
+  const offer = await page.locator("#offer-output").inputValue();
+  expect(offer.length).toBeGreaterThan(20);
 
-  // Uretilen answer'i ajana geri yapistir.
-  await expect(page.locator("#answer-output")).not.toHaveValue("", { timeout: 30_000 });
-  const answer = await page.locator("#answer-output").inputValue();
-  expect(answer.length).toBeGreaterThan(20);
-  agent.sendAnswer(answer);
+  // Ajan answer doner; sayfaya yapistiriyoruz.
+  const answer = await agent.exchange(offer);
+  await page.locator("#answer-input").fill(answer);
+  await page.locator("#btn-accept-answer").click();
 
   await agent.waitTunnelOpen();
   await expect(page.locator("#panel-connected")).toBeVisible({ timeout: 30_000 });

@@ -24,36 +24,37 @@
       </section>
 
       <section class="panel" id="panel-manual">
-        <h2 class="panel__title">1. Ajanin offer'ini yapistir</h2>
+        <h2 class="panel__title">1. Offer uret ve ajana yapistir</h2>
         <p class="panel__hint">
-          Ajani calistir: <code id="agent-cmd">peerpages serve --target http://localhost:3000</code>
-          — stdout'a basilan tek satirlik offer'i buraya yapistir.
+          Ajani calistir: <code id="agent-cmd">peerpages serve --manual --target http://localhost:3000</code>
+          — sonra burada offer uret ve ajanin terminaline yapistir.
         </p>
-        <textarea
-          id="offer-input"
-          class="panel__io"
-          rows="4"
-          spellcheck="false"
-          autocomplete="off"
-          placeholder="eyJ0eXBlIjoib2ZmZXIi…"
-        ></textarea>
         <div class="panel__actions">
-          <button type="button" id="btn-accept-offer" class="btn btn--primary">
-            Offer'i kabul et
-          </button>
+          <button type="button" id="btn-make-offer" class="btn btn--primary">Offer uret</button>
+          <button type="button" id="btn-copy-offer" class="btn" disabled>Kopyala</button>
         </div>
-
-        <h2 class="panel__title">2. Uretilen answer'i ajana yapistir</h2>
         <textarea
-          id="answer-output"
+          id="offer-output"
           class="panel__io"
           rows="4"
           spellcheck="false"
           readonly
-          placeholder="(offer kabul edilince burada olusur)"
+          placeholder="(Offer uret'e basinca burada olusur)"
+        ></textarea>
+
+        <h2 class="panel__title">2. Ajanin answer'ini yapistir</h2>
+        <textarea
+          id="answer-input"
+          class="panel__io"
+          rows="4"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="eyJ0eXBlIjoiYW5zd2VyIi…"
         ></textarea>
         <div class="panel__actions">
-          <button type="button" id="btn-copy-answer" class="btn" disabled>Kopyala</button>
+          <button type="button" id="btn-accept-answer" class="btn btn--primary" disabled>
+            Answer'i uygula
+          </button>
         </div>
       </section>
 

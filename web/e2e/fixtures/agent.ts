@@ -1,9 +1,9 @@
 /**
  * Ajani ve test sitesini child process olarak baslatan test yardimcilari.
  *
- * Elle signaling akisini otomatiklestirir: ajanin stdout'a bastigi offer
- * okunur, sayfaya verilir, sayfanin urettigi answer ajanin stdin'ine yazilir.
- * Boylece Faz 1'in "kopyala-yapistir" yolu gercekten test edilir (README Faz 1).
+ * Elle signaling akisini otomatiklestirir. YON (Faz 2 rol degisimi):
+ * sayfanin urettigi offer ajanin stdin'ine yazilir, ajanin stdout'a bastigi
+ * answer sayfaya verilir. Boylece kopyala-yapistir yolu gercekten test edilir.
  */
 
 import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from "node:child_process";
@@ -17,8 +17,9 @@ export const AGENT_DIR = resolve(here, "..", "..", "..", "agent");
 
 // Ajanin stdout'a bastigi isaretciler (agent/internal/cli/manual.go,
 // agent/internal/cli/testsite.go ile birebir ayni olmali).
-const OFFER_BEGIN = "---PEERPAGES-OFFER-BEGIN---";
-const OFFER_END = "---PEERPAGES-OFFER-END---";
+const OFFER_PROMPT = "---PEERPAGES-OFFER-BEKLENIYOR---";
+const ANSWER_BEGIN = "---PEERPAGES-ANSWER-BEGIN---";
+const ANSWER_END = "---PEERPAGES-ANSWER-END---";
 const TUNNEL_OPEN = "---PEERPAGES-TUNNEL-OPEN---";
 const SITE_LISTENING = "---PEERPAGES-TESTSITE-LISTENING---";
 
@@ -142,10 +143,8 @@ export async function startTestSite(): Promise<TestSite> {
 }
 
 export interface Agent {
-  /** Ajanin stdout'a bastigi offer (base64, tek satir). */
-  offer: string;
-  /** Sayfanin urettigi answer'i ajana yapistirir. */
-  sendAnswer: (answer: string) => void;
+  /** Sayfanin urettigi offer'i ajana yapistirir ve answer'i bekler. */
+  exchange: (offer: string, timeoutMs?: number) => Promise<string>;
   /** Tunelin acildigini bildiren isaretciyi bekler. */
   waitTunnelOpen: (timeoutMs?: number) => Promise<void>;
   /** Ajan ciktisi (hata ayiklama icin). */
@@ -154,10 +153,10 @@ export interface Agent {
   process: ChildProcessWithoutNullStreams;
 }
 
-/** Ajani baslatir, offer'i okur. */
+/** Ajani baslatir ve offer'i yapistirmaya hazir hale gelmesini bekler. */
 export async function startAgent(targetURL: string, extraArgs: string[] = []): Promise<Agent> {
   const bin = ensureAgentBinary();
-  const proc = spawn(bin, ["serve", "--target", targetURL, ...extraArgs], {
+  const proc = spawn(bin, ["serve", "--manual", "--target", targetURL, ...extraArgs], {
     cwd: AGENT_DIR,
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -168,17 +167,18 @@ export async function startAgent(targetURL: string, extraArgs: string[] = []): P
   proc.stderr.setEncoding("utf8");
   proc.stderr.on("data", (c: string) => watcher.feed(c));
 
-  // ICE toplanmasi (STUN) birkac saniye surebilir.
-  await watcher.waitFor((l) => l.includes(OFFER_END), 60_000, "ajan offer'i");
-  const offer = watcher.lineAfter(OFFER_BEGIN);
-  if (!offer || offer.length < 20) {
-    throw new Error(`offer okunamadi.\nCikti:\n${watcher.tail()}`);
-  }
+  await watcher.waitFor((l) => l.includes(OFFER_PROMPT), 30_000, "ajanin offer istegi");
 
   return {
-    offer: offer.trim(),
-    sendAnswer: (answer: string) => {
-      proc.stdin.write(`${answer.trim()}\n`);
+    exchange: async (offer: string, timeoutMs = 60_000) => {
+      proc.stdin.write(`${offer.trim()}\n`);
+      // ICE toplanmasi (STUN) birkac saniye surebilir.
+      await watcher.waitFor((l) => l.includes(ANSWER_END), timeoutMs, "ajan answer'i");
+      const answer = watcher.lineAfter(ANSWER_BEGIN);
+      if (!answer || answer.length < 20) {
+        throw new Error(`answer okunamadi.\nCikti:\n${watcher.tail()}`);
+      }
+      return answer.trim();
     },
     waitTunnelOpen: async (timeoutMs = 60_000) => {
       await watcher.waitFor((l) => l.includes(TUNNEL_OPEN), timeoutMs, "tunel acik isaretcisi");

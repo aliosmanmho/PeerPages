@@ -61,8 +61,11 @@ func TestHealthyRelayIsUsable(t *testing.T) {
 	} else if r.Nip11.Name != "fakerelay" {
 		t.Errorf("NIP-11 adi: %q", r.Nip11.Name)
 	}
-	if r.ConnectMs <= 0 || r.EchoMs < 0 {
-		t.Errorf("sureler olculmeliydi: baglanti=%v yanki=%v", r.ConnectMs, r.EchoMs)
+	// Sahte relay ayni makinede; sureler cok kucuk olabilir ama negatif
+	// olmamali ve alanlar doldurulmus olmali.
+	if r.ConnectMs < 0 || r.PublishMs < 0 || r.EchoMs < 0 {
+		t.Errorf("sureler negatif olamaz: baglanti=%v yayin=%v yanki=%v",
+			r.ConnectMs, r.PublishMs, r.EchoMs)
 	}
 }
 

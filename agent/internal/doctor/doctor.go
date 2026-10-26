@@ -473,8 +473,12 @@ func Run(ctx context.Context, relays, stunServers []string, log *slog.Logger, op
 	return report
 }
 
+// msSince gecen sureyi milisaniye olarak dondurur.
+//
+// Nanosaniye uzerinden hesaplaniyor: sahte relay'e baglanmak 1 mikrosaniyenin
+// altinda surebiliyor ve mikrosaniye tabanli hesap bunu 0'a yuvarliyordu.
 func msSince(t time.Time) float64 {
-	return float64(time.Since(t).Microseconds()) / 1000.0
+	return float64(time.Since(t).Nanoseconds()) / 1e6
 }
 
 func randomHex() string {

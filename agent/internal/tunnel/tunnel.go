@@ -1,9 +1,13 @@
 // Package tunnel ajan tarafindaki WebRTC oturumunu ve ctrl/data kanallarini
 // yonetir.
 //
-// Ajan offerer'dir: kanallari o acar (`ctrl` ve `data`), offer'i uretir,
-// answer'i disaridan alir. Faz 1'de offer/answer elle tasinir
-// (internal/signal); Faz 2'de Nostr gelecek.
+// Ajan ANSWERER'dir: offer'i ziyaretci yayinlar, ajan answer doner.
+// Kanallari (`ctrl` ve `data`) ziyaretci acar, ajan `OnDataChannel` ile alir.
+//
+// Neden boyle: Nostr'da ajan, ziyaretcinin gecici pubkey'ini onceden bilemez,
+// dolayisiyla ilk mesaji o gonderemez (kime sifreleyecegini bilemez). Gelen
+// taraf offer'i yayinlar. Karar ve gerekcesi README bolum 8'de. Elle signaling
+// yolu (`--manual`) da ayni yonu kullanir: tek bir kod yolu var.
 //
 // Istegin HTTP tarafi burada DEGIL: bu paket yalnizca protokolu konusur ve
 // isleri Proxy arayuzune devreder (internal/proxy). Boylece reverse proxy,
@@ -97,6 +101,10 @@ type Config struct {
 	Logger *slog.Logger
 	// Verbose loglarda path maskelemesini kapatir.
 	Verbose bool
+	// Trickle true ise Answer ICE toplanmasini BEKLEMEZ; adaylar
+	// OnLocalCandidate ile tek tek akar (Nostr yolu). false ise Answer tam
+	// SDP dondurur, cunku elle signaling'de tek parca kopyalanacak.
+	Trickle bool
 }
 
 func (c *Config) validate() error {
@@ -172,7 +180,21 @@ type Session struct {
 
 	ctrlMu sync.Mutex // ctrl gonderimlerini sirala
 
-	flow *flowControl
+	// chanMu ctrl/data kanallarini ve flow'u korur: kanallar
+	// OnDataChannel ile ASENKRON gelir.
+	chanMu sync.Mutex
+	flow   *flowControl
+
+	// candMu uzak adaylarin tamponunu korur.
+	//
+	// Adaylar uzak SDP ayarlanmadan once gelebilir (Nostr'da mesaj sirasi
+	// garanti degil). pion bu durumda AddICECandidate'i reddeder, bu yuzden
+	// tamponlayip Answer'dan sonra bosaltiyoruz.
+	candMu       sync.Mutex
+	remoteSet    bool
+	pendingCands []webrtc.ICECandidateInit
+
+	onLocalCandidate func(webrtc.ICECandidateInit)
 
 	reqMu sync.Mutex
 	reqs  map[uint32]*inflight
@@ -213,22 +235,23 @@ func New(cfg Config) (*Session, error) {
 		closed: make(chan struct{}),
 	}
 
-	ordered := true
-	if s.ctrl, err = pc.CreateDataChannel("ctrl", &webrtc.DataChannelInit{Ordered: &ordered}); err != nil {
-		_ = pc.Close()
-		return nil, fmt.Errorf("ctrl kanali acilamadi: %w", err)
-	}
-	if s.data, err = pc.CreateDataChannel("data", &webrtc.DataChannelInit{Ordered: &ordered}); err != nil {
-		_ = pc.Close()
-		return nil, fmt.Errorf("data kanali acilamadi: %w", err)
-	}
+	// Kanallari ZIYARETCI aciyor; biz aliyoruz.
+	pc.OnDataChannel(s.onDataChannel)
 
-	s.flow = newFlowControl(s.data, bufferedHigh, bufferedLow)
-
-	s.ctrl.OnOpen(s.onChannelOpen)
-	s.data.OnOpen(s.onChannelOpen)
-	s.ctrl.OnMessage(s.onCtrlMessage)
-	s.data.OnMessage(s.onDataMessage)
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			// Toplama bitti. Aday sonunu karsi tarafa BILDIRMIYORUZ
+			// (protocol/signaling.md): sadece gondermeyi birakiyoruz.
+			s.log.Debug("ICE aday toplama bitti")
+			return
+		}
+		s.chanMu.Lock()
+		cb := s.onLocalCandidate
+		s.chanMu.Unlock()
+		if cb != nil {
+			cb(c.ToJSON())
+		}
+	})
 
 	pc.OnConnectionStateChange(func(st webrtc.PeerConnectionState) {
 		s.log.Info("baglanti durumu", slog.String("state", st.String()))
@@ -243,11 +266,45 @@ func New(cfg Config) (*Session, error) {
 	return s, nil
 }
 
-func (s *Session) onChannelOpen() {
-	if s.ctrl.ReadyState() != webrtc.DataChannelStateOpen ||
-		s.data.ReadyState() != webrtc.DataChannelStateOpen {
+// onDataChannel ziyaretcinin actigi kanallari alir.
+//
+// Beklenen iki kanal: `ctrl` ve `data` (protocol/README.md). Baska bir ad
+// gelirse yok sayilir; ziyaretci guvenilmez.
+func (s *Session) onDataChannel(dc *webrtc.DataChannel) {
+	switch dc.Label() {
+	case "ctrl":
+		s.chanMu.Lock()
+		s.ctrl = dc
+		s.chanMu.Unlock()
+		dc.OnMessage(s.onCtrlMessage)
+	case "data":
+		dc.SetBufferedAmountLowThreshold(bufferedLow)
+		s.chanMu.Lock()
+		s.data = dc
+		s.flow = newFlowControl(dc, bufferedHigh, bufferedLow)
+		s.chanMu.Unlock()
+		dc.OnMessage(s.onDataMessage)
+	default:
+		s.log.Warn("beklenmeyen data channel", slog.String("label", dc.Label()))
 		return
 	}
+
+	dc.OnOpen(s.onChannelOpen)
+	if dc.ReadyState() == webrtc.DataChannelStateOpen {
+		s.onChannelOpen()
+	}
+}
+
+func (s *Session) onChannelOpen() {
+	s.chanMu.Lock()
+	both := s.ctrl != nil && s.data != nil &&
+		s.ctrl.ReadyState() == webrtc.DataChannelStateOpen &&
+		s.data.ReadyState() == webrtc.DataChannelStateOpen
+	s.chanMu.Unlock()
+	if !both {
+		return
+	}
+
 	s.readyOn.Do(func() {
 		close(s.ready)
 		s.log.Info("kanallar acildi")
@@ -261,40 +318,93 @@ func (s *Session) onChannelOpen() {
 	})
 }
 
-// Offer offer uretir ve ICE toplanmasinin bitmesini bekler (trickle yok —
-// Faz 1'de offer tek parca olarak kopyalanacak).
-func (s *Session) Offer(ctx context.Context) (webrtc.SessionDescription, error) {
-	offer, err := s.pc.CreateOffer(nil)
-	if err != nil {
-		return webrtc.SessionDescription{}, fmt.Errorf("offer uretilemedi: %w", err)
+// OnLocalCandidate yerel ICE adaylari icin geri cagirma kurar.
+//
+// Answer'dan ONCE cagrilmali: adaylar SetLocalDescription ile birlikte
+// akmaya baslar. Trickle kapaliysa (elle signaling) adaylar tam SDP'nin
+// icinde gider ve bu geri cagirma kullanilmaz.
+func (s *Session) OnLocalCandidate(fn func(webrtc.ICECandidateInit)) {
+	s.chanMu.Lock()
+	s.onLocalCandidate = fn
+	s.chanMu.Unlock()
+}
+
+// Answer ziyaretcinin offer'ini uygular ve answer uretir.
+//
+// Trickle kapaliysa ICE toplanmasinin bitmesini bekler ve adaylari icinde
+// tasiyan tam SDP doner (elle signaling tek parca kopyalanacak). Acikken
+// hemen doner; adaylar OnLocalCandidate ile akar.
+func (s *Session) Answer(ctx context.Context, offer webrtc.SessionDescription) (webrtc.SessionDescription, error) {
+	var zero webrtc.SessionDescription
+
+	if offer.Type != webrtc.SDPTypeOffer {
+		return zero, fmt.Errorf("offer bekleniyordu, gelen: %q", offer.Type.String())
 	}
-	gathered := webrtc.GatheringCompletePromise(s.pc)
-	if err := s.pc.SetLocalDescription(offer); err != nil {
-		return webrtc.SessionDescription{}, fmt.Errorf("yerel SDP ayarlanamadi: %w", err)
+	if err := s.pc.SetRemoteDescription(offer); err != nil {
+		return zero, fmt.Errorf("uzak SDP ayarlanamadi: %w", err)
 	}
 
-	select {
-	case <-gathered:
-	case <-ctx.Done():
-		return webrtc.SessionDescription{}, fmt.Errorf("ICE toplanmasi beklenirken: %w", ctx.Err())
+	// Uzak SDP hazir: tamponlanmis adaylari simdi uygulayabiliriz.
+	s.flushPendingCandidates()
+
+	answer, err := s.pc.CreateAnswer(nil)
+	if err != nil {
+		return zero, fmt.Errorf("answer uretilemedi: %w", err)
+	}
+
+	gathered := webrtc.GatheringCompletePromise(s.pc)
+	if err := s.pc.SetLocalDescription(answer); err != nil {
+		return zero, fmt.Errorf("yerel SDP ayarlanamadi: %w", err)
+	}
+
+	if !s.cfg.Trickle {
+		select {
+		case <-gathered:
+		case <-ctx.Done():
+			return zero, fmt.Errorf("ICE toplanmasi beklenirken: %w", ctx.Err())
+		}
 	}
 
 	local := s.pc.LocalDescription()
 	if local == nil {
-		return webrtc.SessionDescription{}, errors.New("yerel SDP bos")
+		return zero, errors.New("yerel SDP bos")
 	}
 	return *local, nil
 }
 
-// Accept ziyaretciden gelen answer'i uygular.
-func (s *Session) Accept(answer webrtc.SessionDescription) error {
-	if answer.Type != webrtc.SDPTypeAnswer {
-		return fmt.Errorf("answer bekleniyordu, gelen: %q", answer.Type.String())
+// AddRemoteCandidate ziyaretciden gelen ICE adayini ekler.
+//
+// Uzak SDP henuz ayarlanmadiysa aday tamponlanir ve Answer'dan sonra
+// uygulanir. Nostr'da mesaj sirasi garanti olmadigi icin bu sart.
+func (s *Session) AddRemoteCandidate(c webrtc.ICECandidateInit) error {
+	s.candMu.Lock()
+	if !s.remoteSet {
+		s.pendingCands = append(s.pendingCands, c)
+		n := len(s.pendingCands)
+		s.candMu.Unlock()
+		s.log.Debug("aday tamponlandi (uzak SDP henuz yok)", slog.Int("bekleyen", n))
+		return nil
 	}
-	if err := s.pc.SetRemoteDescription(answer); err != nil {
-		return fmt.Errorf("uzak SDP ayarlanamadi: %w", err)
+	s.candMu.Unlock()
+
+	if err := s.pc.AddICECandidate(c); err != nil {
+		return fmt.Errorf("aday eklenemedi: %w", err)
 	}
 	return nil
+}
+
+func (s *Session) flushPendingCandidates() {
+	s.candMu.Lock()
+	s.remoteSet = true
+	pending := s.pendingCands
+	s.pendingCands = nil
+	s.candMu.Unlock()
+
+	for _, c := range pending {
+		if err := s.pc.AddICECandidate(c); err != nil {
+			s.log.Warn("tamponlanmis aday eklenemedi", slog.String("err", err.Error()))
+		}
+	}
 }
 
 // Ready iki kanal da acildiginda kapanan kanali dondurur.
@@ -332,10 +442,19 @@ func (s *Session) closeWith(err error) {
 func (s *Session) sendCtrl(m protocol.Msg) error {
 	s.ctrlMu.Lock()
 	defer s.ctrlMu.Unlock()
-	if s.ctrl.ReadyState() != webrtc.DataChannelStateOpen {
-		return fmt.Errorf("ctrl kanali acik degil (%s)", s.ctrl.ReadyState())
+
+	// Kanallar OnDataChannel ile asenkron geldigi icin nil olabilir.
+	s.chanMu.Lock()
+	ctrl := s.ctrl
+	s.chanMu.Unlock()
+
+	if ctrl == nil {
+		return errors.New("ctrl kanali henuz acilmadi")
 	}
-	return s.ctrl.SendText(m.Canonical())
+	if ctrl.ReadyState() != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("ctrl kanali acik degil (%s)", ctrl.ReadyState())
+	}
+	return ctrl.SendText(m.Canonical())
 }
 
 func (s *Session) onCtrlMessage(msg webrtc.DataChannelMessage) {
@@ -677,6 +796,13 @@ func (s *Session) pruneEarlyLocked() {
 			delete(s.early, id)
 		}
 	}
+}
+
+// dataChannel korumali erisim: kanal OnDataChannel ile asenkron geliyor.
+func (s *Session) dataChannel() (*webrtc.DataChannel, *flowControl) {
+	s.chanMu.Lock()
+	defer s.chanMu.Unlock()
+	return s.data, s.flow
 }
 
 // Ping ziyaretciye ping yollar (gecikme olcumu).

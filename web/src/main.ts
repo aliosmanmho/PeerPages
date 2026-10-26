@@ -8,9 +8,13 @@ import { StatusView } from "./ui/status";
 /**
  * Baglanti ekrani ve tunel sahibi sayfa.
  *
- * Faz 1: signaling ELLE yapilir. Ajanin bastigi offer buraya yapistirilir,
- * uretilen answer ajana geri yapistirilir. Signaling sunucusu ve Nostr yok
- * (README Faz 1).
+ * Elle signaling (--manual): BU SAYFA offer uretir, kullanici ajana
+ * yapistirir; ajanin bastigi answer buraya yapistirilir.
+ *
+ * Rol degisimi (Faz 2): kanallari (`ctrl`/`data`) ve offer'i ziyaretci
+ * uretir, ajan answer doner. Nedeni: Nostr'da ajan ziyaretcinin gecici
+ * pubkey'ini onceden bilemez, ilk mesaji o gonderemez. Karar ve gerekcesi
+ * README bolum 8'de.
  *
  * WebRTC baglantisini BU sayfa tutar; Service Worker icinde WebRTC yok.
  * Sayfa kapanirsa tunel kapanir.
@@ -19,15 +23,17 @@ import { StatusView } from "./ui/status";
 const status = new StatusView();
 
 let tunnel: Tunnel | null = null;
+let peer: RTCPeerConnection | null = null;
 
 // Olcum ve durum ekrani icin sayaclar.
 const counters = { requests: 0, errors: 0, bytes: 0 };
 
 const el = {
-  offerInput: document.getElementById("offer-input") as HTMLTextAreaElement | null,
-  acceptBtn: document.getElementById("btn-accept-offer") as HTMLButtonElement | null,
-  answerOutput: document.getElementById("answer-output") as HTMLTextAreaElement | null,
-  copyBtn: document.getElementById("btn-copy-answer") as HTMLButtonElement | null,
+  offerOutput: document.getElementById("offer-output") as HTMLTextAreaElement | null,
+  makeOfferBtn: document.getElementById("btn-make-offer") as HTMLButtonElement | null,
+  copyOfferBtn: document.getElementById("btn-copy-offer") as HTMLButtonElement | null,
+  answerInput: document.getElementById("answer-input") as HTMLTextAreaElement | null,
+  acceptAnswerBtn: document.getElementById("btn-accept-answer") as HTMLButtonElement | null,
   panelManual: document.getElementById("panel-manual"),
   panelConnected: document.getElementById("panel-connected"),
   metrics: document.getElementById("metrics"),
@@ -88,49 +94,30 @@ async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null
   }
 }
 
-/** Yapistirilan offer'i kabul eder, answer uretir ve tuneli kurar. */
-async function acceptOffer(pasted: string): Promise<void> {
+/**
+ * Oturumu baslatir: kanallari acar, offer uretir ve ekrana basar.
+ *
+ * Kanallari BU TARAF aciyor (rol degisimi): `ctrl` ve `data`, ikisi de
+ * ordered + reliable (protocol/README.md).
+ */
+async function makeOffer(): Promise<void> {
   status.step("signal", "active");
-  status.say("Offer okunuyor…");
-
-  let offer: RTCSessionDescriptionInit;
-  try {
-    offer = decodeSDP(pasted);
-  } catch (err) {
-    status.step("signal", "error");
-    status.say(`Offer okunamadi: ${err instanceof Error ? err.message : String(err)}`, "error");
-    return;
-  }
-  if (offer.type !== "offer") {
-    status.step("signal", "error");
-    status.say(`Offer bekleniyordu, gelen: ${String(offer.type)}`, "error");
-    return;
-  }
+  status.say("Kanallar aciliyor, ICE adaylari toplaniyor…");
 
   const pc = new RTCPeerConnection();
+  peer = pc;
 
-  let ctrl: RTCDataChannel | null = null;
-  let data: RTCDataChannel | null = null;
+  const ctrl = pc.createDataChannel("ctrl", { ordered: true });
+  const data = pc.createDataChannel("data", { ordered: true });
 
   const bothOpen = new Promise<void>((resolve, reject) => {
     const check = () => {
-      if (ctrl && data && ctrl.readyState === "open" && data.readyState === "open") {
+      if (ctrl.readyState === "open" && data.readyState === "open") {
         resolve();
       }
     };
-    // Kanallari ajan acar; biz yalnizca aliriz.
-    pc.ondatachannel = (ev) => {
-      const ch = ev.channel;
-      if (ch.label === "ctrl") ctrl = ch;
-      else if (ch.label === "data") data = ch;
-      else {
-        console.warn(`[peerpages] beklenmeyen kanal: ${ch.label}`);
-        return;
-      }
-      ch.addEventListener("open", check);
-      if (ch.readyState === "open") check();
-    };
-
+    ctrl.addEventListener("open", check);
+    data.addEventListener("open", check);
     setTimeout(() => reject(new Error("kanallar 60 sn icinde acilmadi")), 60_000);
   });
 
@@ -144,40 +131,76 @@ async function acceptOffer(pasted: string): Promise<void> {
   };
 
   try {
-    await pc.setRemoteDescription(offer);
-    status.step("signal", "done");
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
     status.step("ice", "active");
-    status.say("ICE adaylari toplaniyor…");
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
     await waitForIceGathering(pc);
 
     const local = pc.localDescription;
     if (!local) throw new Error("yerel SDP olusturulamadi");
 
     const encoded = encodeSDP({ type: local.type, sdp: local.sdp });
-    if (el.answerOutput) {
-      el.answerOutput.value = encoded;
-      el.answerOutput.select();
+    if (el.offerOutput) {
+      el.offerOutput.value = encoded;
+      el.offerOutput.select();
     }
-    if (el.copyBtn) el.copyBtn.disabled = false;
-    status.say("Answer hazir — ajana yapistir. Kanallar bekleniyor…");
+    if (el.copyOfferBtn) el.copyOfferBtn.disabled = false;
+    if (el.acceptAnswerBtn) el.acceptAnswerBtn.disabled = false;
 
+    status.step("signal", "done");
+    status.say("Offer hazir — ajana yapistir, sonra ajanin answer'ini buraya getir.");
+
+    // Kanallar acilinca tuneli kur.
+    void bothOpen
+      .then(() => {
+        tunnel = new Tunnel(ctrl, data);
+        announceTunnelReady();
+        status.step("tunnel", "done");
+        status.say("Tunel acik. Bu sekmeyi kapatma.", "ok");
+        showConnected();
+      })
+      .catch((err) => {
+        status.step("tunnel", "error");
+        status.say(
+          `Tunel kurulamadi: ${err instanceof Error ? err.message : String(err)}`,
+          "error",
+        );
+      });
+  } catch (err) {
+    status.step("signal", "error");
+    status.say(`Offer uretilemedi: ${err instanceof Error ? err.message : String(err)}`, "error");
+    pc.close();
+    peer = null;
+  }
+}
+
+/** Ajanin bastigi answer'i uygular. */
+async function acceptAnswer(pasted: string): Promise<void> {
+  const pc = peer;
+  if (!pc) {
+    status.say("Once offer uret.", "error");
+    return;
+  }
+
+  let answer: RTCSessionDescriptionInit;
+  try {
+    answer = decodeSDP(pasted);
+  } catch (err) {
+    status.say(`Answer okunamadi: ${err instanceof Error ? err.message : String(err)}`, "error");
+    return;
+  }
+  if (answer.type !== "answer") {
+    status.say(`Answer bekleniyordu, gelen: ${String(answer.type)}`, "error");
+    return;
+  }
+
+  try {
+    await pc.setRemoteDescription(answer);
     status.step("tunnel", "active");
-    await bothOpen;
-
-    if (!ctrl || !data) throw new Error("kanallar alinamadi");
-    tunnel = new Tunnel(ctrl, data);
-    announceTunnelReady();
-
-    status.step("tunnel", "done");
-    status.say("Tunel acik. Bu sekmeyi kapatma.", "ok");
-    showConnected();
+    status.say("Answer uygulandi, kanallar bekleniyor…");
   } catch (err) {
     status.step("tunnel", "error");
-    status.say(`Tunel kurulamadi: ${err instanceof Error ? err.message : String(err)}`, "error");
-    pc.close();
+    status.say(`Answer uygulanamadi: ${err instanceof Error ? err.message : String(err)}`, "error");
   }
 }
 
@@ -202,10 +225,15 @@ function onTunnelLost(state: string): void {
     tunnel = null;
     announceTunnelGone();
   }
+  if (peer) {
+    peer.close();
+    peer = null;
+  }
   status.step("tunnel", "error");
-  status.say(`Tunel kapandi (${state}). Yeni bir offer yapistirabilirsin.`, "error");
+  status.say(`Tunel kapandi (${state}). Yeniden offer uretebilirsin.`, "error");
   if (el.panelConnected) el.panelConnected.hidden = true;
   if (el.panelManual) el.panelManual.hidden = false;
+  if (el.makeOfferBtn) el.makeOfferBtn.disabled = false;
 }
 
 function showConnected(): void {
@@ -258,28 +286,33 @@ function formatBytes(n: number): string {
 }
 
 function wireUI(): void {
-  el.acceptBtn?.addEventListener("click", () => {
-    const pasted = el.offerInput?.value ?? "";
-    if (pasted.trim() === "") {
-      status.say("Once ajanin bastigi offer'i yapistir.", "error");
-      return;
-    }
-    if (el.acceptBtn) el.acceptBtn.disabled = true;
-    void acceptOffer(pasted).finally(() => {
-      if (el.acceptBtn) el.acceptBtn.disabled = false;
-    });
+  el.makeOfferBtn?.addEventListener("click", () => {
+    if (el.makeOfferBtn) el.makeOfferBtn.disabled = true;
+    void makeOffer();
   });
 
-  el.copyBtn?.addEventListener("click", async () => {
-    const value = el.answerOutput?.value ?? "";
+  el.copyOfferBtn?.addEventListener("click", async () => {
+    const value = el.offerOutput?.value ?? "";
     if (value === "") return;
     try {
       await navigator.clipboard.writeText(value);
-      status.say("Answer kopyalandi — ajana yapistir.");
+      status.say("Offer kopyalandi — ajana yapistir.");
     } catch {
-      el.answerOutput?.select();
+      el.offerOutput?.select();
       status.say("Kopyalanamadi; metni elle sec ve kopyala.", "error");
     }
+  });
+
+  el.acceptAnswerBtn?.addEventListener("click", () => {
+    const pasted = el.answerInput?.value ?? "";
+    if (pasted.trim() === "") {
+      status.say("Once ajanin bastigi answer'i yapistir.", "error");
+      return;
+    }
+    if (el.acceptAnswerBtn) el.acceptAnswerBtn.disabled = true;
+    void acceptAnswer(pasted).finally(() => {
+      if (el.acceptAnswerBtn) el.acceptAnswerBtn.disabled = false;
+    });
   });
 
   // Sekme kapanirken SW'ye haber ver: bir sonraki istek bosa beklemesin.
@@ -305,8 +338,9 @@ declare global {
       hasTunnel: () => boolean;
       stats: () => unknown;
       ping: () => Promise<number>;
-      acceptOffer: (pasted: string) => Promise<void>;
-      answer: () => string;
+      makeOffer: () => Promise<void>;
+      offer: () => string;
+      acceptAnswer: (pasted: string) => Promise<void>;
     };
   }
 }
@@ -315,6 +349,7 @@ window.__peerpages = {
   hasTunnel: () => tunnel?.isOpen === true,
   stats: () => ({ ...counters, tunnel: tunnel?.stats ?? null }),
   ping: async () => (tunnel ? tunnel.ping() : Promise.reject(new Error("tunel yok"))),
-  acceptOffer: (pasted: string) => acceptOffer(pasted),
-  answer: () => el.answerOutput?.value ?? "",
+  makeOffer: () => makeOffer(),
+  offer: () => el.offerOutput?.value ?? "",
+  acceptAnswer: (pasted: string) => acceptAnswer(pasted),
 };

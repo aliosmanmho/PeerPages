@@ -75,17 +75,24 @@ func (k *sink) Write(p []byte) error {
 	}
 	k.mu.Unlock()
 
+	// Kanal ve akis denetimi ziyaretci tarafindan acildigi icin asenkron
+	// geliyor; bir kez alip dongu boyunca kullaniyoruz.
+	data, flow := k.s.dataChannel()
+	if data == nil || flow == nil {
+		return k.fail(errors.New("data kanali henuz acilmadi"))
+	}
+
 	for off := 0; off < len(p); off += protocol.MaxPayload {
 		end := off + protocol.MaxPayload
 		if end > len(p) {
 			end = len(p)
 		}
 
-		if err := k.s.flow.wait(context.Background()); err != nil {
+		if err := flow.wait(context.Background()); err != nil {
 			return k.fail(err)
 		}
-		if k.s.data.ReadyState() != webrtc.DataChannelStateOpen {
-			return k.fail(fmt.Errorf("data kanali acik degil (%s)", k.s.data.ReadyState()))
+		if data.ReadyState() != webrtc.DataChannelStateOpen {
+			return k.fail(fmt.Errorf("data kanali acik degil (%s)", data.ReadyState()))
 		}
 
 		k.mu.Lock()
@@ -97,7 +104,7 @@ func (k *sink) Write(p []byte) error {
 			return k.fail(err)
 		}
 
-		if err := k.s.data.Send(frame); err != nil {
+		if err := data.Send(frame); err != nil {
 			return k.fail(fmt.Errorf("cerceve yollanamadi: %w", err))
 		}
 

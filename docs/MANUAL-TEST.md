@@ -1,11 +1,19 @@
 # Faz 1'i elle deneme
 
-Faz 1'de **signaling yok**: ajanın bastığı `offer`'ı sen ziyaretçi sayfasına
-yapıştırırsın, sayfanın ürettiği `answer`'ı ajana geri yapıştırırsın. Amaç
-Service Worker + WebRTC + reverse proxy zincirinin gerçekten çalıştığını
-görmek (README Faz 1).
+Bu belge **elle signaling** (`--manual`) yolunu anlatır: ziyaretçi sayfasının
+ürettiği `offer`'ı ajana yapıştırırsın, ajanın bastığı `answer`'ı sayfaya geri
+yapıştırırsın. Amaç Service Worker + WebRTC + reverse proxy zincirinin
+gerçekten çalıştığını görmek.
 
-Otomatik karşılığı: `cd web && npx playwright test` (8 test, kabul
+> **Yön Faz 2'de değişti.** Artık **sayfa** offer üretiyor, ajan answer
+> dönüyor. Nedeni: Nostr signaling'de ajan, ziyaretçinin geçici pubkey'ini
+> önceden bilemediği için ilk mesajı gönderemez. Tek bir kod yolu olması için
+> elle signaling de aynı yönü kullanıyor (README §8).
+
+Nostr ile (URL'yi açmak yeterli) bağlanmak Faz 2'nin konusu; o akış
+tamamlandığında bu belgeye "Nostr ile" bölümü eklenecek.
+
+Otomatik karşılığı: `cd web && npx playwright test` (8 test, Faz 1 kabul
 kriterlerinin tamamını doğruluyor). Aşağısı aynı şeyi elle yapmak için.
 
 ---
@@ -72,23 +80,21 @@ Aşağıda (b) varsayılıyor. (a) için adresleri `http://localhost:5173/…` d
 
 ```bash
 cd agent
-go run . serve --target http://localhost:3000
+go run . serve --manual --target http://localhost:3000
 ```
 
 Çıktı:
 
 ```
----PEERPAGES-OFFER-BEGIN---
-eyJ0eXBlIjoib2ZmZXIiLCJzZHAiOiJ2PTBcclxu…        ← tek satır, uzun
----PEERPAGES-OFFER-END---
+Ziyaretci sayfasini ac (baglanti ekrani), "Offer uret" butonuna bas ve
+uretilen offer'i asagiya yapistirip Enter'a bas.
 
-Bu offer'i ziyaretci sayfasindaki … yapistir
----PEERPAGES-ANSWER-BEKLENIYOR---
+---PEERPAGES-OFFER-BEKLENIYOR---
 ```
 
-İki işaretçi **arasındaki tek satırı** tamamen kopyala.
+Ajan şimdi senden offer bekliyor. Terminali açık bırak.
 
-## 4. Bağlantı ekranını aç ve offer'ı yapıştır
+## 4. Bağlantı ekranını aç ve offer üret
 
 Tarayıcıda:
 
@@ -98,18 +104,28 @@ http://localhost:4173/PeerPages/connect/
 
 - Durum satırında **Service Worker** adımı yeşile dönmeli
   ("Service Worker aktif").
-- Kopyaladığın offer'ı "Ajanin offer'ini yapistir" alanına yapıştır.
-- **Offer'i kabul et**'e bas.
-
-Birkaç saniye içinde alt alandaki `answer` dolar (tek satır base64).
+- **Offer uret** düğmesine bas. Birkaç saniye içinde (ICE toplanması) alttaki
+  alanda tek satırlık base64 offer oluşur.
+- **Kopyala**'ya bas.
 
 > **Bu sekmeyi kapatma.** WebRTC bağlantısını bu sayfa tutuyor; Service
 > Worker'ın içinde WebRTC yok (README §2). Sekme kapanırsa tünel kapanır.
 
-## 5. Answer'ı ajana yapıştır
+## 5. Offer'ı ajana, answer'ı sayfaya taşı
 
-"Kopyala" düğmesine bas, ajanın çalıştığı terminale geç, yapıştır ve
-**Enter**'a bas. Ajan şunu yazar:
+1. Ajanın terminaline geç, offer'ı **yapıştır** ve **Enter**'a bas.
+2. Ajan answer'ı basar:
+
+   ```
+   ---PEERPAGES-ANSWER-BEGIN---
+   eyJ0eXBlIjoiYW5zd2VyIiwic2RwIjoi…
+   ---PEERPAGES-ANSWER-END---
+   ```
+
+3. İki işaretçi arasındaki **tek satırı** kopyala, sayfadaki
+   "Ajanin answer'ini yapistir" alanına yapıştır ve **Answer'i uygula**'ya bas.
+
+Ajan şunu yazar:
 
 ```
 ---PEERPAGES-TUNNEL-OPEN---
@@ -184,8 +200,10 @@ gönder ya da bir not uygulamasıyla senkronla.
    >   ayarına o adresi ekle (yalnızca test için), ya da
    > - Faz 7'de gerçek dağıtımda bu sorun yok: GitHub Pages HTTPS veriyor.
 
-4. Laptop'taki ajanın offer'ını telefona taşı, yapıştır, "Offer'i kabul et".
-5. Telefonun ürettiği answer'ı laptop'a taşı, ajanın terminaline yapıştır.
+4. Telefonda **Offer uret**'e bas ve üretilen offer'ı laptop'a taşı; ajanın
+   terminaline yapıştır.
+5. Ajanın bastığı answer'ı telefona taşı ve sayfadaki answer alanına
+   yapıştırıp **Answer'i uygula**'ya bas.
 6. Telefonda `http://192.168.1.97:4173/PeerPages/` adresini aç: laptop'taki
    `localhost:3000` telefonda açılır.
 
@@ -200,9 +218,9 @@ ajan STUN kullanıyor; simetrik NAT'ta TURN gerekir (Faz 5).
 | Belirti | Sebep / çözüm |
 |---|---|
 | Durum satırı "Baslatiliyor…"da kalıyor | Service Worker kurulamadı. Güvenli bağlam mı (`localhost`/HTTPS)? DevTools → Application → Service Workers'a bak. |
-| "base64 cozulemedi" | Offer metni eksik kopyalanmış. İki işaretçi arasındaki **tüm** satırı al. |
-| Answer alanı boş kalıyor | ICE toplanması bitmemiş olabilir; 10 sn bekle. Konsolda hata var mı? |
-| Ajan "answer okunamadi: girdi bitti" | Terminale yapıştırıp Enter'a basmadan ajan kapanmış. Yeniden başlat. |
+| "base64 cozulemedi" | Metin eksik kopyalanmış. İki işaretçi arasındaki **tüm** satırı al. |
+| Offer alanı boş kalıyor | ICE toplanması bitmemiş olabilir; 10 sn bekle. Konsolda hata var mı? |
+| Ajan "girdi okunamadi: girdi bitti" | Terminale yapıştırıp Enter'a basmadan ajan kapanmış. Yeniden başlat. |
 | Site sekmesi bağlantı ekranına düşüyor | Tünel sahibi sekme kapalı. `/connect/` sekmesinin açık olduğundan emin ol. |
 | Alt kaynaklar 503 | Aynı sebep: tünel yok. |
 | Kök mutlak yollar (`/style.css`) 404 | Alt yolda (`/PeerPages/`) yayınlanan sitelerin yapısal sınırı: o yol Service Worker'ın kapsamı dışına düşer. Custom domain ya da `kullanici.github.io/` kökünde sorun kalmaz (README §8). |

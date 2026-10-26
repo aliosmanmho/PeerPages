@@ -18,24 +18,28 @@ import (
 
 // Elle signaling akisinda stdout'a basilan isaretciler.
 //
-// Hem insan hem makine okur: Playwright e2e testi offer'i bu isaretciler
-// arasindan alir, answer'i stdin'e yazar ve TunnelOpenMarker'i bekler
-// (web/e2e/tunnel.spec.ts).
+// Hem insan hem makine okur: Playwright e2e testi answer'i bu isaretciler
+// arasindan alir, offer'i stdin'e yazar ve TunnelOpenMarker'i bekler
+// (web/e2e/fixtures/agent.ts).
+//
+// YON: Faz 2'de rol degisti. Artik SAYFA offer uretiyor, ajan answer doniyor
+// (protocol/signaling.md). Yani kopyalama yonu Faz 1'in tersi.
 const (
-	OfferBeginMarker  = "---PEERPAGES-OFFER-BEGIN---"
-	OfferEndMarker    = "---PEERPAGES-OFFER-END---"
-	AnswerPrompt      = "---PEERPAGES-ANSWER-BEKLENIYOR---"
-	TunnelOpenMarker  = "---PEERPAGES-TUNNEL-OPEN---"
-	TunnelClosedMark  = "---PEERPAGES-TUNNEL-CLOSED---"
+	OfferPrompt      = "---PEERPAGES-OFFER-BEKLENIYOR---"
+	AnswerBeginMark  = "---PEERPAGES-ANSWER-BEGIN---"
+	AnswerEndMark    = "---PEERPAGES-ANSWER-END---"
+	TunnelOpenMarker = "---PEERPAGES-TUNNEL-OPEN---"
+	TunnelClosedMark = "---PEERPAGES-TUNNEL-CLOSED---"
+
 	channelOpenWait   = 60 * time.Second
 	iceGatheringLimit = 45 * time.Second
 )
 
 // runManual elle signaling ile tek bir tunel oturumu calistirir.
 //
-// Akis (README Faz 1): ajan offer'i stdout'a basar -> kullanici ziyaretci
-// sayfasina yapistirir -> sayfanin urettigi answer stdin'e yapistirilir ->
-// tunel acilir. Signaling sunucusu ve Nostr YOK.
+// Akis: ziyaretci sayfasi offer uretir -> kullanici ajana yapistirir -> ajan
+// answer basar -> kullanici sayfaya yapistirir -> tunel acilir. Signaling
+// sunucusu ve Nostr YOK.
 func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io.Writer) error {
 	log := cfg.Logger
 
@@ -66,6 +70,9 @@ func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io
 		Proxy:         px,
 		Logger:        log,
 		Verbose:       cfg.Verbose,
+		// Elle signaling: adaylar tam SDP'nin icinde gitsin, tek parca
+		// kopyalanabilsin. Trickle Nostr yolunda aciliyor.
+		Trickle: false,
 	})
 	if err != nil {
 		return err
@@ -76,39 +83,37 @@ func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io
 		}
 	}()
 
-	offerCtx, cancelOffer := context.WithTimeout(ctx, iceGatheringLimit)
-	defer cancelOffer()
-
-	log.Info("ICE adaylari toplaniyor", slog.Any("stun", cfg.STUN))
-	offer, err := sess.Offer(offerCtx)
-	if err != nil {
-		return fmt.Errorf("offer uretilemedi: %w", err)
-	}
-	encoded, err := signal.Encode(offer)
-	if err != nil {
-		return err
-	}
-
-	fmt.Fprintf(stdout, "\n%s\n%s\n%s\n", OfferBeginMarker, encoded, OfferEndMarker)
 	fmt.Fprintf(stdout, `
-Bu offer'i ziyaretci sayfasindaki "Ajanin offer'ini yapistir" alanina
-yapistir, "Offer'i kabul et" butonuna bas ve sayfanin urettigi answer'i
-asagiya yapistirip Enter'a bas.
+Ziyaretci sayfasini ac (baglanti ekrani), "Offer uret" butonuna bas ve
+uretilen offer'i asagiya yapistirip Enter'a bas.
 
 %s
-`, AnswerPrompt)
+`, OfferPrompt)
 
-	answerLine, err := readAnswer(ctx, stdin)
+	offerLine, err := readPastedLine(ctx, stdin)
 	if err != nil {
 		return err
 	}
-	answer, err := signal.Decode(answerLine)
+	offer, err := signal.Decode(offerLine)
 	if err != nil {
-		return fmt.Errorf("answer okunamadi: %w", err)
+		return fmt.Errorf("offer okunamadi: %w", err)
 	}
-	if err := sess.Accept(answer); err != nil {
+
+	log.Info("ICE adaylari toplaniyor", slog.Any("stun", cfg.STUN))
+	answerCtx, cancelAnswer := context.WithTimeout(ctx, iceGatheringLimit)
+	defer cancelAnswer()
+
+	answer, err := sess.Answer(answerCtx, offer)
+	if err != nil {
+		return fmt.Errorf("answer uretilemedi: %w", err)
+	}
+	encoded, err := signal.Encode(answer)
+	if err != nil {
 		return err
 	}
+
+	fmt.Fprintf(stdout, "\n%s\n%s\n%s\n", AnswerBeginMark, encoded, AnswerEndMark)
+	fmt.Fprint(stdout, "\nBu answer'i ziyaretci sayfasindaki answer alanina yapistir.\n")
 
 	if err := sess.WaitReady(ctx, channelOpenWait); err != nil {
 		return fmt.Errorf("tunel acilamadi: %w", err)
@@ -134,11 +139,11 @@ asagiya yapistirip Enter'a bas.
 	}
 }
 
-// readAnswer stdin'den tek satirlik answer'i okur.
+// readPastedLine stdin'den tek satirlik yapistirilmis metni okur.
 //
 // Okuma ayri bir goroutine'de yapilir; aksi halde Ctrl+C bir satir
 // gelmedikce islemez (stdin okumasi iptal edilemez).
-func readAnswer(ctx context.Context, stdin io.Reader) (string, error) {
+func readPastedLine(ctx context.Context, stdin io.Reader) (string, error) {
 	type result struct {
 		line string
 		err  error
@@ -156,10 +161,10 @@ func readAnswer(ctx context.Context, stdin io.Reader) (string, error) {
 			}
 			if err != nil {
 				if errors.Is(err, io.EOF) {
-					ch <- result{err: errors.New("answer okunamadi: girdi bitti")}
+					ch <- result{err: errors.New("girdi okunamadi: girdi bitti")}
 					return
 				}
-				ch <- result{err: fmt.Errorf("answer okunamadi: %w", err)}
+				ch <- result{err: fmt.Errorf("girdi okunamadi: %w", err)}
 				return
 			}
 		}

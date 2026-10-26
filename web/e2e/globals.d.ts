@@ -8,8 +8,9 @@ declare global {
       hasTunnel: () => boolean;
       stats: () => unknown;
       ping: () => Promise<number>;
-      acceptOffer: (pasted: string) => Promise<void>;
-      answer: () => string;
+      makeOffer: () => Promise<void>;
+      offer: () => string;
+      acceptAnswer: (pasted: string) => Promise<void>;
     };
   }
 }

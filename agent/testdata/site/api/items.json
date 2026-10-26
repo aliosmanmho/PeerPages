@@ -1,0 +1,8 @@
+{
+  "items": [
+    { "ad": "alfa", "deger": 1 },
+    { "ad": "beta", "deger": 2 },
+    { "ad": "gama", "deger": 3 }
+  ],
+  "toplam": 3
+}

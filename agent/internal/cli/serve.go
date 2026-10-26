@@ -4,10 +4,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	osignal "os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/aliosmanmho/PeerPages/agent/internal/logging"
+	"github.com/aliosmanmho/PeerPages/agent/internal/protocol"
 	"github.com/aliosmanmho/PeerPages/agent/internal/size"
 	"github.com/aliosmanmho/PeerPages/agent/internal/target"
 )
@@ -117,6 +121,13 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 	}, nil
 }
 
+// AuthMode hello mesajinda bildirilecek auth degeri.
+//
+// Faz 1'de paylasilan sir yok; --secret Faz 2'de gelecek.
+func (c *ServeConfig) AuthMode() protocol.AuthMode {
+	return protocol.AuthNone
+}
+
 func runServe(cmd *cobra.Command, cfg *ServeConfig) error {
 	log := cfg.Logger
 	log.Info("ajan baslatiliyor",
@@ -129,7 +140,9 @@ func runServe(cmd *cobra.Command, cfg *ServeConfig) error {
 		log.Warn("verbose acik: URL path'leri loglarda maskelenmiyor")
 	}
 
-	// Faz 1.2 bu noktada WebRTC baglantisini kurar.
-	fmt.Fprintln(cmd.OutOrStdout(), "faz-0 iskeleti: WebRTC tuneli Faz 1.2'de eklenecek")
-	return nil
+	// Ctrl+C / SIGTERM ile temiz kapanis.
+	ctx, stop := osignal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	return runManual(ctx, cfg, cmd.InOrStdin(), cmd.OutOrStdout())
 }

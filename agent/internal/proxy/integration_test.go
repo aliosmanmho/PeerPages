@@ -1,0 +1,515 @@
+package proxy
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"net/http/httptest"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/pion/webrtc/v4"
+
+	"github.com/aliosmanmho/PeerPages/agent/internal/protocol"
+	"github.com/aliosmanmho/PeerPages/agent/internal/signal"
+	"github.com/aliosmanmho/PeerPages/agent/internal/target"
+	"github.com/aliosmanmho/PeerPages/agent/internal/testsite"
+	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
+)
+
+// Bu dosya zincirin AJAN YARISINI uctan uca test eder:
+//
+//	ziyaretci (pion) --WebRTC--> tunnel --> proxy --> gercek HTTP test sitesi
+//
+// Tarayici tarafi (Service Worker + sayfa) Playwright e2e testinde
+// dogrulaniyor (web/e2e/tunnel.spec.ts). Burada tarayici olmadigi icin
+// testler hizli ve CI'da kararli; throughput olcumu de buradan cikiyor.
+
+const itTimeout = 30 * time.Second
+
+// itVisitor ziyaretci tarafini taklit eden asgari istemci.
+type itVisitor struct {
+	pc   *webrtc.PeerConnection
+	ctrl *webrtc.DataChannel
+	data *webrtc.DataChannel
+
+	mu     sync.Mutex
+	ctrlCh chan protocol.Msg
+	dataCh chan protocol.Frame
+
+	readyOnce sync.Once
+	ready     chan struct{}
+}
+
+type itResponse struct {
+	status  int
+	headers map[string]string
+	body    []byte
+	abort   string
+	// ttfb: istek yollandiktan ilk gövde baytina kadar gecen sure.
+	ttfb time.Duration
+	// total: istek yollandiktan govde tamamlanana kadar gecen sure.
+	total time.Duration
+}
+
+func itConnect(t *testing.T, p *Proxy, targets []string) *itVisitor {
+	t.Helper()
+
+	sess, err := tunnel.New(tunnel.Config{
+		Targets:       targets,
+		Auth:          protocol.AuthNone,
+		MaxConcurrent: 16,
+		MaxBody:       1 << 20,
+		Proxy:         p,
+		Logger:        quietLogger(),
+	})
+	if err != nil {
+		t.Fatalf("oturum kurulamadi: %v", err)
+	}
+	t.Cleanup(func() { _ = sess.Close() })
+
+	v := newITVisitor(t)
+	t.Cleanup(func() { _ = v.pc.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), itTimeout)
+	defer cancel()
+
+	offer, err := sess.Offer(ctx)
+	if err != nil {
+		t.Fatalf("offer: %v", err)
+	}
+
+	// Elle signaling yolunu da gercekten kullan: base64 kodlamasindan gecsin.
+	encoded, err := signal.Encode(offer)
+	if err != nil {
+		t.Fatalf("offer kodlanamadi: %v", err)
+	}
+	decoded, err := signal.Decode("  " + encoded[:20] + "\n" + encoded[20:] + "\n")
+	if err != nil {
+		t.Fatalf("offer cozulemedi: %v", err)
+	}
+
+	if err := v.pc.SetRemoteDescription(decoded); err != nil {
+		t.Fatalf("offer uygulanamadi: %v", err)
+	}
+	answer, err := v.pc.CreateAnswer(nil)
+	if err != nil {
+		t.Fatalf("answer: %v", err)
+	}
+	gathered := webrtc.GatheringCompletePromise(v.pc)
+	if err := v.pc.SetLocalDescription(answer); err != nil {
+		t.Fatalf("yerel SDP: %v", err)
+	}
+	select {
+	case <-gathered:
+	case <-ctx.Done():
+		t.Fatalf("ziyaretci ICE: %v", ctx.Err())
+	}
+
+	answerEnc, err := signal.Encode(*v.pc.LocalDescription())
+	if err != nil {
+		t.Fatalf("answer kodlanamadi: %v", err)
+	}
+	answerDec, err := signal.Decode(answerEnc)
+	if err != nil {
+		t.Fatalf("answer cozulemedi: %v", err)
+	}
+	if err := sess.Accept(answerDec); err != nil {
+		t.Fatalf("answer uygulanamadi: %v", err)
+	}
+
+	if err := sess.WaitReady(ctx, itTimeout); err != nil {
+		t.Fatalf("ajan kanallari acilmadi: %v", err)
+	}
+	select {
+	case <-v.ready:
+	case <-time.After(itTimeout):
+		t.Fatal("ziyaretci kanallari acilmadi")
+	}
+
+	// hello'yu yut.
+	select {
+	case m := <-v.ctrlCh:
+		if _, ok := m.(protocol.Hello); !ok {
+			t.Fatalf("ilk mesaj hello olmali, geldi: %s", m.Type())
+		}
+	case <-time.After(itTimeout):
+		t.Fatal("hello gelmedi")
+	}
+
+	return v
+}
+
+func newITVisitor(t *testing.T) *itVisitor {
+	t.Helper()
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("ziyaretci peer connection: %v", err)
+	}
+	v := &itVisitor{
+		pc:     pc,
+		ctrlCh: make(chan protocol.Msg, 256),
+		dataCh: make(chan protocol.Frame, 8192),
+		ready:  make(chan struct{}),
+	}
+
+	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		switch dc.Label() {
+		case "ctrl":
+			v.mu.Lock()
+			v.ctrl = dc
+			v.mu.Unlock()
+			dc.OnMessage(func(m webrtc.DataChannelMessage) {
+				msg, err := protocol.ParseCtrl(string(m.Data))
+				if err != nil {
+					t.Errorf("gecersiz ctrl: %v (%s)", err, m.Data)
+					return
+				}
+				v.ctrlCh <- msg
+			})
+		case "data":
+			v.mu.Lock()
+			v.data = dc
+			v.mu.Unlock()
+			dc.OnMessage(func(m webrtc.DataChannelMessage) {
+				f, err := protocol.DecodeFrame(m.Data)
+				if err != nil {
+					t.Errorf("gecersiz cerceve: %v", err)
+					return
+				}
+				v.dataCh <- f
+			})
+		}
+		check := func() {
+			v.mu.Lock()
+			both := v.ctrl != nil && v.data != nil &&
+				v.ctrl.ReadyState() == webrtc.DataChannelStateOpen &&
+				v.data.ReadyState() == webrtc.DataChannelStateOpen
+			v.mu.Unlock()
+			if both {
+				v.readyOnce.Do(func() { close(v.ready) })
+			}
+		}
+		dc.OnOpen(check)
+		check()
+	})
+	return v
+}
+
+// get bir GET istegi yollar ve cevabi toplar.
+//
+// `end` tek basina govdenin bittigini soylemez (ctrl/data arasinda siralama
+// yok): frames/len sayaclari tamamlanana kadar beklenir.
+func (v *itVisitor) get(t *testing.T, id uint32, path string) itResponse {
+	t.Helper()
+
+	v.mu.Lock()
+	ctrl := v.ctrl
+	v.mu.Unlock()
+	if ctrl == nil {
+		t.Fatal("ctrl kanali yok")
+	}
+
+	start := time.Now()
+	req := protocol.Req{ID: id, Method: "GET", Path: path, Headers: map[string]string{}, HasBody: false}
+	if err := ctrl.SendText(req.Canonical()); err != nil {
+		t.Fatalf("istek yollanamadi: %v", err)
+	}
+
+	var (
+		out       itResponse
+		gotFrames uint32
+		endSeen   bool
+		expFrames uint32
+		expLen    int64
+		body      bytes.Buffer
+	)
+	deadline := time.After(itTimeout)
+
+	for {
+		done := endSeen && gotFrames == expFrames && int64(body.Len()) == expLen
+		if done {
+			out.body = body.Bytes()
+			out.total = time.Since(start)
+			return out
+		}
+
+		select {
+		case m := <-v.ctrlCh:
+			switch msg := m.(type) {
+			case protocol.Res:
+				if msg.ID == id {
+					out.status = msg.Status
+					out.headers = msg.Headers
+				}
+			case protocol.End:
+				if msg.ID == id {
+					endSeen = true
+					expFrames = msg.Frames
+					expLen = msg.Len
+				}
+			case protocol.Abort:
+				if msg.ID == id {
+					out.abort = msg.Reason
+					out.body = body.Bytes()
+					out.total = time.Since(start)
+					return out
+				}
+			}
+		case f := <-v.dataCh:
+			if f.ID != id {
+				continue
+			}
+			if f.Seq != gotFrames {
+				t.Errorf("beklenmeyen seq %d, beklenen %d", f.Seq, gotFrames)
+			}
+			if gotFrames == 0 {
+				out.ttfb = time.Since(start)
+			}
+			gotFrames++
+			body.Write(f.Payload)
+		case <-deadline:
+			t.Fatalf("istek %q %s icinde tamamlanmadi (status=%d, %d bayt, end=%v)",
+				path, itTimeout, out.status, body.Len(), endSeen)
+		}
+	}
+}
+
+// ping ctrl kanalinda ping/pong gidis donus suresini olcer.
+func (v *itVisitor) ping(t *testing.T) time.Duration {
+	t.Helper()
+	v.mu.Lock()
+	ctrl := v.ctrl
+	v.mu.Unlock()
+
+	start := time.Now()
+	if err := ctrl.SendText(protocol.Ping{}.Canonical()); err != nil {
+		t.Fatalf("ping yollanamadi: %v", err)
+	}
+	deadline := time.After(itTimeout)
+	for {
+		select {
+		case m := <-v.ctrlCh:
+			if _, ok := m.(protocol.Pong); ok {
+				return time.Since(start)
+			}
+		case <-deadline:
+			t.Fatal("pong gelmedi")
+		}
+	}
+}
+
+// siteProxy gercek test sitesini servis eden bir proxy kurar.
+func siteProxy(t *testing.T) (*Proxy, []string, *httptest.Server) {
+	t.Helper()
+
+	// big.bin repoda yok: uretilmesi gerekiyor.
+	if _, _, err := testsite.GenerateBig("../../testdata/site"); err != nil {
+		t.Fatalf("test verisi uretilemedi: %v", err)
+	}
+
+	srv := httptest.NewServer(testsite.Handler("../../testdata/site"))
+	t.Cleanup(srv.Close)
+
+	targets, err := target.Parse([]string{srv.URL})
+	if err != nil {
+		t.Fatalf("hedef: %v", err)
+	}
+	p, err := New(Config{
+		Targets:    targets,
+		TargetName: target.DefaultName,
+		MaxBody:    50 << 20,
+		Timeout:    itTimeout,
+		Logger:     quietLogger(),
+	})
+	if err != nil {
+		t.Fatalf("proxy: %v", err)
+	}
+	return p, targets.Names(), srv
+}
+
+// Faz 1 kabul kriterlerinin ajan tarafindaki karsiligi.
+func TestIntegrationTestSiteOverTunnel(t *testing.T) {
+	p, names, _ := siteProxy(t)
+	v := itConnect(t, p, names)
+
+	t.Run("HTML", func(t *testing.T) {
+		// "/" istenir: http.FileServer /index.html'i "./"a 301 ile
+		// kanoniklestirir (asagidaki alt testte dogrulaniyor).
+		res := v.get(t, 1, "/")
+		if res.abort != "" {
+			t.Fatalf("abort: %s", res.abort)
+		}
+		if res.status != 200 {
+			t.Fatalf("status %d", res.status)
+		}
+		if !bytes.Contains(res.body, []byte("PeerPages test sitesi")) {
+			t.Errorf("HTML icerigi yanlis: %d bayt", len(res.body))
+		}
+		if ct := res.headers["content-type"]; !bytes.Contains([]byte(ct), []byte("text/html")) {
+			t.Errorf("content-type: %q", ct)
+		}
+		// Govde cercevelere bolundugu icin content-length gitmemeli.
+		if _, ok := res.headers["content-length"]; ok {
+			t.Error("content-length ziyaretciye gitmemeli")
+		}
+	})
+
+	// http.FileServer /index.html -> "./" kanoniklestirmesi; Location zaten
+	// goreli oldugu icin oldugu gibi gecer.
+	t.Run("index.html kanoniklestirme", func(t *testing.T) {
+		res := v.get(t, 10, "/index.html")
+		if res.status != 301 {
+			t.Fatalf("status %d, 301 beklenirdi", res.status)
+		}
+		if loc := res.headers["location"]; loc != "./" {
+			t.Errorf("location: %q", loc)
+		}
+	})
+
+	t.Run("CSS", func(t *testing.T) {
+		res := v.get(t, 2, "/style.css")
+		if res.status != 200 || !bytes.Contains(res.body, []byte("rgb(13, 17, 23)")) {
+			t.Errorf("CSS yanlis: status=%d, %d bayt", res.status, len(res.body))
+		}
+	})
+
+	t.Run("JS", func(t *testing.T) {
+		res := v.get(t, 3, "/app.js")
+		if res.status != 200 || !bytes.Contains(res.body, []byte("api/items")) {
+			t.Errorf("JS yanlis: status=%d, %d bayt", res.status, len(res.body))
+		}
+	})
+
+	t.Run("gorsel", func(t *testing.T) {
+		res := v.get(t, 4, "/logo.png")
+		if res.status != 200 {
+			t.Fatalf("status %d", res.status)
+		}
+		if !bytes.HasPrefix(res.body, []byte("\x89PNG\r\n\x1a\n")) {
+			t.Errorf("PNG imzasi yok: %x", res.body[:min(8, len(res.body))])
+		}
+	})
+
+	t.Run("JSON API", func(t *testing.T) {
+		res := v.get(t, 5, "/api/items")
+		if res.status != 200 {
+			t.Fatalf("status %d", res.status)
+		}
+		var payload struct {
+			Items []struct {
+				Ad    string `json:"ad"`
+				Deger int    `json:"deger"`
+			} `json:"items"`
+			Toplam int `json:"toplam"`
+		}
+		if err := json.Unmarshal(res.body, &payload); err != nil {
+			t.Fatalf("JSON cozulemedi: %v (%q)", err, res.body)
+		}
+		if payload.Toplam != 3 || len(payload.Items) != 3 || payload.Items[0].Ad != "alfa" {
+			t.Errorf("JSON icerigi yanlis: %+v", payload)
+		}
+	})
+
+	t.Run("yonlendirme Location goreli", func(t *testing.T) {
+		res := v.get(t, 6, "/yonlendir")
+		if res.status != 302 {
+			t.Fatalf("status %d", res.status)
+		}
+		if res.headers["location"] != "/index.html" {
+			t.Errorf("location: %q", res.headers["location"])
+		}
+	})
+
+	t.Run("404", func(t *testing.T) {
+		res := v.get(t, 7, "/yok-boyle-bir-sey")
+		if res.status != 404 {
+			t.Errorf("status %d", res.status)
+		}
+	})
+
+	t.Run("SSE streaming", func(t *testing.T) {
+		res := v.get(t, 8, "/sse")
+		if res.status != 200 {
+			t.Fatalf("status %d", res.status)
+		}
+		if !bytes.Contains(res.body, []byte("data: olay-0")) ||
+			!bytes.Contains(res.body, []byte("data: olay-2")) {
+			t.Errorf("SSE govdesi: %q", res.body)
+		}
+	})
+
+	// README Faz 1 kabul: 5 MB dosya indirme.
+	t.Run("5 MB dosya", func(t *testing.T) {
+		res := v.get(t, 9, "/big.bin")
+		if res.abort != "" {
+			t.Fatalf("abort: %s", res.abort)
+		}
+		if res.status != 200 {
+			t.Fatalf("status %d", res.status)
+		}
+		if len(res.body) != testsite.BigFileSize {
+			t.Fatalf("boyut %d, beklenen %d", len(res.body), testsite.BigFileSize)
+		}
+		sum := sha256.Sum256(res.body)
+		if got := hex.EncodeToString(sum[:]); got != testsite.BigFileSHA256() {
+			t.Errorf("sha256 uyusmuyor:\n  geldi:    %s\n  beklenen: %s", got, testsite.BigFileSHA256())
+		}
+
+		mbps := float64(len(res.body)) / (1 << 20) / res.total.Seconds()
+		t.Logf("OLCUM 5MB indirme: %s toplam, ilk bayt %s, %.1f MB/s",
+			res.total.Round(time.Millisecond), res.ttfb.Round(time.Millisecond), mbps)
+	})
+
+	t.Run("ping RTT", func(t *testing.T) {
+		var total time.Duration
+		const n = 20
+		worst := time.Duration(0)
+		for i := 0; i < n; i++ {
+			d := v.ping(t)
+			total += d
+			if d > worst {
+				worst = d
+			}
+		}
+		t.Logf("OLCUM ctrl ping RTT: ortalama %s, en kotu %s (n=%d)",
+			(total / n).Round(10*time.Microsecond), worst.Round(10*time.Microsecond), n)
+	})
+
+	t.Run("kucuk istek gecikmesi", func(t *testing.T) {
+		const n = 20
+		var total time.Duration
+		for i := 0; i < n; i++ {
+			res := v.get(t, uint32(100+i), "/api/items")
+			if res.status != 200 {
+				t.Fatalf("status %d", res.status)
+			}
+			total += res.total
+		}
+		t.Logf("OLCUM kucuk GET (api/items, %d bayt): ortalama %s (n=%d)",
+			290, (total / n).Round(10*time.Microsecond), n)
+	})
+}
+
+// Tunel uzerinden de SSRF denemeleri reddedilmeli (uctan uca).
+func TestIntegrationSSRFOverTunnel(t *testing.T) {
+	p, names, _ := siteProxy(t)
+	v := itConnect(t, p, names)
+
+	for i, path := range []string{"/../../etc/passwd", "/%2e%2e/%2e%2e/etc/passwd"} {
+		res := v.get(t, uint32(200+i), path)
+		if res.status != 400 {
+			t.Errorf("path %q: status %d, 400 beklenirdi", path, res.status)
+		}
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

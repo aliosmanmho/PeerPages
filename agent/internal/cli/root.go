@@ -2,6 +2,8 @@
 package cli
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 )
 
@@ -29,10 +31,11 @@ func NewRootCmd(version string) *cobra.Command {
 	// kullaniliyor, ikisi karismasin.
 	root.Flags().Bool("version", false, "peerpages surumunu yazdir")
 	root.AddCommand(newServeCmd())
+	root.AddCommand(newTestSiteCmd())
 	return root
 }
 
 // Execute kok komutu calistirir.
 func Execute(version string) error {
-	return NewRootCmd(version).Execute()
+	return NewRootCmd(version).ExecuteContext(context.Background())
 }

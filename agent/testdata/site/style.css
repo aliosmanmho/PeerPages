@@ -1,0 +1,15 @@
+/* e2e testi bu rengi computed style ile dogruluyor: CSS gercekten uygulandi mi */
+body {
+  margin: 2rem;
+  background: rgb(13, 17, 23);
+  color: rgb(230, 237, 243);
+  font: 16px/1.5 system-ui, sans-serif;
+}
+
+#baslik {
+  color: rgb(88, 166, 255);
+}
+
+#logo {
+  image-rendering: pixelated;
+}

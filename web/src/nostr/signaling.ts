@@ -23,6 +23,20 @@ export const MAX_SDP = 65536;
 export const MAX_CANDIDATE = 1024;
 export const MAX_MID = 32;
 export const MAX_REASON = 64;
+export const MAX_TARGET_NAME = 32;
+
+/**
+ * Hedef adi bicimi (protocol/signaling.md).
+ *
+ * Go tarafindaki targetNameRe ve agent/internal/target'taki nameRe ile AYNI
+ * kumeyi kabul etmek zorunda; paylasilan vektorler bunu dogruluyor.
+ */
+const TARGET_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$/;
+
+/** Hedef adi bicimini dogrular. */
+export function validTargetName(name: string): boolean {
+  return TARGET_NAME_RE.test(name);
+}
 
 /** Paylasilan sir katmani parametreleri. */
 export const SECRET_PREFIX = "pps1.";
@@ -57,6 +71,13 @@ export interface OfferMsg {
   readonly t: "offer";
   readonly sid: string;
   readonly sdp: string;
+  /**
+   * Ziyaretcinin istedigi hedef adi (URL'deki `#npub1…/admin`).
+   *
+   * Opsiyonel: hedef belirtilmediginde alan kanonik bicime HIC yazilmaz
+   * (ajan `default`'a duser).
+   */
+  readonly target?: string;
 }
 
 export interface AnswerMsg {
@@ -108,7 +129,10 @@ export function validSID(sid: string): boolean {
 export function canonicalSignaling(msg: SignalingMsg): string {
   const head = `{"v":${SIGNALING_VERSION},"t":${JSON.stringify(msg.t)},"sid":${JSON.stringify(msg.sid)}`;
   switch (msg.t) {
-    case "offer":
+    case "offer": {
+      const sdp = `${head},"sdp":${JSON.stringify(msg.sdp)}`;
+      return msg.target ? `${sdp},"target":${JSON.stringify(msg.target)}}` : `${sdp}}`;
+    }
     case "answer":
       return `${head},"sdp":${JSON.stringify(msg.sdp)}}`;
     case "candidate":
@@ -128,8 +152,16 @@ export function validateSignaling(msg: SignalingMsg): void {
   }
   switch (msg.t) {
     case "offer":
+      checkLen("offer.sdp", msg.sdp, MAX_SDP);
+      if (msg.target !== undefined && !validTargetName(msg.target)) {
+        throw new SignalingError(
+          "bad-field",
+          `offer.target bicimi gecersiz, verilen: ${JSON.stringify(msg.target)}`,
+        );
+      }
+      return;
     case "answer":
-      checkLen(`${msg.t}.sdp`, msg.sdp, MAX_SDP);
+      checkLen("answer.sdp", msg.sdp, MAX_SDP);
       return;
     case "candidate":
       checkLen("candidate.cand", msg.cand, MAX_CANDIDATE);
@@ -220,9 +252,30 @@ export function parseSignaling(text: string): SignalingMsg {
 
   let msg: SignalingMsg;
   switch (t) {
-    case "offer":
-      msg = { t: "offer", sid, sdp: stringField(o, "sdp") };
+    case "offer": {
+      const sdp = stringField(o, "sdp");
+      // target opsiyonel: alanin HIC olmamasi gecerli, ama varsa gecerli bir
+      // ad olmak zorunda (bos string ya da null degil).
+      if (Object.hasOwn(o, "target") && o.target !== undefined) {
+        const name = o.target;
+        if (typeof name !== "string") {
+          throw new SignalingError(
+            "bad-field",
+            `target string olmali, verilen: ${JSON.stringify(name)}`,
+          );
+        }
+        if (name === "") {
+          throw new SignalingError(
+            "bad-field",
+            "offer.target bos olamaz (hedefsiz offer'da alan hic olmamali)",
+          );
+        }
+        msg = { t: "offer", sid, sdp, target: name };
+        break;
+      }
+      msg = { t: "offer", sid, sdp };
       break;
+    }
     case "answer":
       msg = { t: "answer", sid, sdp: stringField(o, "sdp") };
       break;

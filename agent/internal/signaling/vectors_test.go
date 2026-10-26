@@ -56,9 +56,11 @@ type testVectors struct {
 		MaxCandidate int `json:"maxCandidate"`
 		MaxMid       int `json:"maxMid"`
 		MaxReason    int `json:"maxReason"`
+		MaxTarget    int `json:"maxTargetName"`
 	} `json:"limits"`
-	Errors []string `json:"errors"`
-	Secret struct {
+	TargetNamePattern string   `json:"targetNamePattern"`
+	Errors            []string `json:"errors"`
+	Secret            struct {
 		Prefix     string `json:"prefix"`
 		Salt       string `json:"salt"`
 		Info       string `json:"info"`
@@ -135,6 +137,12 @@ func TestVectorsMatchConstants(t *testing.T) {
 	}
 	if v.Limits.MaxReason != MaxReason {
 		t.Errorf("maxReason: vektor %d, Go %d", v.Limits.MaxReason, MaxReason)
+	}
+	if v.Limits.MaxTarget != MaxTargetName {
+		t.Errorf("maxTargetName: vektor %d, Go %d", v.Limits.MaxTarget, MaxTargetName)
+	}
+	if v.TargetNamePattern != targetNameRe.String() {
+		t.Errorf("targetNamePattern: vektor %q, Go %q", v.TargetNamePattern, targetNameRe.String())
 	}
 
 	// Sir katmani parametreleri koddaki sabitlerle ayni olmali; biri degisirse

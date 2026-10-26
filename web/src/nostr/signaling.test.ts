@@ -10,6 +10,7 @@ import {
   MAX_MID,
   MAX_REASON,
   MAX_SDP,
+  MAX_TARGET_NAME,
   newSID,
   parseSignaling,
   plainCodec,
@@ -21,6 +22,7 @@ import {
   type SignalingMsg,
   validateSignaling,
   validSID,
+  validTargetName,
 } from "./signaling";
 
 // Go tarafi (agent/internal/signaling/vectors_test.go) AYNI dosyayi okur.
@@ -36,7 +38,9 @@ interface Vectors {
     maxCandidate: number;
     maxMid: number;
     maxReason: number;
+    maxTargetName: number;
   };
+  targetNamePattern: string;
   secret: {
     prefix: string;
     salt: string;
@@ -91,6 +95,7 @@ describe("signaling-testvectors.json", () => {
     expect(V.limits.maxCandidate).toBe(MAX_CANDIDATE);
     expect(V.limits.maxMid).toBe(MAX_MID);
     expect(V.limits.maxReason).toBe(MAX_REASON);
+    expect(V.limits.maxTargetName).toBe(MAX_TARGET_NAME);
     expect(V.secret.prefix).toBe(SECRET_PREFIX);
     expect(V.secret.nonceBytes).toBe(12);
   });
@@ -294,5 +299,53 @@ describe("codecFor", () => {
     const b = codecFor("sir-b");
     const msg: SignalingMsg = { t: "bye", sid: "0123456789abcdef", reason: "x" };
     expect(() => b.decode(a.encode(msg))).toThrow();
+  });
+});
+
+describe("offer.target (Faz 3)", () => {
+  const sid = "0123456789abcdef";
+  const sdp = "v=0\r\n";
+
+  it("ad kurali vektorlerdeki desenle ayni", () => {
+    expect(new RegExp(V.targetNamePattern).source).toBe(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$/.source);
+  });
+
+  // Onemli: hedefsiz offer'in kanonik bicimi alan eklenmeden onceki haliyle
+  // AYNI olmali, yoksa eski vektorler ve calisan ajanlar kirilir.
+  it("hedef yoksa alan kanonik bicime yazilmaz", () => {
+    expect(canonicalSignaling({ t: "offer", sid, sdp })).toBe(
+      `{"v":1,"t":"offer","sid":"${sid}","sdp":"v=0\\r\\n"}`,
+    );
+  });
+
+  it("hedef varsa sdp'den sonra gelir", () => {
+    expect(canonicalSignaling({ t: "offer", sid, sdp, target: "admin" })).toBe(
+      `{"v":1,"t":"offer","sid":"${sid}","sdp":"v=0\\r\\n","target":"admin"}`,
+    );
+  });
+
+  it("hedef gidis donusu korunuyor", () => {
+    const msg: SignalingMsg = { t: "offer", sid, sdp, target: "web-2_eski" };
+    expect(parseSignaling(canonicalSignaling(msg))).toEqual(msg);
+  });
+
+  it("gecerli adlari kabul, gecersizleri reddeder", () => {
+    for (const name of ["a", "A", "0", "default", "admin", "web-2_eski", "a".repeat(32)]) {
+      expect(validTargetName(name)).toBe(true);
+    }
+    for (const name of ["", "-a", "_a", "a/b", "a.b", "a b", " a", "a ", "a".repeat(33), "tr-c"]) {
+      expect(validTargetName(name)).toBe(name === "tr-c");
+    }
+  });
+
+  it("gecersiz hedefli mesaj dogrulamada reddedilir", () => {
+    expect(() => validateSignaling({ t: "offer", sid, sdp, target: "a/b" })).toThrow();
+    expect(() => validateSignaling({ t: "offer", sid, sdp, target: "" })).toThrow();
+  });
+
+  // target yalnizca offer'da anlamli; diger tiplerde okunmaz.
+  it("answer'daki target yok sayilir", () => {
+    const text = `{"v":1,"t":"answer","sid":"${sid}","sdp":"v=0","target":"admin"}`;
+    expect(parseSignaling(text)).toEqual({ t: "answer", sid, sdp: "v=0" });
   });
 });

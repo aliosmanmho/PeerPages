@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -40,7 +41,22 @@ const (
 	MaxMid = 32
 	// MaxReason en buyuk bye nedeni.
 	MaxReason = 64
+	// MaxTargetName en uzun hedef adi (offer.target).
+	MaxTargetName = 32
 )
+
+// targetNameRe hedef adi bicimi (protocol/signaling.md).
+//
+// internal/target'taki nameRe ile AYNI olmak zorunda: biri URL'den gelen adi,
+// oteki CLI'dan gelen adi dogruluyor ve ikisi ayni kumeyi kabul etmeli. Ayni
+// tutuldugu signaling_test.go'da ayrica dogruluyor (ikisini birbirine
+// import etmiyoruz: bu paket yalnizca mesaj bicimini bilir).
+var targetNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$`)
+
+// ValidTargetName hedef adi bicimini dogrular.
+func ValidTargetName(name string) bool {
+	return targetNameRe.MatchString(name)
+}
 
 // Type mesaj tipi.
 type Type string
@@ -89,7 +105,8 @@ func errf(code ErrorCode, format string, args ...any) *Error {
 //
 // Hangi alanlarin dolu oldugu Type'a bagli:
 //
-//	offer, answer : SDP
+//	offer         : SDP, (opsiyonel) Target
+//	answer        : SDP
 //	candidate     : Candidate, Mid
 //	bye           : Reason
 type Msg struct {
@@ -99,6 +116,10 @@ type Msg struct {
 	Candidate string
 	Mid       string
 	Reason    string
+	// Target yalnizca offer'da anlamli ve opsiyonel: bos string "hedef
+	// belirtilmedi" demektir (ajan default'a duser). Kanonik bicimde bos
+	// oldugunda alan HIC yazilmaz.
+	Target string
 }
 
 // NewSID yeni bir oturum kimligi uretir (16 kucuk harf hex = 64 bit).
@@ -139,7 +160,14 @@ func (m Msg) Canonical() string {
 	b.WriteString(protocol.QuoteJSON(m.SID))
 
 	switch m.Type {
-	case TypeOffer, TypeAnswer:
+	case TypeOffer:
+		b.WriteString(`,"sdp":`)
+		b.WriteString(protocol.QuoteJSON(m.SDP))
+		if m.Target != "" {
+			b.WriteString(`,"target":`)
+			b.WriteString(protocol.QuoteJSON(m.Target))
+		}
+	case TypeAnswer:
 		b.WriteString(`,"sdp":`)
 		b.WriteString(protocol.QuoteJSON(m.SDP))
 	case TypeCandidate:
@@ -161,8 +189,16 @@ func (m Msg) Validate() error {
 		return errf(CodeBadField, "sid tam %d kucuk harf hex olmali, verilen: %q", SIDLength, m.SID)
 	}
 	switch m.Type {
-	case TypeOffer, TypeAnswer:
-		return checkLen(string(m.Type)+".sdp", m.SDP, MaxSDP)
+	case TypeOffer:
+		if err := checkLen("offer.sdp", m.SDP, MaxSDP); err != nil {
+			return err
+		}
+		if m.Target != "" && !ValidTargetName(m.Target) {
+			return errf(CodeBadField, "offer.target bicimi gecersiz, verilen: %q", m.Target)
+		}
+		return nil
+	case TypeAnswer:
+		return checkLen("answer.sdp", m.SDP, MaxSDP)
 	case TypeCandidate:
 		if err := checkLen("candidate.cand", m.Candidate, MaxCandidate); err != nil {
 			return err
@@ -238,7 +274,25 @@ func Parse(text string) (Msg, error) {
 	msg := Msg{Type: Type(t), SID: sid}
 
 	switch Type(t) {
-	case TypeOffer, TypeAnswer:
+	case TypeOffer:
+		sdp, err := stringField(o, "sdp")
+		if err != nil {
+			return Msg{}, err
+		}
+		msg.SDP = sdp
+		// target opsiyonel: alanin HIC olmamasi gecerli, ama varsa gecerli
+		// bir ad olmak zorunda (bos string ya da null degil).
+		if raw, ok := o["target"]; ok {
+			name, terr := nonNullString(raw, "target")
+			if terr != nil {
+				return Msg{}, terr
+			}
+			if name == "" {
+				return Msg{}, errf(CodeBadField, "offer.target bos olamaz (hedefsiz offer'da alan hic olmamali)")
+			}
+			msg.Target = name
+		}
+	case TypeAnswer:
 		sdp, err := stringField(o, "sdp")
 		if err != nil {
 			return Msg{}, err
@@ -279,6 +333,22 @@ func stringField(o map[string]json.RawMessage, key string) (string, error) {
 	var s string
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return "", errf(CodeBadField, "%s string olmali, verilen: %s", key, raw)
+	}
+	return s, nil
+}
+
+// nonNullString raw'i string olarak okur.
+//
+// json.Unmarshal "null" degerini stringe hatasiz cozer ve degeri bos birakir;
+// bu yuzden null'i acikca reddediyoruz (aksi halde "target":null hedefsiz
+// offer gibi gorunurdu).
+func nonNullString(raw json.RawMessage, label string) (string, *Error) {
+	if strings.TrimSpace(string(raw)) == "null" {
+		return "", errf(CodeBadField, "%s null olamaz", label)
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return "", errf(CodeBadField, "%s string olmali, verilen: %s", label, raw)
 	}
 	return s, nil
 }

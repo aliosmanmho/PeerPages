@@ -6,8 +6,10 @@
     "maxSDP": 65536,
     "maxCandidate": 1024,
     "maxMid": 32,
-    "maxReason": 64
+    "maxReason": 64,
+    "maxTargetName": 32
   },
+  "targetNamePattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$",
   "errors": [
     "bad-secret",
     "bad-json",
@@ -71,6 +73,31 @@
         "name": "mid-bir",
         "text": "{\"v\":1,\"t\":\"candidate\",\"sid\":\"0123456789abcdef\",\"cand\":\"candidate:842163049 1 udp 1677729535 91.93.232.50 18212 typ srflx raddr 0.0.0.0 rport 0 generation 0\",\"mid\":\"1\"}",
         "canonical": "{\"v\":1,\"t\":\"candidate\",\"sid\":\"0123456789abcdef\",\"cand\":\"candidate:842163049 1 udp 1677729535 91.93.232.50 18212 typ srflx raddr 0.0.0.0 rport 0 generation 0\",\"mid\":\"1\"}"
+      },
+      {
+        "name": "offer-hedefli",
+        "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"admin\"}",
+        "canonical": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"admin\"}"
+      },
+      {
+        "name": "offer-hedef-tek-karakter",
+        "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"a\"}",
+        "canonical": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"a\"}"
+      },
+      {
+        "name": "offer-hedef-tam-sinir",
+        "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+        "canonical": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+      },
+      {
+        "name": "offer-hedef-tireli",
+        "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"web-2_eski\"}",
+        "canonical": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"web-2_eski\"}"
+      },
+      {
+        "name": "bye-unknown-target",
+        "text": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"unknown-target\"}",
+        "canonical": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"unknown-target\"}"
       }
     ],
     "invalid": [
@@ -207,6 +234,46 @@
       {
         "name": "candidate-mid-uzun",
         "text": "{\"v\":1,\"t\":\"candidate\",\"sid\":\"0123456789abcdef\",\"cand\":\"candidate:1\",\"mid\":\"mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "offer-hedef-bos",
+        "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":\"\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "offer-hedef-sayi",
+        "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":5}",
+        "error": "bad-field"
+      },
+      {
+        "name": "offer-hedef-null",
+        "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":null}",
+        "error": "bad-field"
+      },
+      {
+        "name": "offer-hedef-uzun",
+        "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "offer-hedef-tire-ile-basliyor",
+        "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":\"-admin\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "offer-hedef-slash",
+        "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":\"a/b\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "offer-hedef-nokta",
+        "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":\"a.b\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "offer-hedef-bosluk",
+        "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":\"a b\"}",
         "error": "bad-field"
       },
       {

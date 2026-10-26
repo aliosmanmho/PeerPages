@@ -64,6 +64,7 @@ olmadan başlatılmışsa `pps1.` payload'ı çözemez ve reddeder.
 
 ```jsonc
 { "v": 1, "t": "offer",     "sid": "0123456789abcdef", "sdp": "v=0\r\n…" }
+{ "v": 1, "t": "offer",     "sid": "0123456789abcdef", "sdp": "v=0\r\n…", "target": "admin" }
 { "v": 1, "t": "answer",    "sid": "0123456789abcdef", "sdp": "v=0\r\n…" }
 { "v": 1, "t": "candidate", "sid": "0123456789abcdef", "cand": "candidate:…", "mid": "0" }
 { "v": 1, "t": "bye",       "sid": "0123456789abcdef", "reason": "visitor-left" }
@@ -77,9 +78,32 @@ olmadan başlatılmışsa `pps1.` payload'ı çözemez ve reddeder.
 | `t` | string | `offer` / `answer` / `candidate` / `bye` |
 | `sid` | string | **tam 16 küçük harf hex** karakter (64 bit) |
 | `sdp` | string | boş olamaz, en fazla 65536 bayt |
+| `target` | string | **yalnızca `offer`'da, opsiyonel**; `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$` (1–32 karakter) |
 | `cand` | string | boş olamaz, en fazla 1024 bayt |
 | `mid` | string | boş olamaz, en fazla 32 bayt (`sdpMid`) |
 | `reason` | string | boş olamaz, en fazla 64 bayt |
+
+### Hedef seçimi (`target`)
+
+Bir ajan birden çok yerel projeyi yayınlayabilir
+(`--target default=http://localhost:3000 --target admin=http://localhost:4000`).
+Ziyaretçi hangisini istediğini **URL'de** söyler (`#npub1…/admin`) ve bu ad
+`offer`'da taşınır.
+
+| Durum | Davranış |
+|---|---|
+| `target` yok | ajan `default`'u kullanır; o da yoksa alfabetik ilk hedef |
+| `target` tanımlı bir ad | o hedefe bağlanılır |
+| `target` tanımsız bir ad | ajan `bye` + `reason: "unknown-target"` döner, oturum **hiç kurulmaz** |
+
+Hedef **oturum başına sabittir**: tünel kurulduktan sonra değişmez, değiştirmek
+yeni bir bağlantı (yeni URL) demektir. Bu yüzden alan `offer`'da, data channel
+protokolünün `req` mesajında değil — Faz 1'in çerçeveleme ve kanonik anahtar
+sırası hiç değişmedi. Hedef adlarının listesi tünel açıldıktan sonra ctrl
+`hello` mesajındaki `targets` alanıyla da bildirilir (bkz. [`README.md`](README.md)).
+
+`target` diğer mesaj tiplerinde **anlamsızdır** ve okunmaz (ayrıştırıcı
+tanımadığı alanları genel olarak yok sayar).
 
 `sid` neden var: bir ajana aynı anda birden çok ziyaretçi gelebilir ve
 `candidate` mesajlarının hangi oturuma ait olduğu bilinmek zorunda. Ziyaretçi
@@ -113,11 +137,16 @@ Vektörlerin iki dilde **bayt bayt aynı** doğrulanabilmesi için:
 
    | Tip | Sıra |
    |---|---|
-   | `offer` / `answer` | `v, t, sid, sdp` |
+   | `offer` | `v, t, sid, sdp` + hedef varsa `, target` |
+   | `answer` | `v, t, sid, sdp` |
    | `candidate` | `v, t, sid, cand, mid` |
    | `bye` | `v, t, sid, reason` |
 
-3. HTML kaçışı yapılmaz, ASCII dışı karakterler `\u` ile kaçırılmaz.
+3. Opsiyonel alan yoksa **hiç yazılmaz** — boş string ya da `null` olarak
+   yazılmaz. Bugün bu yalnızca `offer.target` için geçerli; hedefsiz bir
+   `offer`'ın kanonik biçimi bu alan eklenmeden önceki haliyle **birebir
+   aynıdır**, yani eski vektörler aynen geçerli kalır.
+4. HTML kaçışı yapılmaz, ASCII dışı karakterler `\u` ile kaçırılmaz.
    Kontrol karakterleri `JSON.stringify` ile aynı kaçırılır (`\n`, `\r`,
    `\t`, `\b`, `\f`, diğerleri `\u00xx`). SDP `\r\n` içerdiği için bu kural
    pratikte her mesajda işliyor.

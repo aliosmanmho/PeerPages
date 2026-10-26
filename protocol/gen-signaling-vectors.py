@@ -43,8 +43,10 @@ MAX_CAND = 1024
 MAX_MID = 32
 MAX_REASON = 64
 
+MAX_TARGET = 32
+
 ORDER = {
-    "offer": ["v", "t", "sid", "sdp"],
+    "offer": ["v", "t", "sid", "sdp", "target"],
     "answer": ["v", "t", "sid", "sdp"],
     "candidate": ["v", "t", "sid", "cand", "mid"],
     "bye": ["v", "t", "sid", "reason"],
@@ -52,9 +54,12 @@ ORDER = {
 
 
 def canonical(msg):
+    # Opsiyonel alan (bugun yalnizca offer.target) yoksa HIC yazilmaz:
+    # hedefsiz offer'in kanonik bicimi alan eklenmeden onceki haliyle ayni.
     out = OD()
     for k in ORDER[msg["t"]]:
-        out[k] = msg[k]
+        if k in msg:
+            out[k] = msg[k]
     return json.dumps(out, separators=(",", ":"), ensure_ascii=False)
 
 
@@ -104,7 +109,9 @@ doc["limits"] = OD([
     ("maxCandidate", MAX_CAND),
     ("maxMid", MAX_MID),
     ("maxReason", MAX_REASON),
+    ("maxTargetName", MAX_TARGET),
 ])
+doc["targetNamePattern"] = "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$"
 doc["errors"] = ["bad-secret", "bad-json", "unknown-type", "missing-field", "bad-field"]
 doc["secret"] = OD([
     ("prefix", PREFIX),
@@ -131,6 +138,15 @@ msgs["valid"] = [
     ok("reason-html", {"v": 1, "t": "bye", "sid": SID, "reason": "a<b>&c"}),
     ok("sid-tum-hex", {"v": 1, "t": "bye", "sid": "00000000000000ff", "reason": "x"}),
     ok("mid-bir", {"v": 1, "t": "candidate", "sid": SID, "cand": CAND, "mid": "1"}),
+    # Faz 3: offer'da opsiyonel hedef adi.
+    ok("offer-hedefli", {"v": 1, "t": "offer", "sid": SID, "sdp": SDP_OFFER, "target": "admin"}),
+    ok("offer-hedef-tek-karakter",
+       {"v": 1, "t": "offer", "sid": SID, "sdp": SDP_OFFER, "target": "a"}),
+    ok("offer-hedef-tam-sinir",
+       {"v": 1, "t": "offer", "sid": SID, "sdp": SDP_OFFER, "target": "a" * MAX_TARGET}),
+    ok("offer-hedef-tireli",
+       {"v": 1, "t": "offer", "sid": SID, "sdp": SDP_OFFER, "target": "web-2_eski"}),
+    ok("bye-unknown-target", {"v": 1, "t": "bye", "sid": SID, "reason": "unknown-target"}),
 ]
 # Turkce karakterleri acikca koy (kaynak dosya ASCII kalsin diye kacarak).
 msgs["valid"][5]["text"] = canonical(
@@ -172,6 +188,25 @@ msgs["invalid"] = [
     bad("candidate-mid-uzun",
         j("{'v':1,'t':'candidate','sid':'" + SID + "','cand':'candidate:1','mid':'" + "m" * 33 + "'}"),
         "bad-field"),
+
+    # Faz 3: hedef adi var ama gecersiz. (Alanin HIC olmamasi gecerlidir.)
+    bad("offer-hedef-bos",
+        j("{'v':1,'t':'offer','sid':'" + SID + "','sdp':'v=0','target':''}"), "bad-field"),
+    bad("offer-hedef-sayi",
+        j("{'v':1,'t':'offer','sid':'" + SID + "','sdp':'v=0','target':5}"), "bad-field"),
+    bad("offer-hedef-null",
+        j("{'v':1,'t':'offer','sid':'" + SID + "','sdp':'v=0','target':null}"), "bad-field"),
+    bad("offer-hedef-uzun",
+        j("{'v':1,'t':'offer','sid':'" + SID + "','sdp':'v=0','target':'"
+          + "a" * (MAX_TARGET + 1) + "'}"), "bad-field"),
+    bad("offer-hedef-tire-ile-basliyor",
+        j("{'v':1,'t':'offer','sid':'" + SID + "','sdp':'v=0','target':'-admin'}"), "bad-field"),
+    bad("offer-hedef-slash",
+        j("{'v':1,'t':'offer','sid':'" + SID + "','sdp':'v=0','target':'a/b'}"), "bad-field"),
+    bad("offer-hedef-nokta",
+        j("{'v':1,'t':'offer','sid':'" + SID + "','sdp':'v=0','target':'a.b'}"), "bad-field"),
+    bad("offer-hedef-bosluk",
+        j("{'v':1,'t':'offer','sid':'" + SID + "','sdp':'v=0','target':'a b'}"), "bad-field"),
 
     bad("bye-reason-yok", j("{'v':1,'t':'bye','sid':'" + SID + "'}"), "missing-field"),
     bad("bye-reason-bos", j("{'v':1,'t':'bye','sid':'" + SID + "','reason':''}"), "bad-field"),

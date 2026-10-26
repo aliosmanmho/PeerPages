@@ -62,9 +62,17 @@ async function openTunnelPage(context: import("@playwright/test").BrowserContext
   });
 
   await page.goto(CONNECT);
-  await expect(page.locator("#status-msg")).toContainText("Service Worker aktif", {
-    timeout: 30_000,
-  });
+
+  // Service Worker'in kurulmasini bekle. Durum METNINE degil ADIM DURUMUNA
+  // bakiyoruz: metin hemen sonraki adima geciyor (ornegin "peer-id yok —
+  // elle signaling yolu"), yani kararli bir sinyal degil.
+  await expect(page.locator('.status__step[data-step="sw"]')).toHaveAttribute(
+    "data-state",
+    "done",
+    { timeout: 30_000 },
+  );
+  // URL'de peer-id olmadigi icin elle signaling paneli acik olmali.
+  await expect(page.locator("#panel-manual")).toBeVisible();
 
   // SAYFA offer uretir (Faz 2 rol degisimi).
   await page.locator("#btn-make-offer").click();

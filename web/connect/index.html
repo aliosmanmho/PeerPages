@@ -10,17 +10,28 @@
     <main class="shell">
       <header class="shell__head">
         <h1 class="shell__title">PeerPages</h1>
-        <p class="shell__sub">Sunucusuz tunel — Faz 1: elle signaling</p>
+        <p class="shell__sub">Sunucusuz tunel</p>
       </header>
 
       <section class="status" aria-live="polite">
         <ol class="status__steps" id="status-steps">
           <li class="status__step" data-step="sw">Service Worker</li>
-          <li class="status__step" data-step="signal">Signaling (elle)</li>
+          <li class="status__step" data-step="signal">Signaling</li>
           <li class="status__step" data-step="ice">ICE</li>
           <li class="status__step" data-step="tunnel">Tunel</li>
         </ol>
         <p class="status__msg" id="status-msg">Baslatiliyor…</p>
+      </section>
+
+      <section class="panel" id="panel-nostr" hidden>
+        <h2 class="panel__title">Ajana baglaniliyor</h2>
+        <p class="panel__hint">
+          peer-id: <code id="nostr-peer">—</code>
+        </p>
+        <p class="panel__hint" id="nostr-detail"></p>
+        <div class="panel__actions">
+          <button type="button" id="btn-retry" class="btn" disabled>Yeniden dene</button>
+        </div>
       </section>
 
       <section class="panel" id="panel-manual">

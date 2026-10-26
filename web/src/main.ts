@@ -1,5 +1,7 @@
 import "./style.css";
 import { BASE_PATH, inBase } from "./base";
+import { type ConnectResult, connectToAgent } from "./nostr/connect";
+import { PeerIDError, type PeerTarget, parseHash, shortenNpub } from "./nostr/peerid";
 import { announceTunnelGone, announceTunnelReady, installBridge } from "./page-bridge";
 import { decodeSDP, encodeSDP } from "./signal";
 import { Tunnel } from "./tunnel";
@@ -8,8 +10,11 @@ import { StatusView } from "./ui/status";
 /**
  * Baglanti ekrani ve tunel sahibi sayfa.
  *
- * Elle signaling (--manual): BU SAYFA offer uretir, kullanici ajana
- * yapistirir; ajanin bastigi answer buraya yapistirilir.
+ * Iki yol var:
+ *  - **Nostr (varsayilan):** URL'de peer-id varsa (`#npub1…`) baglanti
+ *    kendiliginden kurulur; kopyala-yapistir yok.
+ *  - **Elle (`--manual`):** URL'de peer-id yoksa bu sayfa offer uretir,
+ *    kullanici ajana yapistirir, ajanin answer'ini geri getirir.
  *
  * Rol degisimi (Faz 2): kanallari (`ctrl`/`data`) ve offer'i ziyaretci
  * uretir, ajan answer doner. Nedeni: Nostr'da ajan ziyaretcinin gecici
@@ -24,6 +29,7 @@ const status = new StatusView();
 
 let tunnel: Tunnel | null = null;
 let peer: RTCPeerConnection | null = null;
+let nostrSession: ConnectResult | null = null;
 
 // Olcum ve durum ekrani icin sayaclar.
 const counters = { requests: 0, errors: 0, bytes: 0 };
@@ -35,6 +41,10 @@ const el = {
   answerInput: document.getElementById("answer-input") as HTMLTextAreaElement | null,
   acceptAnswerBtn: document.getElementById("btn-accept-answer") as HTMLButtonElement | null,
   panelManual: document.getElementById("panel-manual"),
+  panelNostr: document.getElementById("panel-nostr"),
+  nostrPeer: document.getElementById("nostr-peer"),
+  nostrDetail: document.getElementById("nostr-detail"),
+  retryBtn: document.getElementById("btn-retry") as HTMLButtonElement | null,
   panelConnected: document.getElementById("panel-connected"),
   metrics: document.getElementById("metrics"),
   linkSite: document.getElementById("link-site") as HTMLAnchorElement | null,
@@ -229,6 +239,10 @@ function onTunnelLost(state: string): void {
     peer.close();
     peer = null;
   }
+  if (nostrSession) {
+    nostrSession.close(`connection-${state}`);
+    nostrSession = null;
+  }
   status.step("tunnel", "error");
   status.say(`Tunel kapandi (${state}). Yeniden offer uretebilirsin.`, "error");
   if (el.panelConnected) el.panelConnected.hidden = true;
@@ -315,17 +329,114 @@ function wireUI(): void {
     });
   });
 
-  // Sekme kapanirken SW'ye haber ver: bir sonraki istek bosa beklemesin.
+  el.retryBtn?.addEventListener("click", () => {
+    const hash = location.hash;
+    try {
+      const target = parseHash(hash);
+      if (target) void connectViaNostr(target);
+    } catch {
+      status.say("URL'deki peer-id gecersiz.", "error");
+    }
+  });
+
+  // Sekme kapanirken SW'ye haber ver ve ajana `bye` yolla: ajan kaynak
+  // sizdirmasin, bir sonraki istek bosa beklemesin.
   window.addEventListener("pagehide", () => {
     if (tunnel) announceTunnelGone();
+    if (nostrSession) {
+      nostrSession.close("visitor-left");
+      nostrSession = null;
+    }
   });
+}
+
+/** URL'de peer-id varsa Nostr ile baglanir. */
+async function connectViaNostr(target: PeerTarget): Promise<void> {
+  if (el.panelManual) el.panelManual.hidden = true;
+  if (el.panelNostr) el.panelNostr.hidden = false;
+  if (el.nostrPeer) el.nostrPeer.textContent = shortenNpub(target.npub);
+  if (el.retryBtn) el.retryBtn.disabled = true;
+
+  status.step("signal", "active");
+  status.say("Relay'lere baglaniliyor…");
+
+  try {
+    const session = await connectToAgent({
+      target,
+      hooks: {
+        onStage: (stage, detail) => {
+          switch (stage) {
+            case "relay":
+              status.say(`Relay'lere baglaniliyor (${detail ?? ""})…`);
+              break;
+            case "offer":
+              status.say("Baglanti teklifi yayinlaniyor…");
+              break;
+            case "answer":
+              status.step("signal", "done");
+              status.step("ice", "active");
+              status.say("Ajanin yaniti bekleniyor…");
+              break;
+            case "ice":
+              status.say("Dogrudan baglanti kuruluyor (ICE)…");
+              break;
+            case "open":
+              status.step("ice", "done");
+              break;
+          }
+          if (el.nostrDetail && detail) el.nostrDetail.textContent = detail;
+        },
+      },
+    });
+
+    nostrSession = session;
+    status.step("tunnel", "active");
+
+    session.pc.addEventListener("connectionstatechange", () => {
+      const st = session.pc.connectionState;
+      if (st === "failed" || st === "closed" || st === "disconnected") {
+        onTunnelLost(st);
+      }
+    });
+
+    tunnel = new Tunnel(session.ctrl, session.data);
+    announceTunnelReady();
+    status.step("tunnel", "done");
+    status.say("Tunel acik. Bu sekmeyi kapatma.", "ok");
+    showConnected();
+  } catch (err) {
+    status.step("tunnel", "error");
+    status.say(err instanceof Error ? err.message : String(err), "error");
+    if (el.retryBtn) el.retryBtn.disabled = false;
+  }
 }
 
 async function main(): Promise<void> {
   wireUI();
   const reg = await registerServiceWorker();
   if (!reg) return;
+
+  let target: PeerTarget | null = null;
+  try {
+    target = parseHash(location.hash);
+  } catch (err) {
+    status.step("signal", "error");
+    status.say(err instanceof PeerIDError ? err.message : String(err), "error");
+    // Hatali peer-id: elle yola dusmek yerine sorunu gosteriyoruz, aksi
+    // halde kullanici yanlis URL'yi fark etmeden elle ugrasmaya baslar.
+    if (el.panelManual) el.panelManual.hidden = true;
+    return;
+  }
+
+  if (target) {
+    await connectViaNostr(target);
+    return;
+  }
+
+  // peer-id yok: elle signaling yolu.
   status.step("signal", "active");
+  status.say("URL'de peer-id yok — elle signaling yolu. Offer uret.");
+  if (el.panelNostr) el.panelNostr.hidden = true;
 }
 
 void main();

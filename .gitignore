@@ -1,0 +1,26 @@
+# node / web
+node_modules/
+web/dist/
+web/.vite/
+web/test-results/
+web/playwright-report/
+web/blob-report/
+.vite-cache/
+
+# go / agent
+agent/peerpages
+agent/peerpages.exe
+agent/coverage.out
+
+# üretilen test verisi (deterministik, repoda tutulmaz)
+agent/testdata/site/big.bin
+
+# ajan durumu
+.peerpages/
+
+# editör / işletim sistemi
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

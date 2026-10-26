@@ -12,6 +12,7 @@ func TestServeFlagsValidation(t *testing.T) {
 			targets:       []string{"http://localhost:3000"},
 			maxBody:       defaultMaxBody,
 			maxConcurrent: defaultMaxConcurrent,
+			maxSessions:   defaultMaxSessions,
 			manual:        true,
 			stun:          []string{defaultSTUN},
 		}
@@ -55,12 +56,59 @@ func TestServeFlagsValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("manual kapali henuz desteklenmiyor", func(t *testing.T) {
+	t.Run("nostr modu varsayilan relay listesini kullanir", func(t *testing.T) {
 		f := base()
 		f.manual = false
-		_, err := f.toConfig(&bytes.Buffer{})
-		if err == nil || !strings.Contains(err.Error(), "Faz 2") {
-			t.Errorf("Faz 2 uyarisi beklenirdi, geldi: %v", err)
+		cfg, err := f.toConfig(&bytes.Buffer{})
+		if err != nil {
+			t.Fatalf("hata: %v", err)
+		}
+		if len(cfg.Relays) < 3 {
+			t.Errorf("varsayilan relay listesi beklenirdi, geldi: %v", cfg.Relays)
+		}
+		if cfg.KeyPath == "" {
+			t.Error("anahtar yolu doldurulmaliydi")
+		}
+	})
+
+	t.Run("elle modda relay ve anahtar gerekmez", func(t *testing.T) {
+		f := base()
+		f.manual = true
+		cfg, err := f.toConfig(&bytes.Buffer{})
+		if err != nil {
+			t.Fatalf("hata: %v", err)
+		}
+		if len(cfg.Relays) != 0 {
+			t.Errorf("elle modda relay beklenmiyor: %v", cfg.Relays)
+		}
+	})
+
+	t.Run("gecersiz relay reddedilir", func(t *testing.T) {
+		f := base()
+		f.manual = false
+		f.relays = []string{"http://relay.example"}
+		if _, err := f.toConfig(&bytes.Buffer{}); err == nil {
+			t.Error("ws/wss olmayan relay reddedilmeliydi")
+		}
+	})
+
+	t.Run("max-sessions sifir", func(t *testing.T) {
+		f := base()
+		f.maxSessions = 0
+		if _, err := f.toConfig(&bytes.Buffer{}); err == nil {
+			t.Error("max-sessions=0 reddedilmeliydi")
+		}
+	})
+
+	t.Run("sir varsa auth required", func(t *testing.T) {
+		f := base()
+		f.secret = "kedi-balik"
+		cfg, err := f.toConfig(&bytes.Buffer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.AuthMode() != "required" {
+			t.Errorf("auth modu: %q", cfg.AuthMode())
 		}
 	})
 

@@ -32,7 +32,13 @@ export class FramingError extends Error {
 export interface Frame {
   readonly id: number;
   readonly seq: number;
-  readonly payload: Uint8Array;
+  /**
+   * Govde parcasi. Tampon tipi `ArrayBuffer` olarak sabit: cerceveyi her
+   * zaman yeni bir tamponda uretiyoruz, boylece `RTCDataChannel.send` ve
+   * `postMessage` transfer listesi gibi SharedArrayBuffer kabul etmeyen
+   * API'lere dogrudan verilebiliyor.
+   */
+  readonly payload: Uint8Array<ArrayBuffer>;
 }
 
 function assertUint32(name: string, v: number): void {
@@ -47,7 +53,7 @@ function assertUint32(name: string, v: number): void {
  * @throws {FramingError} payload 16 KiB'dan buyukse (`payload-too-large`)
  * @throws {RangeError} id ya da seq uint32 araliginda degilse
  */
-export function encodeFrame(id: number, seq: number, payload: Uint8Array): Uint8Array {
+export function encodeFrame(id: number, seq: number, payload: Uint8Array): Uint8Array<ArrayBuffer> {
   assertUint32("id", id);
   assertUint32("seq", seq);
   if (payload.byteLength > MAX_PAYLOAD) {
@@ -92,7 +98,11 @@ export function decodeFrame(frame: Uint8Array): Frame {
  * Gövdeyi 16 KiB'lik parcalara boler ve her biri icin cerceve uretir.
  * `seq` verilen degerden baslayarak artar.
  */
-export function* frameBody(id: number, body: Uint8Array, startSeq = 0): Generator<Uint8Array> {
+export function* frameBody(
+  id: number,
+  body: Uint8Array,
+  startSeq = 0,
+): Generator<Uint8Array<ArrayBuffer>> {
   assertUint32("id", id);
   assertUint32("startSeq", startSeq);
 

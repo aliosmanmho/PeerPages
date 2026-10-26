@@ -6,7 +6,17 @@ declare global {
   interface Window {
     __peerpages?: {
       hasTunnel: () => boolean;
-      stats: () => unknown;
+      stats: () => {
+        requests: number;
+        errors: number;
+        bytes: number;
+        tunnel: {
+          requests: number;
+          bytesIn: number;
+          bytesOut: number;
+          inflight: number;
+        } | null;
+      };
       ping: () => Promise<number>;
       makeOffer: () => Promise<void>;
       offer: () => string;

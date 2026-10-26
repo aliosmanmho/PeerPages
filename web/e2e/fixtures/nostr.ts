@@ -57,8 +57,15 @@ export async function startFakeRelay(extraArgs: string[] = []): Promise<FakeRela
 export interface NostrAgent {
   /** Ajanin peer-id'si (tam npub). */
   npub: string;
-  /** Ziyaretcinin acmasi gereken tam URL (ajanin bastigi). */
+  /** Ziyaretcinin acmasi gereken tam URL (ajanin bastigi, varsayilan hedef). */
   visitorURL: string;
+  /**
+   * Hedef adi -> ajanin bastigi ziyaretci URL'si.
+   *
+   * Coklu hedefte (Faz 3) ajan her hedef icin ayri bir URL basiyor; test
+   * kendi eliyle URL kurmasin.
+   */
+  urls: Record<string, string>;
   output: () => string[];
   stop: () => void;
   process: ChildProcess;
@@ -66,6 +73,8 @@ export interface NostrAgent {
 
 export interface NostrAgentOptions {
   readonly targetURL: string;
+  /** Ek hedefler: ad -> yerel adres (Faz 3 coklu hedef). */
+  readonly extraTargets?: Readonly<Record<string, string>>;
   readonly relayURLs: readonly string[];
   readonly appURL: string;
   readonly secret?: string;
@@ -84,6 +93,9 @@ export async function startNostrAgent(opts: NostrAgentOptions): Promise<NostrAge
   const keyPath = join(keyDir, "key");
 
   const args = ["serve", "--target", opts.targetURL];
+  for (const [name, url] of Object.entries(opts.extraTargets ?? {})) {
+    args.push("--target", `${name}=${url}`);
+  }
   for (const relayURL of opts.relayURLs) {
     args.push("--relay", relayURL);
   }
@@ -103,23 +115,37 @@ export async function startNostrAgent(opts: NostrAgentOptions): Promise<NostrAge
 
   await watcher.waitFor((l) => l.includes(READY), 40_000, "ajanin hazir isaretcisi");
 
-  // Ajan ziyaretci URL'sini basiyor; testin elle URL kurmasina gerek yok.
-  const urlLine = watcher
+  // Ajan her hedef icin ziyaretci URL'sini basiyor; testin elle URL
+  // kurmasina gerek yok.
+  const urlLines = watcher
     .all()
     .map((l) => l.trim())
-    .find((l) => l.startsWith(opts.appURL) && l.includes("#npub1"));
-  if (!urlLine) {
-    throw new Error(`ziyaretci URL'si bulunamadi.\nCikti:\n${watcher.tail()}`);
+    .filter((l) => l.startsWith(opts.appURL) && l.includes("#npub1"));
+  if (urlLines.length === 0) {
+    throw new Error(`ziyaretci URL'si bulunamadi: ${watcher.tail()}`);
   }
-  const hashAt = urlLine.indexOf("#");
-  const npub = urlLine.slice(hashAt + 1).split(":")[0] ?? "";
-  if (!npub.startsWith("npub1")) {
-    throw new Error(`peer-id okunamadi: ${urlLine}`);
+
+  // Fragment dilbilgisi: npub [ "/" hedef ] [ ":" sir ]
+  const urls: Record<string, string> = {};
+  let npub = "";
+  for (const line of urlLines) {
+    const frag = line.slice(line.indexOf("#") + 1);
+    const head = frag.split(":")[0] ?? "";
+    const slash = head.indexOf("/");
+    const id = slash >= 0 ? head.slice(0, slash) : head;
+    const target = slash >= 0 ? head.slice(slash + 1) : "default";
+    if (!id.startsWith("npub1")) {
+      throw new Error(`peer-id okunamadi: ${line}`);
+    }
+    npub = id;
+    urls[target] = line;
   }
+  const urlLine = urls.default ?? urlLines[0] ?? "";
 
   return {
     npub,
     visitorURL: urlLine,
+    urls,
     output: () => watcher.all(),
     stop: () => {
       proc.kill();

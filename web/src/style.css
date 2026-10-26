@@ -207,6 +207,47 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
+.share {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.share__url {
+  display: block;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 0.75rem;
+  /* URL uzun ve bolunemez: tasmasin diye kiriyoruz. */
+  word-break: break-all;
+  color: var(--dim);
+}
+
+.qr {
+  margin-top: 0.75rem;
+}
+
+/*
+ * QR beyaz zeminde kalmali: koyu temada da okunabilsin. Kamera kontrast
+ * ister, tema tercihi degil.
+ */
+.qr canvas {
+  display: block;
+  background: #fff;
+  padding: 0.75rem;
+  border-radius: var(--radius);
+  image-rendering: pixelated;
+  max-width: 100%;
+  height: auto;
+}
+
+.qr__hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+
 a {
   color: var(--accent);
 }

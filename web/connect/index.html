@@ -80,6 +80,21 @@
           <a id="link-site" href="../" target="_blank" rel="noopener">tunel uzerinden ac</a>
         </p>
         <dl class="metrics" id="metrics"></dl>
+
+        <div class="share">
+          <p class="panel__hint">
+            Bu adresi baska bir cihazda ac — ayni tunele baglanir:
+          </p>
+          <code class="share__url" id="share-url"></code>
+          <p class="panel__actions">
+            <button class="btn" id="btn-copy-url" type="button">Adresi kopyala</button>
+            <button class="btn" id="btn-qr" type="button" aria-expanded="false">QR kod</button>
+          </p>
+          <div class="qr" id="qr" hidden>
+            <canvas id="qr-canvas" aria-label="Ziyaretci adresinin QR kodu" role="img"></canvas>
+            <p class="qr__hint">Telefonun kamerasiyla okut.</p>
+          </div>
+        </div>
       </section>
 
       <noscript>PeerPages JavaScript gerektirir.</noscript>

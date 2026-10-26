@@ -6,6 +6,7 @@ import { RelayListError, relaysFromSearch } from "./nostr/relays";
 import { announceTunnelGone, announceTunnelReady, installBridge } from "./page-bridge";
 import { decodeSDP, encodeSDP } from "./signal";
 import { Tunnel } from "./tunnel";
+import { encode, type QRCode } from "./ui/qr";
 import { StatusView } from "./ui/status";
 
 /**
@@ -31,9 +32,24 @@ const status = new StatusView();
 let tunnel: Tunnel | null = null;
 let peer: RTCPeerConnection | null = null;
 let nostrSession: ConnectResult | null = null;
+/** URL'den gelen hedef adi; yoksa null (ajan default'a duser). */
+let activeTarget: string | null = null;
 
 // Olcum ve durum ekrani icin sayaclar.
 const counters = { requests: 0, errors: 0, bytes: 0 };
+
+/**
+ * Gecikme olcumu artik SUREKLI: baglanma aninda bir kez degil, duzenli
+ * araliklarla. Tek bir ilk olcum tuneli acikken ne oldugunu anlatmiyor.
+ */
+const LATENCY_INTERVAL_MS = 5000;
+const LATENCY_HISTORY = 12;
+const latencies: number[] = [];
+let latencyTimer: number | null = null;
+
+/** Hiz hesabi icin son ornek (tunnel.stats zaman damgasi tutmuyor). */
+let lastSample: { at: number; bytesIn: number; bytesOut: number } | null = null;
+let rateBps = 0;
 
 const el = {
   offerOutput: document.getElementById("offer-output") as HTMLTextAreaElement | null,
@@ -48,6 +64,11 @@ const el = {
   retryBtn: document.getElementById("btn-retry") as HTMLButtonElement | null,
   panelConnected: document.getElementById("panel-connected"),
   metrics: document.getElementById("metrics"),
+  shareUrl: document.getElementById("share-url"),
+  copyUrlBtn: document.getElementById("btn-copy-url") as HTMLButtonElement | null,
+  qrBtn: document.getElementById("btn-qr") as HTMLButtonElement | null,
+  qrBox: document.getElementById("qr"),
+  qrCanvas: document.getElementById("qr-canvas") as HTMLCanvasElement | null,
   linkSite: document.getElementById("link-site") as HTMLAnchorElement | null,
 };
 
@@ -231,6 +252,7 @@ function waitForIceGathering(pc: RTCPeerConnection): Promise<void> {
 }
 
 function onTunnelLost(state: string): void {
+  stopLatencyProbe();
   if (tunnel) {
     tunnel.close();
     tunnel = null;
@@ -256,33 +278,89 @@ function showConnected(): void {
   if (el.panelConnected) el.panelConnected.hidden = false;
   // Yerel sitenin koku scope kokunde; bu sayfa connect/ altinda duruyor.
   if (el.linkSite) el.linkSite.href = BASE_PATH;
+  // Paylasim bloku yalnizca Nostr yolunda anlamli: elle yolda URL'de
+  // peer-id yok, yani adresi baska cihaza tasimanin faydasi da yok.
+  const shareable = location.hash.trim().length > 1;
+  const shareBox = el.shareUrl?.closest(".share") as HTMLElement | null;
+  if (shareBox) shareBox.hidden = !shareable;
+  if (el.shareUrl) el.shareUrl.textContent = location.href;
   renderMetrics();
+  startLatencyProbe();
+}
+
+function startLatencyProbe(): void {
   void measurePing();
+  if (latencyTimer !== null) return;
+  latencyTimer = window.setInterval(() => {
+    void measurePing();
+    renderMetrics();
+  }, LATENCY_INTERVAL_MS);
+}
+
+function stopLatencyProbe(): void {
+  if (latencyTimer !== null) {
+    window.clearInterval(latencyTimer);
+    latencyTimer = null;
+  }
 }
 
 async function measurePing(): Promise<void> {
   if (!tunnel) return;
   try {
     const rtt = await tunnel.ping();
-    renderMetrics(rtt);
+    latencies.push(rtt);
+    if (latencies.length > LATENCY_HISTORY) latencies.shift();
   } catch {
-    renderMetrics();
+    // Tunel kapanmis ya da pong gecikmis olabilir; bir sonraki tikte
+    // yeniden denenir.
   }
+  renderMetrics();
 }
 
-function renderMetrics(rttMs?: number): void {
+function median(values: readonly number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[mid] ?? 0;
+  return ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
+}
+
+/** Anlik hiz: son ornekten bu yana gecen bayt / gecen sure. */
+function sampleRate(bytesIn: number, bytesOut: number): number {
+  const now = performance.now();
+  if (!lastSample) {
+    lastSample = { at: now, bytesIn, bytesOut };
+    return 0;
+  }
+  const elapsed = (now - lastSample.at) / 1000;
+  if (elapsed < 0.5) return rateBps;
+
+  const delta = bytesIn - lastSample.bytesIn + (bytesOut - lastSample.bytesOut);
+  lastSample = { at: now, bytesIn, bytesOut };
+  rateBps = delta / elapsed;
+  return rateBps;
+}
+
+function renderMetrics(): void {
   if (!el.metrics) return;
   const stats = tunnel?.stats;
+  const rate = sampleRate(stats?.bytesIn ?? 0, stats?.bytesOut ?? 0);
+
+  const latency =
+    latencies.length === 0
+      ? "olculuyor…"
+      : `${(latencies[latencies.length - 1] ?? 0).toFixed(1)} ms ` +
+        `(medyan ${median(latencies).toFixed(1)}, n=${latencies.length})`;
+
   const rows: Array<[string, string]> = [
-    ["Istek", String(counters.requests)],
-    ["Hata", String(counters.errors)],
-    ["Alinan", formatBytes(counters.bytes)],
-    ["Hedefler", tunnel?.hello?.targets.join(", ") ?? "—"],
+    ["Gecikme", latency],
+    ["Istek", `${counters.requests}${counters.errors > 0 ? ` (${counters.errors} hata)` : ""}`],
+    ["Alinan", formatBytes(stats?.bytesIn ?? 0)],
+    ["Gonderilen", formatBytes(stats?.bytesOut ?? 0)],
+    ["Hiz", rate > 0 ? `${formatBytes(rate)}/s` : "—"],
     ["Devam eden", String(stats?.inflight ?? 0)],
+    ["Hedefler", tunnel?.hello?.targets.join(", ") ?? "—"],
+    ["Aktif hedef", activeTarget ?? "default"],
   ];
-  if (rttMs !== undefined) {
-    rows.splice(3, 0, ["Gecikme", `${rttMs.toFixed(1)} ms`]);
-  }
 
   el.metrics.textContent = "";
   for (const [label, value] of rows) {
@@ -330,6 +408,14 @@ function wireUI(): void {
     });
   });
 
+  el.copyUrlBtn?.addEventListener("click", () => {
+    void copyVisitorURL();
+  });
+
+  el.qrBtn?.addEventListener("click", () => {
+    toggleQR();
+  });
+
   el.retryBtn?.addEventListener("click", () => {
     const hash = location.hash;
     try {
@@ -343,6 +429,7 @@ function wireUI(): void {
   // Sekme kapanirken SW'ye haber ver ve ajana `bye` yolla: ajan kaynak
   // sizdirmasin, bir sonraki istek bosa beklemesin.
   window.addEventListener("pagehide", () => {
+    stopLatencyProbe();
     if (tunnel) announceTunnelGone();
     if (nostrSession) {
       nostrSession.close("visitor-left");
@@ -362,6 +449,7 @@ async function connectViaNostr(target: PeerTarget): Promise<void> {
     return;
   }
 
+  activeTarget = target.target;
   if (el.panelManual) el.panelManual.hidden = true;
   if (el.panelNostr) el.panelNostr.hidden = false;
   // Hedef adi varsa ekranda da gorunsun: ziyaretci hangi projeye
@@ -483,3 +571,96 @@ window.__peerpages = {
   offer: () => el.offerOutput?.value ?? "",
   acceptAnswer: (pasted: string) => acceptAnswer(pasted),
 };
+
+/**
+ * Ziyaretci adresini panoya kopyalar.
+ *
+ * Yedek yol gercekten gerekli: `navigator.clipboard` GUVENLI BAGLAM ister ve
+ * iki cihazla denemede tam olarak o durum var — telefon laptop'a duz IP
+ * adresiyle baglandiginda clipboard API yok (docs/MANUAL-TEST.md).
+ */
+async function copyVisitorURL(): Promise<void> {
+  const url = location.href;
+  const done = (ok: boolean) => {
+    if (!el.copyUrlBtn) return;
+    const label = el.copyUrlBtn.textContent ?? "";
+    el.copyUrlBtn.textContent = ok ? "Kopyalandi" : "Kopyalanamadi — elle sec";
+    window.setTimeout(() => {
+      if (el.copyUrlBtn) el.copyUrlBtn.textContent = label;
+    }, 2000);
+  };
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+      done(true);
+      return;
+    }
+  } catch {
+    // Izin verilmedi ya da guvenli baglam degil: yedek yola gec.
+  }
+
+  // Yedek: gecici bir textarea uzerinden execCommand.
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = url;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.append(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    done(ok);
+  } catch {
+    done(false);
+  }
+}
+
+/** QR panelini acar/kapatir; ilk acilista kodu uretir. */
+function toggleQR(): void {
+  if (!el.qrBox || !el.qrBtn) return;
+  const show = el.qrBox.hidden;
+  el.qrBox.hidden = !show;
+  el.qrBtn.setAttribute("aria-expanded", String(show));
+  if (show) drawQR(location.href);
+}
+
+/** QR kodunu canvas'a cizer. */
+function drawQR(text: string): void {
+  const canvas = el.qrCanvas;
+  if (!canvas) return;
+
+  let code: QRCode;
+  try {
+    code = encode(text);
+  } catch (err) {
+    // Adres cok uzunsa (ornegin uzun bir sir) QR uretilemez; kopyala butonu
+    // calismaya devam ediyor, bu yuzden sadece sebebi yaziyoruz.
+    const hint = el.qrBox?.querySelector(".qr__hint");
+    if (hint) {
+      hint.textContent = `QR uretilemedi: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    return;
+  }
+
+  // Modul basina 4 piksel: telefon kamerasinin rahat okudugu boyut.
+  const scale = 4;
+  const quiet = 4; // standardin istedigi sessiz bolge (modul)
+  const side = (code.size + quiet * 2) * scale;
+  canvas.width = side;
+  canvas.height = side;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, side, side);
+  ctx.fillStyle = "#000";
+  for (let r = 0; r < code.size; r++) {
+    for (let c = 0; c < code.size; c++) {
+      if (code.modules[r]?.[c]) {
+        ctx.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale);
+      }
+    }
+  }
+}

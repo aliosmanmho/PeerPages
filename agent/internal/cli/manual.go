@@ -12,6 +12,7 @@ import (
 
 	"github.com/aliosmanmho/PeerPages/agent/internal/proxy"
 	"github.com/aliosmanmho/PeerPages/agent/internal/signal"
+	"github.com/aliosmanmho/PeerPages/agent/internal/stats"
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
 
@@ -46,9 +47,12 @@ func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io
 	// (--manual-target); dogrulamasi serve.go'da yapildi.
 	targetName := cfg.ManualTarget
 
+	counters := stats.New(cfg.Targets.Names())
+
 	px, err := proxy.New(proxy.Config{
 		Targets:    cfg.Targets,
 		TargetName: targetName,
+		Stats:      counters.Target(targetName),
 		MaxBody:    cfg.MaxBody,
 		Logger:     log,
 		Verbose:    cfg.Verbose,

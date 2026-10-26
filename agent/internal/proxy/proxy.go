@@ -17,6 +17,7 @@ import (
 
 	"github.com/aliosmanmho/PeerPages/agent/internal/logging"
 	"github.com/aliosmanmho/PeerPages/agent/internal/protocol"
+	"github.com/aliosmanmho/PeerPages/agent/internal/stats"
 	"github.com/aliosmanmho/PeerPages/agent/internal/target"
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
@@ -34,8 +35,11 @@ const DefaultTimeout = 60 * time.Second
 type Config struct {
 	// Targets izin verilen hedefler.
 	Targets *target.Set
-	// TargetName bu oturumun kullandigi hedef adi (Faz 3'te URL'den gelecek).
+	// TargetName bu oturumun kullandigi hedef adi; ziyaretcinin URL'sinden
+	// gelir (protocol/signaling.md).
 	TargetName string
+	// Stats bu hedefin sayaclari; nil olabilir (sayac tutulmaz).
+	Stats *stats.Counters
 	// MaxBody ziyaretciden kabul edilecek en buyuk istek govdesi.
 	MaxBody int64
 	// Timeout hedef istegi icin ust sinir; 0 ise DefaultTimeout.
@@ -101,10 +105,13 @@ func (p *Proxy) Serve(ctx context.Context, req protocol.Req, body io.Reader, sin
 		logging.PathAttr(req.Path, p.cfg.Verbose),
 	)
 
+	p.cfg.Stats.AddRequest()
+
 	// Hedef URL'si allowlist'ten: path yalnizca yol olarak birlestirilir.
 	targetURL, err := p.cfg.Targets.Resolve(p.cfg.TargetName, req.Path)
 	if err != nil {
 		log.Warn("hedef cozulemedi", slog.String("err", err.Error()))
+		p.cfg.Stats.AddError()
 		p.respondError(sink, http.StatusBadRequest, "gecersiz istek yolu")
 		return
 	}
@@ -115,12 +122,13 @@ func (p *Proxy) Serve(ctx context.Context, req protocol.Req, body io.Reader, sin
 	var reqBody io.Reader
 	if req.HasBody && body != nil {
 		// Govde tavani: tunnel katmani da sayiyor, burada ikinci kalkan.
-		reqBody = io.LimitReader(body, p.cfg.MaxBody)
+		reqBody = &countingReader{r: io.LimitReader(body, p.cfg.MaxBody), stats: p.cfg.Stats}
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, req.Method, targetURL.String(), reqBody)
 	if err != nil {
 		log.Warn("istek kurulamadi", slog.String("err", err.Error()))
+		p.cfg.Stats.AddError()
 		p.respondError(sink, http.StatusBadRequest, "istek kurulamadi")
 		return
 	}
@@ -131,6 +139,7 @@ func (p *Proxy) Serve(ctx context.Context, req protocol.Req, body io.Reader, sin
 	started := time.Now()
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
+		p.cfg.Stats.AddError()
 		if ctx.Err() != nil {
 			log.Warn("istek iptal edildi ya da zaman asti", slog.String("err", err.Error()))
 			_ = sink.Abort("upstream-canceled")
@@ -151,21 +160,28 @@ func (p *Proxy) Serve(ctx context.Context, req protocol.Req, body io.Reader, sin
 
 	if err := sink.SendRes(resp.StatusCode, headers); err != nil {
 		log.Warn("res yollanamadi", slog.String("err", err.Error()))
+		p.cfg.Stats.AddError()
 		return
 	}
 
 	written, copyErr := p.streamBody(ctx, resp.Body, sink)
+	p.cfg.Stats.AddBytesOut(written)
 	if copyErr != nil {
 		log.Warn("govde aktarilamadi",
 			slog.String("err", copyErr.Error()), slog.Int64("bayt", written))
+		p.cfg.Stats.AddError()
 		_ = sink.Abort("upstream-read-error")
 		return
 	}
 
 	if err := sink.End(); err != nil {
 		log.Warn("end yollanamadi", slog.String("err", err.Error()))
+		p.cfg.Stats.AddError()
 		return
 	}
+
+	// Hedefin 404/500 dondurmesi basarisizlik DEGIL: proxy isini yapti.
+	p.cfg.Stats.AddSuccess()
 
 	log.Debug("istek tamamlandi",
 		slog.Int("status", resp.StatusCode),
@@ -222,4 +238,19 @@ func (p *Proxy) respondError(sink tunnel.ResponseSink, status int, text string) 
 		return
 	}
 	_ = sink.End()
+}
+
+// countingReader ziyaretciden gelen govde baytlarini sayar.
+//
+// Sayim burada, tunnel katmaninda degil: proxy hangi hedefe ait oldugunu
+// bilen tek yer ve zaten govdeyi bastan sona okuyor.
+type countingReader struct {
+	r     io.Reader
+	stats *stats.Counters
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.stats.AddBytesIn(int64(n))
+	return n, err
 }

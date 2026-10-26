@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>PeerPages</title>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="shell__head">
+        <h1 class="shell__title">PeerPages</h1>
+        <p class="shell__sub">Sunucusuz tunel — Faz 1: elle signaling</p>
+      </header>
+
+      <section class="status" aria-live="polite">
+        <ol class="status__steps" id="status-steps">
+          <li class="status__step" data-step="sw">Service Worker</li>
+          <li class="status__step" data-step="signal">Signaling (elle)</li>
+          <li class="status__step" data-step="ice">ICE</li>
+          <li class="status__step" data-step="tunnel">Tunel</li>
+        </ol>
+        <p class="status__msg" id="status-msg">Baslatiliyor…</p>
+      </section>
+
+      <section class="panel" id="panel-manual">
+        <h2 class="panel__title">1. Ajanin offer'ini yapistir</h2>
+        <p class="panel__hint">
+          Ajani calistir: <code id="agent-cmd">peerpages serve --target http://localhost:3000</code>
+          — stdout'a basilan tek satirlik offer'i buraya yapistir.
+        </p>
+        <textarea
+          id="offer-input"
+          class="panel__io"
+          rows="4"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="eyJ0eXBlIjoib2ZmZXIi…"
+        ></textarea>
+        <div class="panel__actions">
+          <button type="button" id="btn-accept-offer" class="btn btn--primary">
+            Offer'i kabul et
+          </button>
+        </div>
+
+        <h2 class="panel__title">2. Uretilen answer'i ajana yapistir</h2>
+        <textarea
+          id="answer-output"
+          class="panel__io"
+          rows="4"
+          spellcheck="false"
+          readonly
+          placeholder="(offer kabul edilince burada olusur)"
+        ></textarea>
+        <div class="panel__actions">
+          <button type="button" id="btn-copy-answer" class="btn" disabled>Kopyala</button>
+        </div>
+      </section>
+
+      <section class="panel panel--ok" id="panel-connected" hidden>
+        <h2 class="panel__title">Tunel acik</h2>
+        <p class="panel__hint">
+          Bu sekmeyi <strong>kapatma</strong> — WebRTC baglantisini bu sayfa tutuyor.
+          Service Worker istekleri buraya yonlendiriyor.
+        </p>
+        <p class="panel__hint">
+          Siteyi ac: <a id="link-site" href="./">tunel uzerinden ac</a>
+        </p>
+        <dl class="metrics" id="metrics"></dl>
+      </section>
+
+      <noscript>PeerPages JavaScript gerektirir.</noscript>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

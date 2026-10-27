@@ -47,6 +47,8 @@ func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io
 	// (--manual-target); dogrulamasi serve.go'da yapildi.
 	targetName := cfg.ManualTarget
 
+	iceServers, icePolicy := cfg.iceServers()
+
 	counters := stats.New(cfg.Targets.Names())
 
 	px, err := proxy.New(proxy.Config{
@@ -62,8 +64,8 @@ func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io
 	}
 
 	sess, err := tunnel.New(tunnel.Config{
-		ICEServers:    cfg.ICE.Servers(),
-		ICEPolicy:     cfg.ICE.Policy(),
+		ICEServers:    iceServers,
+		ICEPolicy:     icePolicy,
 		Targets:       cfg.Targets.Names(),
 		Auth:          cfg.AuthMode(),
 		MaxConcurrent: cfg.MaxConcurrent,
@@ -102,7 +104,7 @@ uretilen offer'i asagiya yapistirip Enter'a bas.
 
 	// Kimlik bilgisi log'a GIRMEZ: Describe yalnizca adresleri ve sifre
 	// uzunlugunu yaziyor.
-	log.Info("ICE adaylari toplaniyor", slog.String("ice", cfg.ICE.Describe()))
+	log.Info("ICE adaylari toplaniyor", slog.String("ice", cfg.iceDescribe()))
 	answerCtx, cancelAnswer := context.WithTimeout(ctx, iceGatheringLimit)
 	defer cancelAnswer()
 

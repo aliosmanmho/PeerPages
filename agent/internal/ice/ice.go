@@ -61,6 +61,13 @@ type Config struct {
 	// cevaplanabilir. Uretimde gerekmez — ICE zaten en iyi yolu secer ve
 	// TURN kotasi bosa gitmez.
 	RelayOnly bool
+	// RuntimeTURN true ise TURN adresi ve kimlik bilgisi CALISMA ZAMANINDA
+	// gelir (Cloudflare API'si).
+	//
+	// Dogrulamanin bunu bilmesi gerekiyor: aksi halde "relay-only icin
+	// --turn gerekiyor" ya da "--turn-user yok" hatasi, kimlik bilgisi
+	// henuz cekilmedigi icin bosa duserdi.
+	RuntimeTURN bool
 }
 
 // ParseServerURL bir ICE sunucu adresini dogrular ve normalize eder.
@@ -190,21 +197,28 @@ func (c Config) Validated() (Config, error) {
 		}
 	}
 
-	out := Config{STUN: stun, TURN: turn, User: c.User, Pass: c.Pass, RelayOnly: c.RelayOnly}
+	out := Config{
+		STUN:        stun,
+		TURN:        turn,
+		User:        c.User,
+		Pass:        c.Pass,
+		RelayOnly:   c.RelayOnly,
+		RuntimeTURN: c.RuntimeTURN,
+	}
 
 	switch {
 	case len(turn) > 0 && out.User == "":
 		return Config{}, errf("--turn verildi ama --turn-user yok")
 	case len(turn) > 0 && out.Pass == "":
 		return Config{}, errf("--turn verildi ama --turn-pass yok (PEERPAGES_TURN_PASS da kullanilabilir)")
-	case len(turn) == 0 && (out.User != "" || out.Pass != ""):
+	case len(turn) == 0 && !out.RuntimeTURN && (out.User != "" || out.Pass != ""):
 		return Config{}, errf("--turn-user/--turn-pass verildi ama --turn yok")
 	}
 
 	// Relay-only + TURN yok = hic aday toplanmaz, yani ajan hicbir
 	// ziyaretciyi kabul edemez. Sessizce bu duruma dusmek, sebebi
 	// anlasilmayan bir "baglanti kurulamadi" demektir.
-	if out.RelayOnly && len(turn) == 0 {
+	if out.RelayOnly && len(turn) == 0 && !out.RuntimeTURN {
 		return Config{}, errf("--ice-relay-only icin en az bir --turn gerekiyor")
 	}
 	return out, nil
@@ -252,7 +266,9 @@ func (c Config) Describe() string {
 	} else {
 		fmt.Fprintf(&b, "stun %d (%s)", len(c.STUN), strings.Join(c.STUN, ", "))
 	}
-	if len(c.TURN) == 0 {
+	if len(c.TURN) == 0 && c.RuntimeTURN {
+		b.WriteString("; turn cloudflare'den (kimlik bilgisi calisma zamaninda)")
+	} else if len(c.TURN) == 0 {
 		b.WriteString("; turn yok")
 	} else {
 		fmt.Fprintf(&b, "; turn %d (%s), kimlik: %s",

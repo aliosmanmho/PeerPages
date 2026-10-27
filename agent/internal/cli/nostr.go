@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pion/webrtc/v4"
-
 	"github.com/aliosmanmho/PeerPages/agent/internal/connect"
 	"github.com/aliosmanmho/PeerPages/agent/internal/identity"
 	"github.com/aliosmanmho/PeerPages/agent/internal/nostr"
@@ -104,14 +102,12 @@ func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
 	}
 
 	acceptor, err := connect.New(connect.Config{
-		Identity: id,
-		Pool:     pool,
-		Sealer:   sealer,
-		NewProxy: newProxy,
-		Targets:  cfg.Targets.Names(),
-		ICE: func() ([]webrtc.ICEServer, webrtc.ICETransportPolicy) {
-			return cfg.ICE.Servers(), cfg.ICE.Policy()
-		},
+		Identity:      id,
+		Pool:          pool,
+		Sealer:        sealer,
+		NewProxy:      newProxy,
+		Targets:       cfg.Targets.Names(),
+		ICE:           cfg.iceServers,
 		MaxSessions:   cfg.MaxSessions,
 		MaxConcurrent: cfg.MaxConcurrent,
 		MaxBody:       cfg.MaxBody,

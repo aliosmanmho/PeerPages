@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -8,6 +9,7 @@ import (
 	osignal "os/signal"
 	"syscall"
 
+	"github.com/pion/webrtc/v4"
 	"github.com/spf13/cobra"
 
 	"github.com/aliosmanmho/PeerPages/agent/internal/ice"
@@ -32,6 +34,12 @@ const (
 // Gorev Yoneticisi'nde baska kullanicilara gorunur.
 const envTURNPass = "PEERPAGES_TURN_PASS"
 
+// envCloudflareToken Cloudflare TURN API jetonu icin ortam degiskeni.
+//
+// Birincil yol BU: jeton uzun omurlu bir sirdir ve komut satirinda
+// durmamali.
+const envCloudflareToken = "PEERPAGES_CF_TURN_TOKEN"
+
 // ServeConfig serve komutunun dogrulanmis yapilandirmasi.
 type ServeConfig struct {
 	Targets       *target.Set
@@ -45,13 +53,19 @@ type ServeConfig struct {
 	// ziyaretcinin URL'si yok, dolayisiyla hedefi bayrak soyler.
 	ManualTarget string
 	// ICE dogrulanmis STUN/TURN yapilandirmasi.
-	ICE     ice.Config
-	Relays  []string
-	Secret  string
-	KeyPath string
-	AppURL  string
-	Verbose bool
-	Logger  *slog.Logger
+	ICE ice.Config
+	// Cloudflare doldurulmussa TURN kimlik bilgisi API'den cekilir.
+	Cloudflare ice.CloudflareOptions
+
+	// iceProvider calisma zamaninda gecerli ICE listesini verir; runServe
+	// dolduruyor.
+	iceProvider *ice.Provider
+	Relays      []string
+	Secret      string
+	KeyPath     string
+	AppURL      string
+	Verbose     bool
+	Logger      *slog.Logger
 }
 
 type serveFlags struct {
@@ -65,6 +79,8 @@ type serveFlags struct {
 	turn          []string
 	turnUser      string
 	turnPass      string
+	cfKeyID       string
+	cfToken       string
 	iceRelayOnly  bool
 	relays        []string
 	secret        string
@@ -131,6 +147,10 @@ Ornekler:
 	fl.StringVar(&f.turnUser, "turn-user", "", "TURN kullanici adi")
 	fl.StringVar(&f.turnPass, "turn-pass", "",
 		"TURN sifresi ("+envTURNPass+" ortam degiskeni de kullanilabilir)")
+	fl.StringVar(&f.cfKeyID, "turn-cloudflare-key-id", "",
+		"Cloudflare Realtime TURN anahtar kimligi (kimlik bilgisi API'den cekilir)")
+	fl.StringVar(&f.cfToken, "turn-cloudflare-token", "",
+		"Cloudflare API jetonu ("+envCloudflareToken+" ortam degiskeni onerilir)")
 	fl.BoolVar(&f.iceRelayOnly, "ice-relay-only", false,
 		"yalnizca TURN relay adayi topla (teshis: dogrudan yolu imkansiz kilar)")
 	fl.BoolVarP(&f.verbose, "verbose", "v", false,
@@ -167,13 +187,34 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 	if turnPass == "" {
 		turnPass = os.Getenv(envTURNPass)
 	}
-	iceCfg, err := ice.Config{
+	cfToken := f.cfToken
+	if cfToken == "" {
+		cfToken = os.Getenv(envCloudflareToken)
+	}
+	cf := ice.CloudflareOptions{KeyID: f.cfKeyID, Token: cfToken}
+	switch {
+	case cf.KeyID != "" && cf.Token == "":
+		return nil, fmt.Errorf(
+			"--turn-cloudflare-key-id verildi ama jeton yok (--turn-cloudflare-token ya da %s)",
+			envCloudflareToken)
+	case cf.KeyID == "" && cf.Token != "":
+		return nil, fmt.Errorf("cloudflare jetonu verildi ama --turn-cloudflare-key-id yok")
+	}
+
+	iceCfg := ice.Config{
 		STUN:      f.stun,
 		TURN:      f.turn,
 		User:      f.turnUser,
 		Pass:      turnPass,
 		RelayOnly: f.iceRelayOnly,
-	}.Validated()
+	}
+	// Cloudflare kullaniliyorsa TURN adresi ve kimlik bilgisi calisma
+	// zamaninda gelir; dogrulama bunu bilmeli, yoksa "relay-only icin turn
+	// gerekiyor" ya da "turn-user yok" diye bosa duser.
+	if cf.KeyID != "" {
+		iceCfg.RuntimeTURN = true
+	}
+	iceCfg, err = iceCfg.Validated()
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +261,7 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 		Manual:        f.manual,
 		ManualTarget:  manualTarget,
 		ICE:           iceCfg,
+		Cloudflare:    cf,
 		Relays:        relays,
 		Secret:        f.secret,
 		KeyPath:       keyPath,
@@ -254,8 +296,47 @@ func runServe(cmd *cobra.Command, cfg *ServeConfig) error {
 	ctx, stop := osignal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// ICE saglayicisi: Cloudflare verilmisse kimlik bilgisini SIMDI ceker
+	// (basarisizsa ajan baslamaz — kullanici TURN istediyse sessizce
+	// TURN'suz devam etmek yanlis olur) ve arka planda yeniler.
+	ice, err := newICEProvider(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	go ice.Run(ctx)
+	cfg.iceProvider = ice
+
 	if cfg.Manual {
 		return runManual(ctx, cfg, cmd.InOrStdin(), cmd.OutOrStdout())
 	}
 	return runNostr(ctx, cfg, cmd.OutOrStdout())
+}
+
+// newICEProvider yapilandirmaya gore statik ya da Cloudflare saglayicisi
+// dondurur.
+func newICEProvider(ctx context.Context, cfg *ServeConfig) (*ice.Provider, error) {
+	if cfg.Cloudflare.KeyID == "" {
+		return ice.NewProvider(cfg.ICE, cfg.Logger), nil
+	}
+	return ice.NewCloudflareProvider(ctx, cfg.ICE, cfg.Cloudflare, cfg.Logger)
+}
+
+// iceServers oturum basina gecerli ICE listesini dondurur
+// (connect.ICEFactory imzasi).
+//
+// Saglayici yoksa (testler ServeConfig'i elle kuruyor) statik yapilandirma
+// kullanilir.
+func (c *ServeConfig) iceServers() ([]webrtc.ICEServer, webrtc.ICETransportPolicy) {
+	if c.iceProvider == nil {
+		return c.ICE.Servers(), c.ICE.Policy()
+	}
+	return c.iceProvider.Servers()
+}
+
+// iceDescribe log ve banner icin ozet; kimlik bilgisi yazilmaz.
+func (c *ServeConfig) iceDescribe() string {
+	if c.iceProvider == nil {
+		return c.ICE.Describe()
+	}
+	return c.iceProvider.Config().Describe()
 }

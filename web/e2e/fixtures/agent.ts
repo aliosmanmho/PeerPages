@@ -105,6 +105,45 @@ export class LineWatcher {
   }
 }
 
+/**
+ * Ajan binary'sini tek seferlik calistirir ve ciktiyi dondurur.
+ *
+ * `doctor` gibi bir kez kosup cikan komutlar icin: cikis kodu da onemli,
+ * cunku bazi hatalar (TURN allocation alinamadi) yalnizca kodla
+ * bildiriliyor.
+ */
+export function runAgent(
+  args: string[],
+  timeoutMs = 90_000,
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const bin = ensureAgentBinary();
+  return new Promise((resolve, reject) => {
+    const proc = spawn(bin, args, { cwd: AGENT_DIR, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.setEncoding("utf8");
+    proc.stdout.on("data", (c: string) => {
+      stdout += c;
+    });
+    proc.stderr.setEncoding("utf8");
+    proc.stderr.on("data", (c: string) => {
+      stderr += c;
+    });
+    const timer = setTimeout(() => {
+      proc.kill();
+      reject(new Error(`komut ${timeoutMs} ms icinde bitmedi: ${args.join(" ")}`));
+    }, timeoutMs);
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr });
+    });
+  });
+}
+
 export interface TestSite {
   url: string;
   stop: () => void;

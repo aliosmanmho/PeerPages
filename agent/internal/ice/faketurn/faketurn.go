@@ -63,6 +63,7 @@ func StartOn(port int, opts Options) (*Server, error) {
 	}
 
 	s := &Server{conn: conn, addr: addr}
+	relayIP := localIPv4()
 
 	key := turn.GenerateAuthKey(opts.User, Realm, opts.Pass)
 	srv, err := turn.NewServer(turn.ServerConfig{
@@ -76,8 +77,19 @@ func StartOn(port int, opts Options) (*Server, error) {
 		PacketConnConfigs: []turn.PacketConnConfig{{
 			PacketConn: conn,
 			RelayAddressGenerator: &turn.RelayAddressGeneratorStatic{
-				RelayAddress: net.IPv4(127, 0, 0, 1),
-				Address:      "127.0.0.1",
+				// Duyurulan relay adresi makinenin LAN adresi, soket ise
+				// tum arayuzlere bagli.
+				//
+				// Neden 127.0.0.1 DEGIL: karsi taraf (pion ya da tarayici)
+				// genelde loopback adayi uretmez, LAN adresini kullanir ve
+				// 127.0.0.1'e bagli bir soket oraya paket gonderemez.
+				// Ayrica duyurulan adres, relay'in paket gonderirken
+				// kullandigi kaynak adresle AYNI olmali: aksi halde karsi
+				// taraf gelen kontrolu "peer-reflexive" sayar ve secilen
+				// aday cifti relay GORUNMEZ (gercek bir TURN sunucusunda
+				// bu tutarlilik zaten var).
+				RelayAddress: relayIP,
+				Address:      "0.0.0.0",
 			},
 		}},
 		EventHandler: turn.EventHandler{
@@ -118,4 +130,23 @@ func (s *Server) Close() error {
 		return s.conn.Close()
 	}
 	return s.srv.Close()
+}
+
+// localIPv4 makinenin varsayilan cikis arayuzundeki IPv4 adresini bulur.
+//
+// Hicbir paket gonderilmiyor: UDP "baglantisi" yalnizca isletim sisteminin
+// hangi arayuzu sececegini sormak icin. Bulunamazsa loopback'e duser
+// (yalnizca loopback adayi uretilen ortamlarda bu da yeterli).
+func localIPv4() net.IP {
+	c, err := net.Dial("udp4", "203.0.113.1:9")
+	if err != nil {
+		return net.IPv4(127, 0, 0, 1)
+	}
+	defer func() { _ = c.Close() }()
+
+	addr, ok := c.LocalAddr().(*net.UDPAddr)
+	if !ok || addr.IP == nil {
+		return net.IPv4(127, 0, 0, 1)
+	}
+	return addr.IP
 }

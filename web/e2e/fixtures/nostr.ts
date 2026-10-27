@@ -77,6 +77,58 @@ export async function startFakeRelay(
   };
 }
 
+const FAKETURN_LISTENING = "---PEERPAGES-FAKETURN-LISTENING---";
+
+export interface FakeTurn {
+  /** Ajana verilecek TURN adresi (turn:127.0.0.1:port). */
+  url: string;
+  user: string;
+  pass: string;
+  stop: () => void;
+}
+
+/**
+ * Surec ici TURN sunucusunu baslatir (Faz 5).
+ *
+ * Ajan --ice-relay-only ile yalnizca relay adayi toplamaya zorlanirsa
+ * dogrudan yol IMKANSIZ olur; o zaman tunelin acilmasi trafigin TURN'den
+ * gectiginin kanitidir.
+ */
+export async function startFakeTurn(): Promise<FakeTurn> {
+  const bin = ensureAgentBinary();
+  const user = "peerpages";
+  const pass = "test-sifre";
+  const proc = spawn(bin, ["faketurn", "--port", "0", "--user", user, "--pass", pass], {
+    cwd: AGENT_DIR,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  const watcher = new LineWatcher();
+  proc.stdout.setEncoding("utf8");
+  proc.stdout.on("data", (c: string) => watcher.feed(c));
+  proc.stderr.setEncoding("utf8");
+  proc.stderr.on("data", (c: string) => watcher.feed(c));
+
+  const line = await watcher.waitFor(
+    (l) => l.startsWith(FAKETURN_LISTENING),
+    30_000,
+    "sahte TURN dinleme satiri",
+  );
+  const url = line.slice(FAKETURN_LISTENING.length).trim();
+  if (!url.startsWith("turn:")) {
+    throw new Error(`sahte TURN adresi okunamadi: ${line}`);
+  }
+
+  return {
+    url,
+    user,
+    pass,
+    stop: () => {
+      proc.kill();
+    },
+  };
+}
+
 export interface NostrAgent {
   /** Ajanin peer-id'si (tam npub). */
   npub: string;
@@ -109,6 +161,10 @@ export interface NostrAgentOptions {
   readonly relayURLs: readonly string[];
   readonly appURL: string;
   readonly secret?: string;
+  /** TURN sunucusu ve kimlik bilgisi (Faz 5). */
+  readonly turn?: { url: string; user: string; pass: string };
+  /** Yalnizca relay adayi topla: dogrudan yolu imkansiz kilar. */
+  readonly iceRelayOnly?: boolean;
   readonly extraArgs?: string[];
 }
 
@@ -133,6 +189,19 @@ export async function startNostrAgent(opts: NostrAgentOptions): Promise<NostrAge
   args.push("--key", keyPath, "--app-url", opts.appURL);
   if (opts.secret) {
     args.push("--secret", opts.secret);
+  }
+  if (opts.turn) {
+    args.push(
+      "--turn",
+      opts.turn.url,
+      "--turn-user",
+      opts.turn.user,
+      "--turn-pass",
+      opts.turn.pass,
+    );
+  }
+  if (opts.iceRelayOnly) {
+    args.push("--ice-relay-only");
   }
   args.push(...(opts.extraArgs ?? []));
 

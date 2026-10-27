@@ -1,0 +1,97 @@
+# goreleaser yapilandirmasi (Faz 4).
+#
+# Ajan ic ice bir modul (`agent/go.mod`); repo kokunde go.mod YOK. Bu yuzden
+# builds[].dir ile modul dizini veriliyor ve main paketi modulun kokunde
+# duruyor (agent/main.go) — `go install .../agent@latest` de ayni yuzden
+# calisiyor.
+#
+# Yerel dogrulama (yayin yapmaz):
+#   goreleaser check
+#   goreleaser release --snapshot --clean
+version: 2
+
+project_name: peerpages
+
+before:
+  hooks:
+    - go -C agent mod download
+
+builds:
+  - id: peerpages
+    dir: agent
+    main: .
+    binary: peerpages
+    env:
+      # Saf Go: capraz derleme icin C derleyicisi gerekmesin.
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.buildVersion={{ .Version }}
+      - -X main.buildCommit={{ .FullCommit }}
+      - -X main.buildDate={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: peerpages
+    ids: [peerpages]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - src: docs/INSTALL.md
+        dst: INSTALL.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-anlik"
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^dokumantasyon:"
+      - "^test:"
+
+release:
+  # Taslak olarak acilir: etiket atmak kazara yayin yapmasin, notlar elle
+  # gozden gecirilsin.
+  draft: true
+  prerelease: auto
+
+# Scoop ve Homebrew TASLAK (README Faz 4: "tap taslagi").
+#
+# Tap depolari henuz yok ve isim Faz 7'de degisebilir; bu yuzden yukleme
+# KAPALI. Acmak icin: depolari olustur, skip_upload'u kaldir ve release
+# workflow'una tap deposuna yazma izni olan bir token ekle.
+homebrew_casks:
+  - name: peerpages
+    ids: [peerpages]
+    skip_upload: true
+    repository:
+      owner: aliosmanmho
+      name: homebrew-tap
+    homepage: https://github.com/aliosmanmho/PeerPages
+    description: localhost'u sunucusuz yayinla (WebRTC + Nostr signaling)
+
+scoops:
+  - name: peerpages
+    ids: [peerpages]
+    skip_upload: true
+    repository:
+      owner: aliosmanmho
+      name: scoop-bucket
+    homepage: https://github.com/aliosmanmho/PeerPages
+    description: localhost'u sunucusuz yayinla (WebRTC + Nostr signaling)
+    license: MIT

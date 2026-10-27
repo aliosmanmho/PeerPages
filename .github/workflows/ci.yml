@@ -57,6 +57,28 @@ jobs:
           working-directory: agent
       - run: go test ./... -race
 
+  agent-platforms:
+    # Uc platformda derlendigini her PR'da gormek icin: release
+    # workflow'u yalnizca etiket atilinca kosuyor, o yuzden kirilmayi
+    # orada ogrenmek cok gec olur.
+    name: agent (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.x"
+          cache-dependency-path: agent/go.sum
+      - run: go build ./...
+      - run: go test ./...
+
   e2e:
     name: e2e (Faz 1 kabul kriterleri)
     runs-on: ubuntu-latest

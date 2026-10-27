@@ -10,7 +10,11 @@ web/blob-report/
 # go / agent
 agent/peerpages
 agent/peerpages.exe
+agent/peerpages.exe~
 agent/coverage.out
+
+# goreleaser cikisi
+dist/
 
 # üretilen test verisi (deterministik, repoda tutulmaz)
 agent/testdata/site/big.bin

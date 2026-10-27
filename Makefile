@@ -10,7 +10,7 @@ AGENT := agent
 # GitHub Pages alt yolu. Uretim derlemesi icin: make build PEERPAGES_BASE=/PeerPages/
 PEERPAGES_BASE ?= /
 
-.PHONY: help dev test test-web test-agent e2e build build-web build-agent lint lint-web lint-agent testdata clean
+.PHONY: help dev test test-web test-agent e2e build build-web build-agent lint lint-web lint-agent testdata clean release-snapshot release-check
 
 help: ## Komutlari listele
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -44,12 +44,21 @@ lint-web: ## biome + tsc
 	cd $(WEB) && npm run lint
 
 lint-agent: ## gofmt + go vet + golangci-lint (kurulu ise)
-	cd $(AGENT) && gofmt -l . && go vet ./...
+	@# gofmt dosya listelese bile 0 doner: bos cikti bekleyerek hata yapiyoruz,
+	@# aksi halde `make lint` bicimsiz kodda sessizce geciyordu.
+	cd $(AGENT) && gofmt -l . | tee /dev/stderr | (! read)
+	cd $(AGENT) && go vet ./...
 	@command -v golangci-lint >/dev/null 2>&1 && (cd $(AGENT) && golangci-lint run) || echo "golangci-lint kurulu degil, atlandi"
 
 testdata: ## Test sitesi icin uretilen dosyalar (5 MB big.bin)
 	@if [ -d $(AGENT)/internal/testsite/gen ]; then 		cd $(AGENT) && go run ./internal/testsite/gen; 	else 		echo "testsite ureticisi henuz yok (Faz 1.3), atlandi"; 	fi
 
 clean: ## Uretilen dosyalari sil
-	rm -rf $(WEB)/dist $(WEB)/test-results $(WEB)/playwright-report
+	rm -rf $(WEB)/dist $(WEB)/test-results $(WEB)/playwright-report dist
 	rm -f $(AGENT)/peerpages $(AGENT)/peerpages.exe $(AGENT)/testdata/site/big.bin
+
+release-snapshot: ## goreleaser ile yerel anlik derleme (yayin YAPMAZ)
+	goreleaser release --snapshot --clean
+
+release-check: ## goreleaser yapilandirmasini dogrula
+	goreleaser check

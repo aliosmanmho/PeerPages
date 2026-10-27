@@ -1,0 +1,39 @@
+name: Release
+
+# `v*` etiketi atilinca uc platform icin binary uretir.
+#
+# Etiket atmak YAYIN YAPMAZ: goreleaser release'i TASLAK olarak acar
+# (.goreleaser.yaml → release.draft). Notlari gozden gecirip elle
+# yayinlanir.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: goreleaser (linux + macos + windows)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # goreleaser etiketler arasi degisiklik listesi icin tam gecmise
+          # ihtiyac duyar.
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.x"
+          cache-dependency-path: agent/go.sum
+      # Yayindan once testler: etiket atilmis olsa bile kirmizi kod
+      # release'e gitmesin.
+      - name: Ajan testleri
+        working-directory: agent
+        run: go test ./...
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

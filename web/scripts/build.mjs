@@ -48,9 +48,10 @@ function run(args) {
   }
 }
 
-// SIRA ONEMLI: ikinci derleme emptyOutDir: false ile calisir, app shell'i
-// silmemesi icin ondan sonra gelmeli.
+// SIRA ONEMLI: sonraki derlemeler emptyOutDir: false ile calisir, app
+// shell'i silmemeleri icin ondan sonra gelmeli.
 run(["vite", "build"]);
 run(["vite", "build", "--config", "vite.sw.config.ts"]);
+run(["vite", "build", "--config", "vite.shim.config.ts"]);
 
 console.log(`web derlendi (base=${base})`);

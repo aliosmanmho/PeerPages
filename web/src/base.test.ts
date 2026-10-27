@@ -11,6 +11,8 @@ describe("isAppShellPath", () => {
     expect(isAppShellPath("/PeerPages/sw.js", base)).toBe(true);
     expect(isAppShellPath("/PeerPages/assets/connect-abc123.js", base)).toBe(true);
     expect(isAppShellPath("/PeerPages/favicon.ico", base)).toBe(true);
+    // Faz 6: shim app shell'in dosyasi, tunelden GECMEMELI.
+    expect(isAppShellPath("/PeerPages/ws-shim.js", base)).toBe(true);
   });
 
   /**

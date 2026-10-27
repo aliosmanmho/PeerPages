@@ -27,6 +27,8 @@ declare global {
       connState: () => string;
       /** Baglanti yolu: host | srflx | prflx | relay | bilinmiyor (Faz 5). */
       iceRoute: () => string;
+      /** Acik WebSocket oturumu sayisi (Faz 6). */
+      wsSessions: () => number;
     };
   }
 }

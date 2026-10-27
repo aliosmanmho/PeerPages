@@ -18,13 +18,17 @@
 import { isAppShellPath } from "./base";
 import {
   type BridgeResponse,
+  type BridgeResponseHead,
   type BridgeToWorker,
   MAX_BUFFERED_REQUEST_BODY,
   PROBE_TIMEOUT_MS,
   RECONNECT_WAIT_MS,
   RECONNECT_WAIT_NAVIGATE_MS,
   RECONNECT_WINDOW_MS,
+  WS_SHIM_FILE,
+  WS_SHIM_HEADER,
 } from "./bridge";
+import { injectScriptStream } from "./inject";
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -356,16 +360,12 @@ function forward(
     channel.port1.onmessage = (ev: MessageEvent<BridgeResponse>) => {
       const msg = ev.data;
       switch (msg.type) {
-        case "res":
+        case "res": {
           if (settled) return;
           settled = true;
-          resolve(
-            new Response(statusAllowsBody(msg.status) ? stream : null, {
-              status: msg.status,
-              headers: msg.headers,
-            }),
-          );
+          resolve(buildResponse(msg, stream));
           break;
+        }
         case "chunk":
           enqueue(new Uint8Array(msg.data));
           break;
@@ -402,6 +402,40 @@ function forward(
       reject(err instanceof Error ? err : new Error(String(err)));
     }
   });
+}
+
+/**
+ * Cevabi kurar ve gerekiyorsa WebSocket shim'ini enjekte eder (Faz 6).
+ *
+ * Enjeksiyon YALNIZCA iki kosul birlikte saglanirsa: ajan
+ * `x-peerpages-ws-shim` isaretini koymus (yani `--inject-ws-shim` verilmis)
+ * VE cevap HTML. Baska hicbir cevaba dokunulmaz.
+ *
+ * Isaret ziyaretciye GITMEZ: ajanla aramizdaki bir detay, sayfanin gormesi
+ * gereken bir sey degil.
+ */
+function buildResponse(msg: BridgeResponseHead, stream: ReadableStream<Uint8Array>): Response {
+  const headers = new Headers(msg.headers);
+  const wantsShim = headers.get(WS_SHIM_HEADER) === "1";
+  headers.delete(WS_SHIM_HEADER);
+
+  if (!statusAllowsBody(msg.status)) {
+    return new Response(null, { status: msg.status, headers });
+  }
+
+  const body =
+    wantsShim && isHTMLResponse(headers.get("content-type"))
+      ? stream.pipeThrough(injectScriptStream(SCOPE_PATH + WS_SHIM_FILE))
+      : stream;
+
+  return new Response(body, { status: msg.status, headers });
+}
+
+/** content-type HTML mi (parametreler yok sayilir). */
+function isHTMLResponse(contentType: string | null): boolean {
+  if (!contentType) return false;
+  const mime = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  return mime === "text/html" || mime === "application/xhtml+xml";
 }
 
 /** 204/205/304 govde tasiyamaz; aksi halde Response kurucusu hata verir. */

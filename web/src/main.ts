@@ -79,6 +79,8 @@ let reconnectRelays: string[] | null = null;
 let stunOverride: string[] | null = null;
 /** Baglantinin hangi yoldan kuruldugu (TURN kullanilip kullanilmadigi). */
 let iceRoute: IceRoute = "bilinmiyor";
+/** Acik ws oturumu sayisi (Faz 6). */
+let openSockets = 0;
 /** Kendi kapatma islemimiz sirasinda durum olaylarini yok saymak icin. */
 let tearingDown = false;
 
@@ -123,6 +125,10 @@ installBridge(() => tunnel, {
     counters.errors += 1;
     renderMetrics();
     console.warn(`[peerpages] istek basarisiz: ${path} — ${message}`);
+  },
+  onSocketChange: (open) => {
+    openSockets = open;
+    renderMetrics();
   },
 });
 
@@ -493,6 +499,11 @@ function renderMetrics(): void {
   if (supervisor?.currentState === "reconnecting") {
     rows.push(["Durum", "baglanti koptu, yeniden deneniyor"]);
   }
+  // WebSocket satiri yalnizca oturum varsa: her zaman sifir okunan satir
+  // gurultudur (Faz 6).
+  if (openSockets > 0) {
+    rows.push(["WebSocket", `${openSockets} acik`]);
+  }
 
   el.metrics.textContent = "";
   for (const [label, value] of rows) {
@@ -742,6 +753,8 @@ declare global {
       reconnects: () => number;
       connState: () => string;
       iceRoute: () => string;
+      /** Acik WebSocket oturumu sayisi (Faz 6). */
+      wsSessions: () => number;
     };
   }
 }
@@ -752,6 +765,7 @@ window.__peerpages = {
   reconnects: () => supervisor?.reconnects ?? 0,
   connState: () => supervisor?.currentState ?? "idle",
   iceRoute: () => iceRoute,
+  wsSessions: () => tunnel?.socketCount ?? 0,
   ping: async () => (tunnel ? tunnel.ping() : Promise.reject(new Error("tunel yok"))),
   makeOffer: () => makeOffer(),
   offer: () => el.offerOutput?.value ?? "",

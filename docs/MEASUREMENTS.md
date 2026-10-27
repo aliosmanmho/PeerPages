@@ -507,3 +507,33 @@ cd agent && go test ./internal/tunnel/ -run TestWS -v
 # Bundle boyutu
 cd web && node scripts/build.mjs /PeerPages/
 ```
+
+## Faz 7 — 2026-10-27 (yayın ve lansman)
+
+Bu fazda **yeni bir performans ölçümü yok**: kod yolu değişmedi, yalnızca
+`DefaultAppURL` sabiti ve belgeler değişti. Kayda geçen iki sayı:
+
+| Ne | Değer |
+|---|---|
+| Ekran görüntüleri (`docs/img/`, gerçek tünelden) | 52 KB (36 + 16 KB) |
+| Bundle (değişmedi) | 43.2 KB gzip + ayrı 1.9 KB shim |
+
+### Ölçülemeyen: kabul kriteri
+
+"Yabancı biri 3 dakikada kendi localhost'unu paylaşabiliyor" iddiası canlı bir
+GitHub Pages sitesi gerektiriyor. `main` push edildi ama **Pages ve CI
+workflow'ları başlayamadı**: GitHub hesabında faturalandırma kilidi var
+(*"The job was not started because your account is locked due to a billing
+issue"*). Dolayısıyla:
+
+- Pages sitesi yayında değil, canlı URL'den tünel denenmedi.
+- CI, GitHub runner'ında ilk kez koşamadı — yani `-race` ve
+  `golangci-lint`'in CI sürümü hâlâ yalnızca yerelde denendi
+  (BRIEF §8).
+
+Yerelde doğrulanan eşdeğeri: e2e paketi **aynı derleme komutunun ürettiği
+dist'i** aynı `base` ile `vite preview` üzerinden servis edip tüneli kuruyor
+(35 test). Yani dağıtım artefaktı doğru; doğrulanmamış olan GitHub tarafı.
+
+Kilit kalkınca ölçülecekler: Pages dağıtım süresi, canlı URL'den açık tünele
+kadar geçen süre, ve ilk ziyaretin app shell indirme süresi.

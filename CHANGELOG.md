@@ -486,3 +486,61 @@ Vite HMR kriteri otomatik testle karsilandi: fixture projede `vite dev`
 kosuyor, kaynak dosya degisiyor ve sayfa YENILENMEDEN guncelleniyor.
 Socket.IO ornegi elle dogrulamada (docs/MANUAL-TEST.md): iki yeni
 bagimlilik getirecegi icin otomatik test edilmedi.
+
+### Faz 7 - Yayin ve lansman
+
+#### Isim
+
+PeerPages olarak KESINLESTI. Hic etiket atilmamisti, yani modul yolunu
+degistirmek icin en ucuz andi; depo adi, Pages URL'si, modul yolu, binary
+adi ve kapsam oneki zaten tutarli oldugu icin degistirilmedi.
+"Isim Faz 7'de degisebilir" notlari .goreleaser.yaml, docs/INSTALL.md ve
+docs/DEV.md'den kaldirildi.
+
+#### Belgeler
+
+- Turkce brief + yol haritasi + §8 karar defteri **docs/BRIEF.md**'ye
+  tasindi; bolum numaralari aynen korundu. Koddaki 96 atif (54 dosya) ve
+  belgelerdeki 30 atif mekanik olarak guncellendi; diff simetrik ve yalnizca
+  yorum/metin satirlarina dokunuyor.
+- Kokte **Ingilizce public README** (223 satir): pitch, gercek ekran
+  goruntuleri, kendi kendine yeten quickstart, "Why not ngrok?", nasil
+  calistigi, alti numarali guvenlik ilkesi (BRIEF §6 ile ayni numaralar),
+  dokuz maddelik durust sinirlar, yedi soruluk FAQ.
+- Yeni **docs/SECURITY.md**: dort aktorlu tehdit modeli (relay izleyicisi,
+  peer-id tahmini, kotu niyetli ziyaretci, SSRF), gercek sabitlerden
+  olusturulmus guard tablosu, yedi bilincli takas, kapsam disi bolumu ve
+  iddialari dogrulayan bes kopyala-calistir komutu.
+- Yeni **docs/LAUNCH.md**: GIF cekim tarifi, Show HN basligi + ilk yorum +
+  zor sorularin cevaplari, r/selfhosted ve r/webdev metinleri, sosyal medya
+  metni, on kalemlik kontrol listesi. Hicbiri paylasilmadi.
+- docs/DEV.md'ye "Pages dagitimi" bolumu; web derlemesinin uc adim oldugu
+  (shim) duzeltildi.
+
+#### Dagitim
+
+- Yeni `.github/workflows/pages.yml`: main'e web/** ya da protocol/**
+  degisikligi gidince app shell'i Pages'e dagitir. `configure-pages`
+  `enablement: true` ile Pages'i kendisi acar; `PAGES_BASE` ve `PAGES_CNAME`
+  depo degiskenleri custom domain yolunu tek adimda aciyor.
+- `internal/cli/key.go`: DefaultAppURL artik gercek adres. Onceki sablon
+  deger ("<kullanici>") bayraksiz calisan ajanin CALISMAYAN bir URL
+  basmasina yol aciyordu.
+- `main` ILK KEZ push edildi (54 commit).
+
+#### Gorseller
+
+`web/e2e/demo.spec.ts` gercek bir tunelden iki ekran goruntusu uretiyor
+(52 KB toplam); normal kosumda atlaniyor (grepInvert /@demo/), yani test
+sayisi 35'te kaliyor.
+
+#### Kabul durumu
+
+**Olculemedi.** Kriter ("yabanci biri 3 dakikada paylasabiliyor") canli bir
+Pages sitesi gerektiriyor; push'tan sonra hem Pages hem CI workflow'u
+GitHub hesabindaki faturalandirma kilidi yuzunden BASLAYAMADI
+("your account is locked due to a billing issue"). Kilit kalkinca
+`gh workflow run Pages` yeterli. Yapilandirma yerelde dogrulandi: YAML
+ayristirmasi temiz ve ayni derleme komutunun urettigi dist e2e'de
+servis ediliyor. Ayrica etiket olmadigi icin binary indirme yolu da yok:
+bugun tek kurulum yolu `go install`.

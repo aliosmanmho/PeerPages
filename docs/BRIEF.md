@@ -211,7 +211,7 @@ ajandaki 60 saniyelik zaman aşımı tüm cevabı sarıyor ve uzun akışları s
 Socket.IO örneği **elle** (`docs/MANUAL-TEST.md`): iki yeni bağımlılık getireceği için
 otomatik test edilmedi. Ayrıntı: `docs/WEBSOCKET.md`.
 
-### Faz 7 — Yayın ve lansman (1 gün)
+### Faz 7 — Yayın ve lansman (1 gün) — **tamamlandı (canlı doğrulama bekliyor)**
 - GitHub Pages deploy workflow (`web/dist` → Pages, Actions kaynağı), custom domain rehberi (`CNAME`, `demo.alanadi.com`).
 - Public **İngilizce README**: 10 saniyelik GIF, "Why" bölümü, karşılaştırma tablosu, güvenlik modeli, sınırlar (dürüstçe), FAQ.
 - `docs/SECURITY.md`: tehdit modeli (peer-id tahmini, relay gözlemi, SSRF, ziyaretçi kötü niyetli olabilir).
@@ -219,6 +219,14 @@ otomatik test edilmedi. Ayrıntı: `docs/WEBSOCKET.md`.
 - Son isim kararı ve domain kontrolü.
 
 **Kabul:** Yabancı biri README'yi okuyup 3 dakikada kendi localhost'unu paylaşabiliyor.
+**Durum:** malzemenin tamamı hazır ve **push edildi** (54 commit, `main`):
+Pages workflow'u, İngilizce README (gerçek ekran görüntüleriyle), SECURITY.md
+tehdit modeli, LAUNCH.md ve isim kararı. GIF kullanıcıda (`docs/LAUNCH.md`).
+**Canlı site henüz yok:** GitHub hesabında bir faturalandırma kilidi var
+(`"The job was not started because your account is locked due to a billing
+issue"`), bu yüzden hem `Pages` hem `CI` workflow'ları başlayamıyor. Kilit
+kalkınca tek komut yetiyor: `gh workflow run Pages`. Kriterin ölçülmesi buna
+bağlı (§8).
 
 ## 6. Güvenlik ilkeleri (her fazda geçerli)
 
@@ -469,6 +477,36 @@ otomatik test edilmedi. Ayrıntı: `docs/WEBSOCKET.md`.
   Alt protokol geçiyor, `permessage-deflate` gibi uzantılar geçmiyor (`extensions` boş).
   Tünel koparsa açık soketler 1006 ile düşüyor; yeniden bağlanmayı sayfanın kendi
   kütüphanesi yapar.
+
+- **(Faz 7, AÇIK — dış kaynaklı) GitHub Actions faturalandırma kilidi yüzünden
+  Pages yayına alınamadı.** `main` push edildi (ilk kez), ama hem `Pages` hem
+  `CI` workflow'u *"The job was not started because your account is locked due
+  to a billing issue"* ile başlayamadı; `CI` kuyrukta asılı kaldı. Yani
+  workflow'ların kendisi **GitHub'da hiç koşturulamadı** — Faz 4'ten beri açık
+  olan "release workflow'u gerçek ortamda denenmedi" maddesi genişledi. Kilit
+  hesap ayarlarından kalkınca `gh workflow run Pages` yeterli; yapılandırmanın
+  kendisi yerelde doğrulandı (YAML ayrıştırması + aynı derleme komutunun
+  ürettiği dist, e2e'de `vite preview` ile servis ediliyor).
+
+- **(Faz 7, AÇIK) Kabul kriteri ölçülmedi.** "Yabancı biri 3 dakikada
+  paylaşabiliyor" iddiası canlı Pages sitesi gerektiriyor. Yerelde eşdeğeri
+  koşuyor (e2e tam olarak aynı dist'i aynı base ile servis edip tüneli
+  kuruyor), ama gerçek github.io adresine karşı **denenmedi**. Ayrıca
+  etiket/release olmadığı için binary indirme yolu da yok: bugün tek kurulum
+  yolu `go install` (yani Go kurulu olmayan biri için "3 dakika" geçerli
+  değil).
+
+- **(Faz 7'de karar verildi) Arayüz ve belgeler Türkçe kaldı.** Public README
+  ve `docs/SECURITY.md` İngilizce; ajanın CLI çıktısı, bağlantı ekranı ve geri
+  kalan belgeler Türkçe. README bunu "honest limits" altında açıkça söylüyor.
+  Çeviri kararı ertelendi: lansman hedef kitlesi İngilizce okuyor ama
+  kullanıcı arayüzünü çevirmek ayrı bir iş ve yarım çeviri karışık bir
+  deneyim üretir.
+
+- **(Faz 7, AÇIK) Lansman metinleri paylaşılmadı.** `docs/LAUNCH.md` Show HN,
+  r/selfhosted, r/webdev ve sosyal medya metinlerini hazır tutuyor; paylaşma
+  kararı ve zamanlaması kullanıcıda. X/LinkedIn metnindeki kurumsal hesap adı
+  yer tutucu.
 
 - Nostr relay'lerinin ephemeral event'leri bazı relay'ler düşürebilir → `doctor` ile relay sağlığı; liste güncel tutulur.
 - GitHub Pages kullanım şartları: statik vitrin için uygun; projeyi ticari proxy gibi sunma, README'de "demo/paylaşım aracı" de.

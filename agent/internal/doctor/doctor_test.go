@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aliosmanmho/PeerPages/agent/internal/doctor"
+	"github.com/aliosmanmho/PeerPages/agent/internal/ice"
 	"github.com/aliosmanmho/PeerPages/agent/internal/nostr/fakerelay"
 )
 
@@ -166,7 +167,7 @@ func TestCheckRelaysMixed(t *testing.T) {
 	defer cancel()
 
 	urls := []string{good.URL(), dropper.URL(), "ws://127.0.0.1:1"}
-	report := doctor.Run(ctx, urls, nil, quietLogger(), fastOpts)
+	report := doctor.Run(ctx, urls, ice.Config{}, quietLogger(), fastOpts)
 
 	if len(report.Relays) != 3 {
 		t.Fatalf("3 rapor beklenirdi, %d", len(report.Relays))
@@ -194,7 +195,7 @@ func TestReportNotOKWhenNoUsableRelay(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	report := doctor.Run(ctx, []string{"ws://127.0.0.1:1"}, nil, quietLogger(), fastOpts)
+	report := doctor.Run(ctx, []string{"ws://127.0.0.1:1"}, ice.Config{}, quietLogger(), fastOpts)
 	if report.OK() {
 		t.Error("kullanilabilir relay yokken OK() false olmali")
 	}

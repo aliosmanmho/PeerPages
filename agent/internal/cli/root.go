@@ -47,6 +47,7 @@ func NewRootCmdWith(info version.Info) *cobra.Command {
 	root.AddCommand(newVersionCmd(info))
 	root.AddCommand(newTestSiteCmd())
 	root.AddCommand(newFakeRelayCmd())
+	root.AddCommand(newFakeTurnCmd())
 	return root
 }
 

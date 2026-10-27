@@ -32,6 +32,7 @@ import (
 	"github.com/nbd-wtf/go-nostr/nip11"
 	"github.com/pion/stun/v4"
 
+	"github.com/aliosmanmho/PeerPages/agent/internal/ice"
 	"github.com/aliosmanmho/PeerPages/agent/internal/nostr"
 )
 
@@ -56,6 +57,7 @@ type Options struct {
 	ConnectTimeout time.Duration
 	EchoTimeout    time.Duration
 	STUNTimeout    time.Duration
+	TURNTimeout    time.Duration
 }
 
 func (o Options) withDefaults() Options {
@@ -70,6 +72,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.STUNTimeout <= 0 {
 		o.STUNTimeout = DefaultSTUNTimeout
+	}
+	if o.TURNTimeout <= 0 {
+		o.TURNTimeout = DefaultTURNTimeout
 	}
 	return o
 }
@@ -159,13 +164,50 @@ type STUNReport struct {
 type Report struct {
 	Relays []RelayReport `json:"relays"`
 	STUN   STUNReport    `json:"stun"`
+	// TURN yalnizca --turn verildiginde doldurulur.
+	TURN *TURNReport `json:"turn,omitempty"`
 	// UsableRelays kullanilabilir relay adresleri.
 	UsableRelays []string `json:"usable_relays"`
+	// Advice NAT karari ile TURN sonucunu birlestiren tek cumle.
+	Advice string `json:"advice"`
 }
 
-// OK en az bir relay ve STUN calisiyor mu.
+// OK ajan calisabilir durumda mi.
+//
+// Iki kosul: en az bir kullanilabilir relay VE (TURN verilmediyse ya da
+// verilen TURN'lerden en az biri allocation veriyorsa). Simetrik NAT tek
+// basina hata DEGIL — bir ag gercegi; o yuzden karari etkilemiyor.
 func (r Report) OK() bool {
-	return len(r.UsableRelays) > 0
+	if len(r.UsableRelays) == 0 {
+		return false
+	}
+	if r.TURN != nil && !r.TURN.Usable() {
+		return false
+	}
+	return true
+}
+
+// advice NAT karari ile TURN sonucundan tavsiye uretir.
+func advice(stun STUNReport, turn *TURNReport) string {
+	turnWorks := turn != nil && turn.Usable()
+
+	switch {
+	case turn != nil && !turnWorks:
+		return "TURN verildi ama allocation alinamadi: adres ve kimlik bilgisini kontrol et."
+	case stun.Verdict == NATNoSTUN:
+		return "STUN'a ulasilamadi: UDP disariya kapali olabilir, bu durumda TURN da calismayabilir."
+	case stun.Verdict == NATSymmetric && turnWorks:
+		return "NAT simetrik ama TURN hazir: baglanamayan ziyaretciler relay uzerinden gecer."
+	case stun.Verdict == NATSymmetric:
+		return "NAT simetrik ve TURN verilmedi: karsi taraf da simetrik NAT arkasindaysa " +
+			"baglanti kurulamaz. --turn ile bir TURN sunucusu ver (docs/TURN.md)."
+	case stun.Verdict == NATFriendly && turnWorks:
+		return "NAT uyumlu; TURN de hazir ama ICE dogrudan yolu tercih eder."
+	case stun.Verdict == NATFriendly:
+		return "NAT uyumlu: TURN gerekmez."
+	default:
+		return "NAT tipi belirlenemedi: en az iki STUN sunucusuna ulasmak gerekiyor."
+	}
 }
 
 // CheckRelays verilen relay'leri paralel olarak test eder.
@@ -460,16 +502,26 @@ func stunHostPort(raw string) (string, error) {
 }
 
 // Run tam kontrolu calistirir.
-func Run(ctx context.Context, relays, stunServers []string, log *slog.Logger, opts Options) Report {
+//
+// iceCfg.TURN bos ise TURN kontrolu hic yapilmaz ve raporda TURN alani
+// bulunmaz.
+func Run(
+	ctx context.Context, relays []string, iceCfg ice.Config, log *slog.Logger, opts Options,
+) Report {
 	report := Report{
 		Relays: CheckRelays(ctx, relays, log, opts),
-		STUN:   CheckSTUN(ctx, stunServers, opts),
+		STUN:   CheckSTUN(ctx, iceCfg.STUN, opts),
+	}
+	if len(iceCfg.TURN) > 0 {
+		t := CheckTURN(ctx, iceCfg, opts)
+		report.TURN = &t
 	}
 	for _, r := range report.Relays {
 		if r.Usable() {
 			report.UsableRelays = append(report.UsableRelays, r.URL)
 		}
 	}
+	report.Advice = advice(report.STUN, report.TURN)
 	return report
 }
 

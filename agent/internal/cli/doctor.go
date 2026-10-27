@@ -25,10 +25,15 @@ const doctorTimeout = 60 * time.Second
 
 func newDoctorCmd() *cobra.Command {
 	var (
-		relays  []string
-		stuns   []string
-		asJSON  bool
-		verbose bool
+		relays   []string
+		stuns    []string
+		turns    []string
+		turnUser string
+		turnPass string
+		cfKeyID  string
+		cfToken  string
+		asJSON   bool
+		verbose  bool
 	)
 
 	cmd := &cobra.Command{
@@ -45,7 +50,11 @@ Ucuncu adim en onemlisi: bir relay event'i "OK" ile kabul edip sessizce
 dusurebilir. O zaman signaling calismaz ama hata da gorunmez.
 
 Ayrica STUN erisimi ve NAT tipi tahmini yapar (iki STUN sunucusunun gordugu
-dis portu karsilastirir).`,
+dis portu karsilastirir).
+
+--turn verilirse her TURN sunucusundan ALLOCATION ISTENIR: "sunucu ayakta mi"
+degil "bana relay adresi veriyor mu" sorusu olculur. Rapor sonunda NAT karari
+ile TURN sonucunu birlestiren tek satirlik bir tavsiye yazar.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			log := logging.New(cmd.ErrOrStderr(), verbose)
@@ -62,7 +71,36 @@ dis portu karsilastirir).`,
 			ctx, cancel := context.WithTimeout(ctx, doctorTimeout)
 			defer cancel()
 
-			report := doctor.Run(ctx, relays, stuns, log, doctor.Options{})
+			turnPassword := turnPass
+			if turnPassword == "" {
+				turnPassword = os.Getenv(envTURNPass)
+			}
+			cfApiToken := cfToken
+			if cfApiToken == "" {
+				cfApiToken = os.Getenv(envCloudflareToken)
+			}
+
+			iceCfg := ice.Config{STUN: stuns, TURN: turns, User: turnUser, Pass: turnPassword}
+			// Cloudflare verilmisse kimlik bilgisini SIMDI cekip gercek
+			// adresle test ediyoruz: kullanicinin elle kimlik bilgisi
+			// kopyalamasina gerek yok.
+			if cfKeyID != "" {
+				creds, cerr := ice.FetchCredentials(ctx, ice.CloudflareOptions{
+					KeyID: cfKeyID, Token: cfApiToken,
+				})
+				if cerr != nil {
+					return cerr
+				}
+				iceCfg.TURN = append(iceCfg.TURN, creds.URLs...)
+				iceCfg.User = creds.Username
+				iceCfg.Pass = creds.Password
+			}
+			iceCfg, ierr := iceCfg.Validated()
+			if ierr != nil {
+				return ierr
+			}
+
+			report := doctor.Run(ctx, relays, iceCfg, log, doctor.Options{})
 
 			out := cmd.OutOrStdout()
 			if asJSON {
@@ -75,8 +113,14 @@ dis portu karsilastirir).`,
 				printReport(out, report)
 			}
 
-			if !report.OK() {
+			if len(report.UsableRelays) == 0 {
 				return fmt.Errorf("kullanilabilir relay bulunamadi (%d relay denendi)", len(report.Relays))
+			}
+			// TURN istendi ama hicbiri allocation vermedi: sessizce 0 ile
+			// cikmak, kullanicinin TURN'un calistigini sanmasina yol acar.
+			if report.TURN != nil && !report.TURN.Usable() {
+				return fmt.Errorf("hicbir TURN sunucusu allocation vermedi (%d sunucu denendi)",
+					len(report.TURN.Servers))
 			}
 			return nil
 		},
@@ -87,6 +131,15 @@ dis portu karsilastirir).`,
 		"test edilecek relay (tekrarlanabilir; verilmezse varsayilan liste)")
 	fl.StringArrayVar(&stuns, "stun", nil,
 		"test edilecek STUN sunucusu (tekrarlanabilir; NAT tipi icin en az iki tane)")
+	fl.StringArrayVar(&turns, "turn", nil,
+		"test edilecek TURN sunucusu (turn:/turns:, tekrarlanabilir)")
+	fl.StringVar(&turnUser, "turn-user", "", "TURN kullanici adi")
+	fl.StringVar(&turnPass, "turn-pass", "",
+		"TURN sifresi ("+envTURNPass+" ortam degiskeni de kullanilabilir)")
+	fl.StringVar(&cfKeyID, "turn-cloudflare-key-id", "",
+		"Cloudflare Realtime TURN anahtar kimligi (kimlik bilgisi API'den cekilir)")
+	fl.StringVar(&cfToken, "turn-cloudflare-token", "",
+		"Cloudflare API jetonu ("+envCloudflareToken+" ortam degiskeni onerilir)")
 	fl.BoolVar(&asJSON, "json", false, "ciktiyi JSON olarak ver")
 	fl.BoolVarP(&verbose, "verbose", "v", false, "ayrintili log")
 	return cmd
@@ -144,11 +197,34 @@ func printReport(w io.Writer, report doctor.Report) {
 		fmt.Fprintf(w, "  %s\n", report.STUN.Note)
 	}
 
+	if report.TURN != nil {
+		fmt.Fprintln(w, "\nTURN")
+		tw = tabwriter.NewWriter(w, 0, 8, 2, ' ', 0)
+		fmt.Fprintln(tw, "  sunucu\tdurum\trelay adresi\tsure\tnot")
+		for _, t := range report.TURN.Servers {
+			status := "basarisiz"
+			addr := "—"
+			if t.OK {
+				status = "tamam"
+				addr = t.RelayedAddr
+			}
+			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n",
+				t.URL, status, addr, msOrDash(t.OK, t.MS), t.Err)
+		}
+		_ = tw.Flush()
+	}
+
 	fmt.Fprintln(w, "\nSONUC")
-	if report.OK() {
-		fmt.Fprintln(w, "  Signaling icin yeterli relay var.")
-	} else {
+	switch {
+	case len(report.UsableRelays) == 0:
 		fmt.Fprintln(w, "  Kullanilabilir relay YOK. --relay ile kendi relay'ini ver.")
+	case report.TURN != nil && !report.TURN.Usable():
+		fmt.Fprintln(w, "  Relay var ama TURN calismiyor.")
+	default:
+		fmt.Fprintln(w, "  Signaling icin yeterli relay var.")
+	}
+	if report.Advice != "" {
+		fmt.Fprintf(w, "  %s\n", report.Advice)
 	}
 }
 

@@ -101,10 +101,25 @@ const (
 	// protokol degisikligi gerekmiyor: sessiz ama acik bir tunelde bile
 	// lastSeen tazelenir.
 	DefaultPingInterval = 10 * time.Second
+	// DefaultDisconnectGrace ICE "Disconnected"a dustukten sonra geri
+	// donmesi icin verilen sure.
+	//
+	// Neden sure veriyoruz: Disconnected GECICI bir durumdur, pion sik sik
+	// kendi kendine Connected'a geri doner (yukaridaki yorum da bunu
+	// soyluyor). Faz 3'e kadar bu durum oturumu ANINDA kapatiyordu, ustelik
+	// temiz kapanis gibi raporlayarak; kisa bir ag kesintisi tuneli
+	// gereksiz yere oldurmus oluyordu.
+	DefaultDisconnectGrace = 10 * time.Second
+	// resumeFactor uyanma tespiti: iki tik arasi, beklenen araligin bu
+	// katindan fazlaysa surecin askiya alindigi varsayilir.
+	resumeFactor = 3
 )
 
 // ErrIdle oturum bosta kaldigi icin kapatildi.
 var ErrIdle = errors.New("oturum bosta kaldi: ziyaretci yanit vermiyor")
+
+// ErrDisconnected ICE baglantisi geri donmedigi icin kapatildi.
+var ErrDisconnected = errors.New("WebRTC baglantisi koptu ve geri donmedi")
 
 // Config oturum yapilandirmasi.
 type Config struct {
@@ -135,6 +150,9 @@ type Config struct {
 	//
 	// Testler bu ikisini kisaltarak denetimi hizlandirir.
 	PingInterval time.Duration
+	// DisconnectGrace ICE Disconnected'dan geri donmesi icin beklenen sure;
+	// 0 ise DefaultDisconnectGrace.
+	DisconnectGrace time.Duration
 }
 
 func (c *Config) validate() error {
@@ -242,14 +260,29 @@ type Session struct {
 	ready   chan struct{}
 	readyOn sync.Once
 
-	closed   chan struct{}
-	closeOn  sync.Once
-	closeErr error
+	closed  chan struct{}
+	closeOn sync.Once
+	// closeErr kapanma nedeni. Atomik kutu icinde: closeWith yazarken
+	// Err() ve WaitReady() baska goroutine'lerden okuyabiliyor.
+	closeErr atomic.Value // errBox
 
-	// lastSeen ziyaretciden en son bir sey duyuldugu an (unix nano).
+	// born oturumun kuruldugu an. MONOTONIK okumayi tasir; lastSeen bu ana
+	// gore sure olarak tutuluyor ki duvar saati degisimleri (NTP adimi,
+	// elle saat degisikligi) bosta kalma denetimini bozmasin.
+	born time.Time
+	// lastSeen ziyaretciden en son bir sey duyuldugu an; born'dan bu yana
+	// gecen sure (nanosaniye).
 	// Atomik: ctrl ve data kanallari ayri goroutine'lerden gelir.
 	lastSeen atomic.Int64
+
+	// disconnMu ICE Disconnected zamanlayicisini korur.
+	disconnMu    sync.Mutex
+	disconnTimer *time.Timer
 }
+
+// errBox atomic.Value'nun tek tip saklamasi icin sarmalayici (nil error de
+// saklanabilsin).
+type errBox struct{ err error }
 
 // New oturumu kurar; kanallar acilir ama henuz offer uretilmez.
 func New(cfg Config) (*Session, error) {
@@ -275,6 +308,7 @@ func New(cfg Config) (*Session, error) {
 		sem:    make(chan struct{}, cfg.MaxConcurrent),
 		ready:  make(chan struct{}),
 		closed: make(chan struct{}),
+		born:   time.Now(),
 	}
 	s.touch()
 
@@ -300,9 +334,18 @@ func New(cfg Config) (*Session, error) {
 		s.log.Info("baglanti durumu", slog.String("state", st.String()))
 		switch st {
 		case webrtc.PeerConnectionStateFailed:
+			s.cancelDisconnectTimer()
 			s.closeWith(errors.New("WebRTC baglantisi basarisiz"))
-		case webrtc.PeerConnectionStateClosed, webrtc.PeerConnectionStateDisconnected:
+		case webrtc.PeerConnectionStateClosed:
+			s.cancelDisconnectTimer()
 			s.closeWith(nil)
+		case webrtc.PeerConnectionStateDisconnected:
+			// Hemen kapatmiyoruz: Disconnected gecicidir ve geri donebilir.
+			s.armDisconnectTimer()
+		case webrtc.PeerConnectionStateConnected:
+			if s.cancelDisconnectTimer() {
+				s.log.Info("baglanti geri geldi")
+			}
 		}
 	})
 
@@ -459,7 +502,12 @@ func (s *Session) Ready() <-chan struct{} { return s.ready }
 func (s *Session) Done() <-chan struct{} { return s.closed }
 
 // Err oturumun kapanma nedenini dondurur (temiz kapanista nil).
-func (s *Session) Err() error { return s.closeErr }
+func (s *Session) Err() error {
+	if v, ok := s.closeErr.Load().(errBox); ok {
+		return v.err
+	}
+	return nil
+}
 
 // Close oturumu kapatir.
 func (s *Session) Close() error {
@@ -469,7 +517,7 @@ func (s *Session) Close() error {
 
 func (s *Session) closeWith(err error) {
 	s.closeOn.Do(func() {
-		s.closeErr = err
+		s.closeErr.Store(errBox{err: err})
 		close(s.closed)
 
 		s.reqMu.Lock()
@@ -886,8 +934,8 @@ func (s *Session) WaitReady(ctx context.Context, timeout time.Duration) error {
 	case <-s.ready:
 		return nil
 	case <-s.closed:
-		if s.closeErr != nil {
-			return s.closeErr
+		if err := s.Err(); err != nil {
+			return err
 		}
 		return errors.New("oturum kapandi")
 	case <-ctx.Done():
@@ -898,7 +946,16 @@ func (s *Session) WaitReady(ctx context.Context, timeout time.Duration) error {
 }
 
 // touch ziyaretciden bir sey duyuldugunu isaretler.
-func (s *Session) touch() { s.lastSeen.Store(time.Now().UnixNano()) }
+//
+// Zaman MONOTONIK olcuyoruz: born'dan bu yana gecen sure. time.Now()'u unix
+// nano olarak saklayip geri okumak duvar saatine donusuyordu — askiya alma,
+// NTP adimi ya da elle saat degisikligi bosta kalma denetimini bozuyordu.
+func (s *Session) touch() { s.lastSeen.Store(int64(time.Since(s.born))) }
+
+// silence ziyaretciden en son haber alinmasindan bu yana gecen sure.
+func (s *Session) silence() time.Duration {
+	return time.Since(s.born) - time.Duration(s.lastSeen.Load())
+}
 
 // idleLimits yapilandirilmis sureleri (ya da varsayilanlari) dondurur.
 func (s *Session) idleLimits() (idle, ping time.Duration) {
@@ -912,17 +969,69 @@ func (s *Session) idleLimits() (idle, ping time.Duration) {
 	return idle, ping
 }
 
+// disconnectGrace Disconnected'dan donus icin verilen sure.
+func (s *Session) disconnectGrace() time.Duration {
+	if s.cfg.DisconnectGrace > 0 {
+		return s.cfg.DisconnectGrace
+	}
+	return DefaultDisconnectGrace
+}
+
+// armDisconnectTimer ICE geri donmezse oturumu kapatacak zamanlayiciyi
+// kurar. Zaten kurulmussa dokunmaz: ilk kopmanin saati gecerlidir.
+func (s *Session) armDisconnectTimer() {
+	grace := s.disconnectGrace()
+
+	s.disconnMu.Lock()
+	defer s.disconnMu.Unlock()
+	if s.disconnTimer != nil {
+		return
+	}
+	s.log.Info("baglanti koptu, geri donmesi bekleniyor",
+		slog.Duration("sure", grace))
+	s.disconnTimer = time.AfterFunc(grace, func() {
+		select {
+		case <-s.closed:
+			return
+		default:
+		}
+		s.log.Info("baglanti geri donmedi, oturum kapatiliyor")
+		s.closeWith(ErrDisconnected)
+		_ = s.pc.Close()
+	})
+}
+
+// cancelDisconnectTimer bekleyen kapatmayi iptal eder (baglanti geri geldi
+// ya da oturum baska bir nedenle kapaniyor). Bekleyen bir kapatma varsa
+// true doner.
+func (s *Session) cancelDisconnectTimer() bool {
+	s.disconnMu.Lock()
+	t := s.disconnTimer
+	s.disconnTimer = nil
+	s.disconnMu.Unlock()
+
+	return t != nil && t.Stop()
+}
+
 // watchIdle ziyaretci sessizlige gomulurse oturumu kapatir.
 //
 // Ping'i AJAN yolluyor: sessiz ama acik bir tunelde (ziyaretci sayfayi acik
 // birakip hicbir istek yapmiyorsa) tek trafik kaynagi bu olur, ve sekme
 // gercekten gittiyse pong gelmez. Boylece kapanis WebRTC'nin durum
 // makinesine degil kendi saatimize bagli olur.
+// Uyku/uyanma: monotonik saat askiya alinan sureyi isletim sistemine gore
+// sayar ya da saymaz (Linux CLOCK_MONOTONIC saymaz, Windows sayar). Bu
+// yuzden saate ek olarak denetimin KENDI gecikmesine bakiyoruz: iki tik
+// arasi beklenenden cok uzun surduyse surec askiya alinmis demektir ve
+// ziyaretci "sessiz" sayilmaz — oturum bir tur daha ping'le sinanir.
+// Boylece kapanis karari her zaman cevapsiz kalan bir ping'e dayanir.
 func (s *Session) watchIdle() {
 	idle, interval := s.idleLimits()
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	lastTick := time.Since(s.born)
 
 	for {
 		select {
@@ -931,18 +1040,63 @@ func (s *Session) watchIdle() {
 		case <-ticker.C:
 		}
 
-		since := time.Since(time.Unix(0, s.lastSeen.Load()))
-		if since >= idle {
+		now := time.Since(s.born)
+		gap := now - lastTick
+		lastTick = now
+
+		since := s.silence()
+
+		switch idleDecide(gap, since, idle, interval) {
+		case idleClose:
 			s.log.Info("oturum bosta, kapatiliyor",
 				slog.Duration("sessizlik", since.Round(time.Second)))
 			s.closeWith(ErrIdle)
 			_ = s.pc.Close()
 			return
-		}
 
-		if err := s.Ping(); err != nil {
-			// Kanal kapanmis olabilir; kapanis yolu zaten calisiyordur.
-			s.log.Debug("canlilik ping'i yollanamadi", slog.String("err", err.Error()))
+		case idleResume:
+			s.log.Info("denetim gecikti, surec askiya alinmis olabilir",
+				slog.Duration("tik_araligi", gap.Round(time.Second)),
+				slog.Duration("sessizlik", since.Round(time.Second)))
+			// Sessizlik sayaci sifirlanir: oturum bir tur daha ping'le
+			// sinanir, uyku suresi "ziyaretci gitti" sayilmaz.
+			s.touch()
+			fallthrough
+
+		case idlePing:
+			if err := s.Ping(); err != nil {
+				// Kanal kapanmis olabilir; kapanis yolu zaten calisiyordur.
+				s.log.Debug("canlilik ping'i yollanamadi", slog.String("err", err.Error()))
+			}
 		}
 	}
+}
+
+// idleAction watchIdle'in bir tikte verdigi karar.
+type idleAction int
+
+const (
+	// idlePing her sey normal: canlilik ping'i yolla.
+	idlePing idleAction = iota
+	// idleResume denetim beklenenden cok gec kosuldu (askiya alma): sessizlik
+	// sayacini sifirla ve bir tur daha sina.
+	idleResume
+	// idleClose ziyaretci gercekten sessiz: oturumu kapat.
+	idleClose
+)
+
+// idleDecide tik basina karari verir.
+//
+// Ayri bir fonksiyon, cunku onemli olan kosul tam da ikisinin CAKISTIGI
+// durum: uzun bir askiya almadan sonra sessizlik suresi tavani asmis
+// GORUNUR, ama bu ziyaretcinin gittigini gostermez — kapatma karari her
+// zaman cevapsiz kalan bir ping'e dayanmali.
+func idleDecide(gap, silence, idle, interval time.Duration) idleAction {
+	if gap > time.Duration(resumeFactor)*interval {
+		return idleResume
+	}
+	if silence >= idle {
+		return idleClose
+	}
+	return idlePing
 }

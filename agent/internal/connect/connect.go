@@ -445,10 +445,30 @@ func (a *Acceptor) watchSession(ctx context.Context, peerPub, sid string, sess *
 
 	select {
 	case <-sess.Done():
-		a.log.Info("tunel kapandi", slog.String("peer", short), slog.String("sid", sid))
+		// Kapanis nedenini yaziyoruz: bosta kalma, kopan ICE ve ziyaretcinin
+		// `bye`'i bugune kadar ayni satiri basiyordu, yani log'dan tunelin
+		// neden gittigi anlasilmiyordu.
+		a.log.Info("tunel kapandi",
+			slog.String("peer", short), slog.String("sid", sid),
+			slog.String("neden", closeReason(sess.Err())))
 	case <-ctx.Done():
 	}
 	a.dropSession(sid)
+}
+
+// closeReason kapanma nedenini kisa bir etikete cevirir.
+func closeReason(err error) string {
+	switch {
+	case err == nil:
+		// Temiz kapanis: ziyaretci `bye` yolladi ya da kanal dusurdu.
+		return "temiz"
+	case errors.Is(err, tunnel.ErrIdle):
+		return "bosta"
+	case errors.Is(err, tunnel.ErrDisconnected):
+		return "baglanti-koptu"
+	default:
+		return err.Error()
+	}
 }
 
 func (a *Acceptor) onCandidate(peerPub string, msg signaling.Msg) {

@@ -11,6 +11,8 @@
 
 import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
 
+import { iceServers } from "../ice";
+
 import type { PeerTarget } from "./peerid";
 import { SignalingPool } from "./pool";
 import {
@@ -58,8 +60,18 @@ export interface ConnectOptions {
   readonly hooks?: ConnectHooks;
   /** Test icin enjekte edilebilir havuz. */
   readonly pool?: SignalingPool;
-  /** Test icin ICE sunucularini degistirmek (loopback'te gereksiz). */
+  /**
+   * ICE sunuculari; verilmezse varsayilan STUN listesi (src/ice.ts).
+   *
+   * Faz 5'e kadar bu alanin tek cagirani yoktu ve sayfa HIC ICE sunucusu
+   * vermiyordu, yani yalnizca host adayi topluyordu.
+   */
   readonly iceServers?: RTCIceServer[];
+  /**
+   * Aday politikasi. Ziyaretci tarafinda relay-only ANLAMSIZ (TURN kimlik
+   * bilgisi sayfaya gelmiyor), bu yuzden yalnizca testler icin.
+   */
+  readonly iceTransportPolicy?: RTCIceTransportPolicy;
 }
 
 /**
@@ -90,7 +102,10 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
 
   stage("relay", `${pool.relayURLs.length} relay`);
 
-  const pc = new RTCPeerConnection(opts.iceServers ? { iceServers: opts.iceServers } : undefined);
+  const pc = new RTCPeerConnection({
+    iceServers: opts.iceServers ?? iceServers(null),
+    ...(opts.iceTransportPolicy ? { iceTransportPolicy: opts.iceTransportPolicy } : {}),
+  });
   const ctrl = pc.createDataChannel("ctrl", { ordered: true });
   const data = pc.createDataChannel("data", { ordered: true });
 

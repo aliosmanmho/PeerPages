@@ -25,6 +25,8 @@ declare global {
       reconnects: () => number;
       /** Denetleyicinin durumu: connected | reconnecting | idle. */
       connState: () => string;
+      /** Baglanti yolu: host | srflx | prflx | relay | bilinmiyor (Faz 5). */
+      iceRoute: () => string;
     };
   }
 }

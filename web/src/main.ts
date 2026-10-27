@@ -1,5 +1,13 @@
 import "./style.css";
 import { BASE_PATH, inBase } from "./base";
+import {
+  IceConfigError,
+  type IceRoute,
+  iceServers,
+  routeFromStats,
+  routeLabel,
+  stunFromSearch,
+} from "./ice";
 import { type ConnectResult, connectToAgent } from "./nostr/connect";
 import { PeerIDError, type PeerTarget, parseHash, shortenNpub } from "./nostr/peerid";
 import { RelayListError, relaysFromSearch } from "./nostr/relays";
@@ -67,6 +75,10 @@ let supervisor: Supervisor | null = null;
 /** Yeniden baglanirken kullanilacak hedef ve relay listesi. */
 let reconnectTarget: PeerTarget | null = null;
 let reconnectRelays: string[] | null = null;
+/** URL'den gelen STUN listesi; null ise varsayilan. */
+let stunOverride: string[] | null = null;
+/** Baglantinin hangi yoldan kuruldugu (TURN kullanilip kullanilmadigi). */
+let iceRoute: IceRoute = "bilinmiyor";
 /** Kendi kapatma islemimiz sirasinda durum olaylarini yok saymak icin. */
 let tearingDown = false;
 
@@ -386,6 +398,7 @@ function stopLatencyProbe(): void {
 
 async function measurePing(): Promise<void> {
   if (!tunnel) return;
+  void refreshIceRoute();
   try {
     const rtt = await tunnel.ping();
     latencies.push(rtt);
@@ -402,6 +415,27 @@ async function measurePing(): Promise<void> {
     }
   }
   renderMetrics();
+}
+
+/**
+ * Secilen aday ciftini okuyup baglanti yolunu tazeler.
+ *
+ * Tunel acildiktan HEMEN sonra bos gelebiliyor (tarayici aday ciftini
+ * yayinlamamis olabilir), bu yuzden gecikme tikinde tekrar bakiyoruz.
+ */
+async function refreshIceRoute(): Promise<void> {
+  const pc = nostrSession?.pc ?? peer;
+  if (!pc) return;
+  try {
+    const stats = await pc.getStats();
+    const route = routeFromStats(stats);
+    if (route !== iceRoute) {
+      iceRoute = route;
+      renderMetrics();
+    }
+  } catch {
+    // getStats desteklenmiyorsa ya da baglanti kapandiysa onemli degil.
+  }
 }
 
 function median(values: readonly number[]): number {
@@ -447,6 +481,9 @@ function renderMetrics(): void {
     ["Devam eden", String(stats?.inflight ?? 0)],
     ["Hedefler", tunnel?.hello?.targets.join(", ") ?? "—"],
     ["Aktif hedef", activeTarget ?? "default"],
+    // Trafik bir TURN sunucusundan geciyorsa ziyaretci bunu bilmeli:
+    // ucten uca sifreleme surer ama YOL degisir.
+    ["Baglanti yolu", routeLabel(iceRoute)],
   ];
 
   // Yeniden baglanma yalnizca olduysa gosterilir: sifir satiri gurultudur.
@@ -545,9 +582,11 @@ async function connectViaNostr(target: PeerTarget): Promise<void> {
   let relayOverride: string[] | null = null;
   try {
     relayOverride = relaysFromSearch(location.search);
+    stunOverride = stunFromSearch(location.search);
   } catch (err) {
     status.step("signal", "error");
-    status.say(err instanceof RelayListError ? err.message : String(err), "error");
+    const known = err instanceof RelayListError || err instanceof IceConfigError;
+    status.say(known ? (err as Error).message : String(err), "error");
     return;
   }
 
@@ -605,6 +644,9 @@ async function openNostrSession(): Promise<void> {
     // README bolum 4: relay listesi kullanici tarafindan degistirilebilir
     // (?relay=wss://...). Verilmezse varsayilan liste.
     ...(relayOverride ? { relays: relayOverride } : {}),
+    // STUN listesi de URL'den degistirilebilir (?stun=...); TURN kimlik
+    // bilgisi sayfaya HIC gelmiyor (README §8).
+    iceServers: iceServers(stunOverride),
     hooks: {
       onStage: (stage, detail) => {
         switch (stage) {
@@ -646,6 +688,7 @@ async function openNostrSession(): Promise<void> {
   latencies.length = 0;
   lastSample = null;
   pingFailures = 0;
+  iceRoute = "bilinmiyor";
 
   tunnel = new Tunnel(session.ctrl, session.data);
   announceTunnelReady();
@@ -698,6 +741,7 @@ declare global {
       acceptAnswer: (pasted: string) => Promise<void>;
       reconnects: () => number;
       connState: () => string;
+      iceRoute: () => string;
     };
   }
 }
@@ -707,6 +751,7 @@ window.__peerpages = {
   stats: () => ({ ...counters, tunnel: tunnel?.stats ?? null }),
   reconnects: () => supervisor?.reconnects ?? 0,
   connState: () => supervisor?.currentState ?? "idle",
+  iceRoute: () => iceRoute,
   ping: async () => (tunnel ? tunnel.ping() : Promise.reject(new Error("tunel yok"))),
   makeOffer: () => makeOffer(),
   offer: () => el.offerOutput?.value ?? "",

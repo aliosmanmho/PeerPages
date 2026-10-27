@@ -132,10 +132,45 @@ self.addEventListener("message", (event: ExtendableMessageEvent) => {
       tunnelSeenAt = 0;
       reconnectingUntil = Date.now() + RECONNECT_WINDOW_MS;
       break;
+    case "bridge-ws-open": {
+      // Shim'in WebSocket istegi (Faz 6): tunel sahibini bul ve portu ona
+      // AKTAR. Sonrasi sayfa <-> sayfa; SW bosta oldurulebilir, uzun
+      // yasayan bir soket ona dayanamaz.
+      const port = event.ports[0];
+      if (!port) break;
+      event.waitUntil(forwardWsOpen(msg.path, msg.protos, port));
+      break;
+    }
     default:
       break;
   }
 });
+
+/**
+ * Shim'in ws istegini tunel sahibi sayfaya iletir.
+ *
+ * Tunel yoksa portu 1013 ile kapatir: shim bunu `onclose` olarak gorur ve
+ * sayfa kendi yeniden deneme mantigini isletir (Vite ve Socket.IO ikisi de
+ * yeniden dener).
+ */
+async function forwardWsOpen(
+  path: string,
+  protos: readonly string[],
+  port: MessagePort,
+): Promise<void> {
+  const client = await findTunnelClient();
+  if (!client) {
+    port.postMessage({ type: "ws-close", code: 1013, reason: "tunel yok" });
+    port.close();
+    return;
+  }
+  try {
+    client.postMessage({ type: "bridge-ws-open-forward", path, protos }, [port]);
+  } catch {
+    port.postMessage({ type: "ws-close", code: 1011, reason: "kopru kurulamadi" });
+    port.close();
+  }
+}
 
 self.addEventListener("fetch", (event: FetchEvent) => {
   const request = event.request;

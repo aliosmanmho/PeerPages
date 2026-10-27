@@ -6,13 +6,22 @@
  * `ReadableStream` ile servis eder, yani tam govde beklenmez.
  */
 
-import type { BridgeRequest, BridgeResponse, BridgeToPage } from "./bridge";
-import type { Tunnel } from "./tunnel";
+import type {
+  BridgeRequest,
+  BridgeResponse,
+  BridgeToPage,
+  BridgeWsOpenForward,
+  WsPortToPage,
+  WsPortToShim,
+} from "./bridge";
+import type { Tunnel, TunnelSocket } from "./tunnel";
 
 export interface BridgeHooks {
   /** Her istek tamamlandiginda cagrilir (durum ekranindaki sayaclar icin). */
   onRequestDone?: (info: { path: string; status: number; bytes: number }) => void;
   onRequestError?: (info: { path: string; message: string }) => void;
+  /** Acik ws oturumu sayisi degisti (Faz 6, durum ekrani icin). */
+  onSocketChange?: (open: number) => void;
 }
 
 /**
@@ -45,6 +54,11 @@ export function installBridge(getTunnel: () => Tunnel | null, hooks: BridgeHooks
         void serveRequest(msg, port, getTunnel(), hooks);
         break;
       }
+      case "bridge-ws-open-forward": {
+        if (!port) return;
+        serveSocket(msg, port, getTunnel(), hooks);
+        break;
+      }
       default:
         break;
     }
@@ -70,6 +84,72 @@ export function announceTunnelGone(): void {
  */
 export function announceTunnelReconnecting(): void {
   navigator.serviceWorker?.controller?.postMessage({ type: "bridge-tunnel-reconnecting" });
+}
+
+/**
+ * Shim'in ws oturumunu tunele baglar (Faz 6).
+ *
+ * Port iki yone pompalaniyor: shim'den gelen `ws-send` tunele, tunelden
+ * gelen mesaj shim'e. SW bu noktadan sonra devrede DEGIL.
+ */
+function serveSocket(
+  msg: BridgeWsOpenForward,
+  port: MessagePort,
+  tunnel: Tunnel | null,
+  hooks: BridgeHooks,
+): void {
+  const fail = (code: number, reason: string) => {
+    port.postMessage({ type: "ws-close", code, reason } satisfies WsPortToShim);
+    port.close();
+  };
+
+  if (!tunnel?.isOpen) {
+    fail(1013, "tunel acik degil");
+    return;
+  }
+
+  let socket: TunnelSocket;
+  try {
+    socket = tunnel.openSocket(msg.path, msg.protos, {
+      onOpen: (proto) => {
+        port.postMessage({ type: "ws-opened", protocol: proto } satisfies WsPortToShim);
+        hooks.onSocketChange?.(tunnel.socketCount);
+      },
+      onMessage: (binary, data) => {
+        // Kopyalamadan transfer et (istek govdelerindeki ayni gerekce):
+        // dilimin tamponu paylasilan olabilir, kendi tamponunu cikariyoruz.
+        const buf = data.slice().buffer;
+        port.postMessage({ type: "ws-message", binary, data: buf } satisfies WsPortToShim, [buf]);
+      },
+      onClose: (code, reason) => {
+        port.postMessage({ type: "ws-close", code, reason } satisfies WsPortToShim);
+        port.close();
+        hooks.onSocketChange?.(tunnel.socketCount);
+      },
+    });
+  } catch (err) {
+    fail(1011, err instanceof Error ? err.message : String(err));
+    return;
+  }
+
+  hooks.onSocketChange?.(tunnel.socketCount);
+
+  port.onmessage = (event: MessageEvent) => {
+    const m = event.data as WsPortToPage | undefined;
+    if (!m || typeof m !== "object") return;
+    switch (m.type) {
+      case "ws-send":
+        // Gonderim hatasi oturumu zaten kapatir; burada yutuyoruz ki
+        // yakalanmamis promise reddi olusmasin.
+        void socket.send(m.binary, new Uint8Array(m.data)).catch(() => {});
+        break;
+      case "ws-close":
+        socket.close(m.code, m.reason);
+        break;
+      default:
+        break;
+    }
+  };
 }
 
 async function serveRequest(

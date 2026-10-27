@@ -21,6 +21,7 @@ import {
   type ResMsg,
 } from "./protocol/ctrl";
 import { decodeFrame, encodeFrame, MAX_PAYLOAD } from "./protocol/framing";
+import { decodeWsPayload, encodeWsPayload, MAX_WS_PAYLOAD } from "./protocol/wsframe";
 
 /** Backpressure esikleri — ajan tarafiyla ayni (protocol/README.md). */
 const BUFFERED_HIGH = 1 << 20; // 1 MiB
@@ -146,10 +147,53 @@ interface Pending {
   signal?: AbortSignal | undefined;
 }
 
+/** Tunel uzerindeki bir WebSocket oturumu (Faz 6). */
+export interface TunnelSocket {
+  readonly id: number;
+  /** Ajanin bildirdigi alt protokol; `ws-ok` gelene kadar bos string. */
+  readonly protocol: string;
+  /** Bir mesaj yollar; parcalama ve backpressure iceride. */
+  send(binary: boolean, data: Uint8Array): Promise<void>;
+  /** Oturumu kapatir ve ajana `ws-close` yollar. */
+  close(code?: number, reason?: string): void;
+}
+
+/** ws oturumunun olaylari. */
+export interface SocketHandlers {
+  onOpen?: (proto: string) => void;
+  onMessage?: (binary: boolean, data: Uint8Array) => void;
+  /** Her oturum icin EN FAZLA bir kez cagrilir. */
+  onClose?: (code: number, reason: string) => void;
+}
+
+/** Bekleyen bir ws oturumunun durumu. */
+interface SocketState {
+  readonly id: number;
+  readonly handlers: SocketHandlers;
+  protocol: string;
+  opened: boolean;
+  closed: boolean;
+  /** Beklenen sonraki seq (gelen yon). */
+  recvSeq: number;
+  /** Bir sonraki seq (giden yon). */
+  sendSeq: number;
+  /** Birikmekte olan mesajin parcalari. */
+  partial: Uint8Array[];
+  partialBytes: number;
+  partialBinary: boolean;
+  havePartial: boolean;
+  /**
+   * Gonderim zinciri: iki `send` cagrisi ic ice girmemeli, yoksa seq sirasi
+   * bozulur (gonderim backpressure icin await ediyor).
+   */
+  sendChain: Promise<void>;
+}
+
 export class Tunnel {
   private readonly ctrl: RTCDataChannel;
   private readonly data: RTCDataChannel;
   private readonly pending = new Map<number, Pending>();
+  private readonly sockets = new Map<number, SocketState>();
   private nextId = 1;
   private closed = false;
 
@@ -293,6 +337,54 @@ export class Tunnel {
     return promise;
   }
 
+  /**
+   * Tunel uzerinde bir WebSocket oturumu acar (Faz 6).
+   *
+   * Donus ANINDA kullanilabilir: `ws-ok` beklenmeden gonderilen mesajlar
+   * gecerlidir, cunku `ctrl` ile `data` arasinda siralama yok ve ajan
+   * `ws-open`'i gorene kadar cerceveleri tamponlar (protocol/README.md).
+   */
+  openSocket(path: string, protos: readonly string[], handlers: SocketHandlers): TunnelSocket {
+    if (!this.isOpen) throw new TunnelError("tunel acik degil");
+
+    const id = this.takeId();
+    const state: SocketState = {
+      id,
+      handlers,
+      protocol: "",
+      opened: false,
+      closed: false,
+      recvSeq: 0,
+      sendSeq: 0,
+      partial: [],
+      partialBytes: 0,
+      partialBinary: false,
+      havePartial: false,
+      sendChain: Promise.resolve(),
+    };
+    this.sockets.set(id, state);
+
+    // Kayit kurulduktan SONRA `ws-open`: cerceveler hemen gelse bile
+    // dusecek bir yer var.
+    this.sendCtrl({ t: "ws-open", id, path, protos: [...protos] });
+
+    return {
+      id,
+      get protocol() {
+        return state.protocol;
+      },
+      send: (binary, data) => this.sendSocketMessage(state, binary, data),
+      close: (code = 1000, reason = "") => {
+        this.closeSocket(state, code, reason, true);
+      },
+    };
+  }
+
+  /** Acik ws oturumu sayisi (durum ekrani icin). */
+  get socketCount(): number {
+    return this.sockets.size;
+  }
+
   // --- gonderim ---
 
   private sendCtrl(msg: CtrlMsg): void {
@@ -342,6 +434,98 @@ export class Tunnel {
       this.abortRequest(id, "client-body-error");
       throw err instanceof Error ? err : new Error(String(err));
     }
+  }
+
+  /**
+   * ws mesajini parcalara bolerek yollar.
+   *
+   * Gonderimler zincirleniyor: iki cagri ic ice girerse seq sirasi bozulur
+   * ve ajan oturumu `bad-seq` ile kapatir.
+   */
+  private sendSocketMessage(state: SocketState, binary: boolean, data: Uint8Array): Promise<void> {
+    const run = state.sendChain.then(async () => {
+      if (state.closed) throw new TunnelError("ws oturumu kapali");
+      if (this.data.readyState !== "open") throw new TunnelError("data kanali kapandi");
+
+      for (let off = 0; ; off += MAX_WS_PAYLOAD) {
+        const end = Math.min(off + MAX_WS_PAYLOAD, data.byteLength);
+        const fin = end >= data.byteLength;
+
+        await this.waitWritable();
+        if (state.closed) throw new TunnelError("ws oturumu kapali");
+        if (this.data.readyState !== "open") throw new TunnelError("data kanali kapandi");
+
+        const payload = encodeWsPayload(binary, fin, data.subarray(off, end));
+        this.data.send(encodeFrame(state.id, state.sendSeq, payload));
+        state.sendSeq += 1;
+        this.bytesOut += payload.byteLength;
+
+        if (fin) return;
+      }
+    });
+    // Zincir kirilmasin: bir hata sonraki gonderimleri engellemez (oturum
+    // zaten kapaniyor).
+    state.sendChain = run.catch(() => {});
+    return run;
+  }
+
+  /**
+   * ws oturumunu kapatir.
+   *
+   * `notify` true ise ajana `ws-close` yollanir (yerel kapanis); ajandan
+   * `ws-close` geldiginde false olur, aksi halde kapanis ping-pong'u olurdu.
+   */
+  private closeSocket(state: SocketState, code: number, reason: string, notify: boolean): void {
+    if (state.closed) return;
+    state.closed = true;
+    this.sockets.delete(state.id);
+
+    if (notify && this.ctrl.readyState === "open" && !this.closed) {
+      try {
+        this.sendCtrl({ t: "ws-close", id: state.id, code, reason });
+      } catch {
+        // Kanal kapaniyor: haber vermenin bir anlami kalmadi.
+      }
+    }
+    state.handlers.onClose?.(code, reason);
+  }
+
+  /** Gelen ws cercevesini isler. */
+  private onSocketFrame(state: SocketState, seq: number, payload: Uint8Array<ArrayBuffer>): void {
+    // Kanal ordered: beklenmeyen seq protokol hatasi.
+    if (seq !== state.recvSeq) {
+      this.closeSocket(state, 1002, "bad-seq", true);
+      return;
+    }
+    state.recvSeq += 1;
+
+    let chunk: ReturnType<typeof decodeWsPayload>;
+    try {
+      chunk = decodeWsPayload(payload);
+    } catch {
+      this.closeSocket(state, 1002, "ws-bad-frame", true);
+      return;
+    }
+
+    if (state.havePartial && chunk.binary !== state.partialBinary) {
+      this.closeSocket(state, 1002, "ws-mixed-type", true);
+      return;
+    }
+    state.partialBinary = chunk.binary;
+    state.havePartial = true;
+    if (chunk.payload.byteLength > 0) {
+      state.partial.push(chunk.payload);
+      state.partialBytes += chunk.payload.byteLength;
+    }
+    this.bytesIn += payload.byteLength;
+
+    if (!chunk.fin) return;
+
+    const msg = concatChunks(state.partial, state.partialBytes);
+    state.partial = [];
+    state.partialBytes = 0;
+    state.havePartial = false;
+    state.handlers.onMessage?.(chunk.binary, msg);
   }
 
   /** data kanalinin gonderim tamponu bosalana kadar bekler. */
@@ -403,8 +587,24 @@ export class Tunnel {
         for (const w of waiters) w();
         break;
       }
+      case "ws-ok": {
+        const state = this.sockets.get(msg.id);
+        if (!state || state.closed) break;
+        state.protocol = msg.proto;
+        state.opened = true;
+        state.handlers.onOpen?.(msg.proto);
+        break;
+      }
+      case "ws-close": {
+        const state = this.sockets.get(msg.id);
+        if (!state) break;
+        // Haber ajandan geldi: geri yollamiyoruz.
+        this.closeSocket(state, msg.code, msg.reason, false);
+        break;
+      }
       case "req":
-        console.warn("[peerpages] ajandan req geldi, protokol ihlali");
+      case "ws-open":
+        console.warn(`[peerpages] ajandan ${msg.t} geldi, protokol ihlali`);
         break;
     }
   }
@@ -449,6 +649,13 @@ export class Tunnel {
       frame = decodeFrame(bytes);
     } catch (err) {
       console.warn("[peerpages] gecersiz data cercevesi:", err);
+      return;
+    }
+
+    const socket = this.sockets.get(frame.id);
+    if (socket) {
+      // ws yolu: cerceve govdesi [1B bayrak][parca] (protocol/README.md).
+      this.onSocketFrame(socket, frame.seq, frame.payload);
       return;
     }
 
@@ -524,18 +731,39 @@ export class Tunnel {
     for (const id of [...this.pending.keys()]) {
       this.failPending(id, err);
     }
+    // Acik ws oturumlari da dusmeli. Kod 1006: tarayicinin anormal kapanis
+    // icin urettigi kodun aynisi, cunku kapanis el sikismasi yapilmadi.
+    for (const state of [...this.sockets.values()]) {
+      this.closeSocket(state, 1006, err.message, false);
+    }
     const waiters = this.pongWaiters;
     this.pongWaiters = [];
     for (const w of waiters) w();
   }
 
   private takeId(): number {
-    // uint32 sinirinda don; kullanimda olan id'yi atla.
+    // uint32 sinirinda don; kullanimda olan id'yi atla. HTTP istekleri ve ws
+    // oturumlari AYNI id uzayini paylasir (protocol/README.md), ikisi de
+    // kontrol edilmeli.
     for (let i = 0; i <= MAX_ID; i++) {
       const id = this.nextId;
       this.nextId = this.nextId >= MAX_ID ? 1 : this.nextId + 1;
-      if (!this.pending.has(id)) return id;
+      if (!this.pending.has(id) && !this.sockets.has(id)) return id;
     }
     throw new TunnelError("bos istek id'si kalmadi");
   }
+}
+
+/** Parcalari tek bir Uint8Array'e birlestirir. */
+function concatChunks(chunks: readonly Uint8Array[], total: number): Uint8Array {
+  if (chunks.length === 1 && chunks[0] !== undefined && chunks[0].byteLength === total) {
+    return chunks[0];
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.byteLength;
+  }
+  return out;
 }

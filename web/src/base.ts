@@ -1,3 +1,5 @@
+import { WS_SHIM_FILE } from "./bridge";
+
 /**
  * App shell'in yayinlandigi temel yol (GitHub Pages alt yolu olabilir).
  *
@@ -51,6 +53,10 @@ export function isAppShellPath(pathname: string, base: string = BASE_PATH): bool
     rest === "connect/index.html" ||
     rest === "sw.js" ||
     rest === "favicon.ico" ||
+    // WebSocket shim (Faz 6): app shell'in kendi dosyasi. Tunelden
+    // GECMEMELI, aksi halde ziyaretcinin sitesinde boyle bir dosya aranir ve
+    // 404 doner.
+    rest === WS_SHIM_FILE ||
     rest.startsWith("assets/")
   );
 }

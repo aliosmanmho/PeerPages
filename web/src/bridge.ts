@@ -52,12 +52,66 @@ export interface BridgeTunnelReconnecting {
   readonly type: "bridge-tunnel-reconnecting";
 }
 
-export type BridgeToPage = BridgeRequest | BridgeProbe;
+/**
+ * Shim'in WebSocket acma istegi (Faz 6): ziyaretci sayfasindan SW'ye.
+ *
+ * Shim ziyaretci sekmesinde kosar, tunel ise BASKA sekmededir. SW yalnizca
+ * EL SIKISMADA araya girer: tunel sahibini bulur ve shim'in gonderdigi
+ * `MessagePort`'u ona oldugu gibi aktarir. Sonrasi sayfa <-> sayfa, cunku SW
+ * bosta oldurulebilir ve uzun yasayan bir soket ona dayanamaz.
+ */
+export interface BridgeWsOpen {
+  readonly type: "bridge-ws-open";
+  /** Yerel sunucuya gidecek yol: scope oneki cikarilmis, "/" ile baslar. */
+  readonly path: string;
+  readonly protos: readonly string[];
+}
+
+/** SW'nin ayni istegi tunel sahibi sayfaya iletmesi. */
+export interface BridgeWsOpenForward {
+  readonly type: "bridge-ws-open-forward";
+  readonly path: string;
+  readonly protos: readonly string[];
+}
+
+/** Soket portu uzerindeki mesajlar (shim <-> tunel sahibi sayfa). */
+export interface WsPortOpened {
+  readonly type: "ws-opened";
+  readonly protocol: string;
+}
+
+export interface WsPortMessage {
+  readonly type: "ws-message";
+  readonly binary: boolean;
+  /** Mesaj govdesi; transfer edilir, kopyalanmaz. */
+  readonly data: ArrayBuffer;
+}
+
+export interface WsPortClose {
+  readonly type: "ws-close";
+  readonly code: number;
+  readonly reason: string;
+}
+
+/** Shim'den gelen gonderim istegi. */
+export interface WsPortSend {
+  readonly type: "ws-send";
+  readonly binary: boolean;
+  readonly data: ArrayBuffer;
+}
+
+/** Sayfadan shim'e giden mesajlar. */
+export type WsPortToShim = WsPortOpened | WsPortMessage | WsPortClose;
+/** Shim'den sayfaya giden mesajlar. */
+export type WsPortToPage = WsPortSend | WsPortClose;
+
+export type BridgeToPage = BridgeRequest | BridgeProbe | BridgeWsOpenForward;
 export type BridgeToWorker =
   | BridgeTunnelReady
   | BridgeTunnelGone
   | BridgeTunnelReconnecting
-  | BridgeProbeReply;
+  | BridgeProbeReply
+  | BridgeWsOpen;
 
 /** Cevap basligi. */
 export interface BridgeResponseHead {
@@ -132,3 +186,20 @@ export const RECONNECT_WAIT_NAVIGATE_MS = 3_000;
  * sisteminin sekmeyi atmasi durumunda "vazgectim" haberi hic gelmez).
  */
 export const RECONNECT_WINDOW_MS = 60_000;
+
+/**
+ * Shim'in yuklenecegi yol (scope koku altinda).
+ *
+ * Ajan tarafiyla AYNI olmak zorunda degil: ajan yalnizca
+ * `x-peerpages-ws-shim` basligini ekler, yolu SW uretir. Ama `isAppShellPath`
+ * bu adi tanimak zorunda, aksi halde shim'in kendi istegi tunele girer.
+ */
+export const WS_SHIM_FILE = "ws-shim.js";
+
+/**
+ * Ajanin HTML cevaplarina ekledigi isaret (Faz 6).
+ *
+ * Go tarafindaki `protocol.HeaderWSShim` ile AYNI olmak zorunda
+ * (protocol/README.md).
+ */
+export const WS_SHIM_HEADER = "x-peerpages-ws-shim";

@@ -92,12 +92,13 @@ func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
 	// Dogrulamasi connect katmaninda; buraya yalnizca gecerli adlar duser.
 	newProxy := func(targetName string) (tunnel.Proxy, error) {
 		return proxy.New(proxy.Config{
-			Targets:    cfg.Targets,
-			TargetName: targetName,
-			Stats:      counters.Target(targetName),
-			MaxBody:    cfg.MaxBody,
-			Logger:     log,
-			Verbose:    cfg.Verbose,
+			Targets:      cfg.Targets,
+			TargetName:   targetName,
+			Stats:        counters.Target(targetName),
+			MaxBody:      cfg.MaxBody,
+			Logger:       log,
+			Verbose:      cfg.Verbose,
+			InjectWSShim: cfg.InjectWSShim,
 		})
 	}
 
@@ -106,11 +107,14 @@ func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
 		Pool:          pool,
 		Sealer:        sealer,
 		NewProxy:      newProxy,
+		NewWSDialer:   cfg.wsDialerFactory(),
 		Targets:       cfg.Targets.Names(),
 		ICE:           cfg.iceServers,
 		MaxSessions:   cfg.MaxSessions,
 		MaxConcurrent: cfg.MaxConcurrent,
 		MaxBody:       cfg.MaxBody,
+		MaxStreams:    cfg.MaxStreams,
+		MaxWSMessage:  cfg.MaxWSMessage,
 		Logger:        log,
 		Verbose:       cfg.Verbose,
 	})
@@ -157,6 +161,7 @@ PeerPages ajani hazir.
   relay   : %d/%d bagli (durum satiri canli gosterir)
   sir     : %s
   ice     : %s
+  ws      : %s
 
 Yayinlanan hedefler ve ziyaretcinin acmasi gereken adresler:
 
@@ -169,6 +174,7 @@ Bu sekmeyi/terminali acik tut: tunel ajan calistigi surece ayakta.
 		len(connReport.OK)+len(connReport.Failed),
 		secretNote(cfg.Secret),
 		cfg.ICE.Describe(),
+		cfg.wsNote(),
 		targetLines,
 		ReadyMarker,
 	)

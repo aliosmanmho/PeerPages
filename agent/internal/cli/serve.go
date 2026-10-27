@@ -12,6 +12,7 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/spf13/cobra"
 
+	"github.com/aliosmanmho/PeerPages/agent/internal/connect"
 	"github.com/aliosmanmho/PeerPages/agent/internal/ice"
 	"github.com/aliosmanmho/PeerPages/agent/internal/identity"
 	"github.com/aliosmanmho/PeerPages/agent/internal/logging"
@@ -19,6 +20,8 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/protocol"
 	"github.com/aliosmanmho/PeerPages/agent/internal/size"
 	"github.com/aliosmanmho/PeerPages/agent/internal/target"
+	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
+	"github.com/aliosmanmho/PeerPages/agent/internal/wsbridge"
 )
 
 // Varsayilan limitler — README guvenlik ilkesi 4 (ziyaretci guvenilmez).
@@ -26,6 +29,8 @@ const (
 	defaultMaxBody       = "50MB"
 	defaultMaxConcurrent = 64
 	defaultMaxSessions   = 4
+	defaultMaxStreams    = 8
+	defaultMaxWSMessage  = "1MB"
 )
 
 // envTURNPass TURN sifresi icin ortam degiskeni.
@@ -46,6 +51,13 @@ type ServeConfig struct {
 	MaxBody       int64
 	MaxConcurrent int
 	MaxSessions   int
+	// MaxStreams oturum basina uzun yasayan akis (ws + SSE) tavani.
+	MaxStreams int
+	// MaxWSMessage bir ws mesajinin tavani.
+	MaxWSMessage int64
+	// InjectWSShim WebSocket koprusunu acar ve HTML cevaplarina shim
+	// isaretini ekler (Faz 6, varsayilan kapali: HTML'e mudahale ediyoruz).
+	InjectWSShim bool
 	// Manual true ise signaling elle (kopyala-yapistir) yapilir; false ise
 	// Nostr relay'leri uzerinden (varsayilan).
 	Manual bool
@@ -73,6 +85,9 @@ type serveFlags struct {
 	maxBody       string
 	maxConcurrent int
 	maxSessions   int
+	maxStreams    int
+	maxWSMessage  string
+	injectWSShim  bool
 	manual        bool
 	manualTarget  string
 	stun          []string
@@ -128,6 +143,12 @@ Ornekler:
 		"ayni anda islenecek en fazla istek sayisi")
 	fl.IntVar(&f.maxSessions, "max-sessions", defaultMaxSessions,
 		"ayni anda kabul edilecek en fazla ziyaretci")
+	fl.IntVar(&f.maxStreams, "max-streams", defaultMaxStreams,
+		"ayni anda acik uzun yasayan akis sayisi (WebSocket oturumu ya da SSE cevabi)")
+	fl.StringVar(&f.maxWSMessage, "max-ws-message", defaultMaxWSMessage,
+		"bir WebSocket mesajinin en buyuk boyu (iki yonde de)")
+	fl.BoolVar(&f.injectWSShim, "inject-ws-shim", false,
+		"WebSocket koprusunu ac: HTML cevaplarina shim enjekte edilir (HTML'e mudahale)")
 	fl.BoolVar(&f.manual, "manual", false,
 		"elle signaling: sayfanin urettigi offer yapistirilir, ajan answer basar")
 	fl.StringVar(&f.manualTarget, "manual-target", "",
@@ -177,6 +198,21 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 
 	if f.maxSessions < 1 {
 		return nil, fmt.Errorf("--max-sessions en az 1 olmali, verilen: %d", f.maxSessions)
+	}
+
+	if f.maxStreams < 1 {
+		return nil, fmt.Errorf("--max-streams en az 1 olmali, verilen: %d", f.maxStreams)
+	}
+
+	maxWSMessage, err := size.Parse(f.maxWSMessage)
+	if err != nil {
+		return nil, fmt.Errorf("--max-ws-message: %w", err)
+	}
+	// Bir ws mesaji en az bir cerceveye sigmali; daha kucuk bir tavan her
+	// mesaji reddederdi.
+	if maxWSMessage < protocol.MaxWSPayload {
+		return nil, fmt.Errorf("--max-ws-message en az %d bayt olmali, verilen: %d",
+			protocol.MaxWSPayload, maxWSMessage)
 	}
 
 	if len(f.stun) == 0 && len(f.turn) == 0 {
@@ -258,6 +294,9 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 		MaxBody:       maxBody,
 		MaxConcurrent: f.maxConcurrent,
 		MaxSessions:   f.maxSessions,
+		MaxStreams:    f.maxStreams,
+		MaxWSMessage:  maxWSMessage,
+		InjectWSShim:  f.injectWSShim,
 		Manual:        f.manual,
 		ManualTarget:  manualTarget,
 		ICE:           iceCfg,
@@ -269,6 +308,39 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 		Verbose:       f.verbose,
 		Logger:        logging.New(logTo, f.verbose),
 	}, nil
+}
+
+// newWSDialer hedef basina WebSocket koprusu uretir.
+//
+// Kopru ve shim TEK bayrakla aciliyor (--inject-ws-shim): shim olmadan hicbir
+// tarayici sayfasi ws-open yollamaz, kopru olmadan shim ise ise yaramaz.
+// Bayrak verilmediyse nil doner ve ws-open istekleri ws-close 1008 ile
+// reddedilir.
+func (c *ServeConfig) newWSDialer(targetName string) (tunnel.WSDialer, error) {
+	return wsbridge.New(wsbridge.Config{
+		Targets:    c.Targets,
+		TargetName: targetName,
+		MaxMessage: c.MaxWSMessage,
+		Logger:     c.Logger,
+		Verbose:    c.Verbose,
+	})
+}
+
+// wsDialerFactory kopru kapaliysa nil doner (connect.Config bunu bekliyor).
+func (c *ServeConfig) wsDialerFactory() connect.WSDialerFactory {
+	if !c.InjectWSShim {
+		return nil
+	}
+	return c.newWSDialer
+}
+
+// wsNote banner icin kopru durumu.
+func (c *ServeConfig) wsNote() string {
+	if !c.InjectWSShim {
+		return "kapali (--inject-ws-shim ile acilir)"
+	}
+	return fmt.Sprintf("acik, shim enjekte ediliyor, mesaj tavani %s",
+		size.Format(c.MaxWSMessage))
 }
 
 // AuthMode hello mesajinda bildirilecek auth degeri.
@@ -286,6 +358,8 @@ func runServe(cmd *cobra.Command, cfg *ServeConfig) error {
 		slog.String("max_body", size.Format(cfg.MaxBody)),
 		slog.Int("max_concurrent", cfg.MaxConcurrent),
 		slog.Int("max_sessions", cfg.MaxSessions),
+		slog.Int("max_streams", cfg.MaxStreams),
+		slog.Bool("inject_ws_shim", cfg.InjectWSShim),
 		slog.Bool("manual_signaling", cfg.Manual),
 	)
 	if cfg.Verbose {

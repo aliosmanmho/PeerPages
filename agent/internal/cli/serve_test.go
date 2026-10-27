@@ -15,6 +15,8 @@ func TestServeFlagsValidation(t *testing.T) {
 			maxBody:       defaultMaxBody,
 			maxConcurrent: defaultMaxConcurrent,
 			maxSessions:   defaultMaxSessions,
+			maxStreams:    defaultMaxStreams,
+			maxWSMessage:  defaultMaxWSMessage,
 			manual:        true,
 			stun:          ice.DefaultSTUN,
 		}
@@ -166,6 +168,73 @@ func TestServeFlagsValidation(t *testing.T) {
 		f.stun = nil
 		if _, err := f.toConfig(&bytes.Buffer{}); err == nil {
 			t.Error("bos --stun reddedilmeliydi")
+		}
+	})
+
+	// Faz 6: ws koprusu VARSAYILAN KAPALI olmali — HTML'e mudahale eden bir
+	// ozellik sessizce acilmamali.
+	t.Run("ws koprusu varsayilan kapali", func(t *testing.T) {
+		cfg, err := base().toConfig(&bytes.Buffer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.InjectWSShim {
+			t.Error("--inject-ws-shim verilmeden kopru acilmis")
+		}
+		if cfg.wsDialerFactory() != nil {
+			t.Error("kopru kapaliyken dialer fabrikasi nil olmali")
+		}
+		if !strings.Contains(cfg.wsNote(), "kapali") {
+			t.Errorf("banner notu: %q", cfg.wsNote())
+		}
+	})
+
+	t.Run("ws koprusu acikken dialer uretiliyor", func(t *testing.T) {
+		f := base()
+		f.injectWSShim = true
+		cfg, err := f.toConfig(&bytes.Buffer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		factory := cfg.wsDialerFactory()
+		if factory == nil {
+			t.Fatal("dialer fabrikasi nil")
+		}
+		if _, err := factory(cfg.ManualTarget); err != nil {
+			t.Errorf("dialer kurulamadi: %v", err)
+		}
+		if !strings.Contains(cfg.wsNote(), "acik") {
+			t.Errorf("banner notu: %q", cfg.wsNote())
+		}
+	})
+
+	t.Run("max-streams en az 1", func(t *testing.T) {
+		f := base()
+		f.maxStreams = 0
+		if _, err := f.toConfig(&bytes.Buffer{}); err == nil {
+			t.Error("sifir --max-streams reddedilmeliydi")
+		}
+	})
+
+	// Tavan bir cerceveden kucuk olursa her mesaj reddedilirdi: bu sessiz
+	// bir kirilma olurdu, baslangicta soylemek dogru.
+	t.Run("max-ws-message bir cerceveden kucuk olamaz", func(t *testing.T) {
+		f := base()
+		f.maxWSMessage = "1KB"
+		_, err := f.toConfig(&bytes.Buffer{})
+		if err == nil {
+			t.Fatal("kucuk --max-ws-message reddedilmeliydi")
+		}
+		if !strings.Contains(err.Error(), "--max-ws-message") {
+			t.Errorf("hata bayragi anmali: %v", err)
+		}
+	})
+
+	t.Run("max-ws-message gecersiz birim", func(t *testing.T) {
+		f := base()
+		f.maxWSMessage = "elma"
+		if _, err := f.toConfig(&bytes.Buffer{}); err == nil {
+			t.Error("gecersiz --max-ws-message reddedilmeliydi")
 		}
 	})
 }

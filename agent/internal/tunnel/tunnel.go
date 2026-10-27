@@ -140,8 +140,20 @@ type Config struct {
 	MaxConcurrent int
 	// MaxBody ziyaretciden kabul edilecek en buyuk istek govdesi.
 	MaxBody int64
+	// MaxStreams ayni anda acik uzun yasayan akis sayisi (ws oturumu ya da
+	// SSE cevabi); 0 ise DefaultMaxStreams.
+	//
+	// MaxConcurrent'tan ayri: uzun yasayan bir akis slotunu omru boyunca
+	// tutar, yani tek butce olsa normal istekleri ac birakirdi.
+	MaxStreams int
+	// MaxWSMessage bir ws mesajinin en buyuk boyu; 0 ise
+	// DefaultMaxWSMessage.
+	MaxWSMessage int64
 	// Proxy istekleri isleyen katman.
 	Proxy Proxy
+	// WSDialer WebSocket koprusu; nil ise kopru kapali ve ws-open istekleri
+	// ws-close 1008 ile reddedilir (Faz 6, varsayilan kapali).
+	WSDialer WSDialer
 	// Logger zorunlu.
 	Logger *slog.Logger
 	// Verbose loglarda path maskelemesini kapatir.
@@ -195,6 +207,10 @@ type inflight struct {
 
 	stop     chan struct{}
 	stopOnce sync.Once
+
+	// onStream true ise bu istek normal istek butcesi yerine akis
+	// butcesinden sayiliyor (SSE cevabi; bkz. reclassifyAsStream).
+	onStream atomic.Bool
 }
 
 // push govde olayini kuyruga koyar. Kuyruk doluysa bekler — bu, ziyaretciye
@@ -258,10 +274,16 @@ type Session struct {
 
 	onLocalCandidate func(webrtc.ICECandidateInit)
 
+	// reqMu reqs, socks ve early tamponunu korur. Ayni kilit, cunku bir id'nin
+	// sahibi ya istek ya ws oturumudur: ikisini tek karar noktasinda
+	// ayirmak gerekiyor.
 	reqMu sync.Mutex
 	reqs  map[uint32]*inflight
+	socks map[uint32]*wsSession
 	early map[uint32]*earlyBody
 
+	// sem normal istek butcesi, streams uzun yasayan akis butcesi.
+	streams chan struct{}
 	sem     chan struct{}
 	ready   chan struct{}
 	readyOn sync.Once
@@ -306,16 +328,23 @@ func New(cfg Config) (*Session, error) {
 		return nil, fmt.Errorf("peer connection kurulamadi: %w", err)
 	}
 
+	maxStreams := cfg.MaxStreams
+	if maxStreams < 1 {
+		maxStreams = DefaultMaxStreams
+	}
+
 	s := &Session{
-		cfg:    cfg,
-		log:    cfg.Logger,
-		pc:     pc,
-		reqs:   make(map[uint32]*inflight),
-		early:  make(map[uint32]*earlyBody),
-		sem:    make(chan struct{}, cfg.MaxConcurrent),
-		ready:  make(chan struct{}),
-		closed: make(chan struct{}),
-		born:   time.Now(),
+		cfg:     cfg,
+		log:     cfg.Logger,
+		pc:      pc,
+		reqs:    make(map[uint32]*inflight),
+		socks:   make(map[uint32]*wsSession),
+		early:   make(map[uint32]*earlyBody),
+		sem:     make(chan struct{}, cfg.MaxConcurrent),
+		streams: make(chan struct{}, maxStreams),
+		ready:   make(chan struct{}),
+		closed:  make(chan struct{}),
+		born:    time.Now(),
 	}
 	s.touch()
 
@@ -532,7 +561,14 @@ func (s *Session) closeWith(err error) {
 			r.cancel()
 			r.halt()
 		}
+		// Acik ws oturumlari da dusmeli: aksi halde yerel sunucuya baglanti
+		// ve akis slotu sizar.
+		for _, w := range s.socks {
+			w.cancel()
+			w.halt()
+		}
 		s.reqs = map[uint32]*inflight{}
+		s.socks = map[uint32]*wsSession{}
 		s.early = map[uint32]*earlyBody{}
 		s.reqMu.Unlock()
 	})
@@ -581,6 +617,10 @@ func (s *Session) onCtrlMessage(msg webrtc.DataChannelMessage) {
 		}
 	case protocol.Pong:
 		// Olcum tarafi henuz yok.
+	case protocol.WSOpen:
+		s.onWSOpen(v)
+	case protocol.WSClose:
+		s.onWSClose(v)
 	default:
 		// res ve hello ajana gelmez: protokol ihlali.
 		s.log.Warn("beklenmeyen ctrl mesaji", slog.String("t", m.Type()))
@@ -673,7 +713,7 @@ func (s *Session) onReq(req protocol.Req) {
 		defer func() {
 			cancel()
 			s.finish(req.ID)
-			<-s.sem
+			s.releaseSlot(fl)
 		}()
 		sink := newSink(s, req.ID)
 		s.cfg.Proxy.Serve(ctx, req, body, sink)
@@ -817,6 +857,45 @@ func (s *Session) onAbort(id uint32, reason string) {
 	fl.cancel()
 }
 
+// releaseSlot istegin tuttugu butce slotunu birakir.
+func (s *Session) releaseSlot(fl *inflight) {
+	if fl.onStream.Load() {
+		<-s.streams
+		return
+	}
+	<-s.sem
+}
+
+// reclassifyAsStream bir istegi uzun yasayan akis olarak yeniden siniflar:
+// normal istek slotunu birakir, akis slotu alir.
+//
+// Neden gerekli: SSE cevabi dakikalar hatta saatler acik kalir ve
+// MaxConcurrent slotunu omru boyunca tutar. 64 SSE istegi, tuneli normal
+// istekler icin kullanilamaz hale getirirdi. Hangi cevabin uzun yasadigini
+// ONCEDEN bilemiyoruz; `content-type: text/event-stream` bunu soyleyen tek
+// durust isarettir (sink.SendRes'ten cagrilir).
+func (s *Session) reclassifyAsStream(id uint32) error {
+	s.reqMu.Lock()
+	fl, ok := s.reqs[id]
+	s.reqMu.Unlock()
+	if !ok {
+		// Istek bitmis; sinirlamanin bir anlami kalmadi.
+		return nil
+	}
+	if fl.onStream.Load() {
+		return nil
+	}
+
+	select {
+	case s.streams <- struct{}{}:
+	default:
+		return errors.New("akis butcesi dolu")
+	}
+	fl.onStream.Store(true)
+	<-s.sem
+	return nil
+}
+
 func (s *Session) finish(id uint32) {
 	s.reqMu.Lock()
 	fl, ok := s.reqs[id]
@@ -842,9 +921,17 @@ func (s *Session) onDataMessage(msg webrtc.DataChannelMessage) {
 	s.reqMu.Lock()
 	fl, ok := s.reqs[frame.ID]
 	if !ok {
-		// `req` henuz gelmemis olabilir: kanallar arasinda siralama yok.
-		s.bufferEarlyFrameLocked(frame)
+		_, isWS := s.socks[frame.ID]
+		if !isWS {
+			// `req`/`ws-open` henuz gelmemis olabilir: kanallar arasinda
+			// siralama yok.
+			s.bufferEarlyFrameLocked(frame)
+			s.reqMu.Unlock()
+			return
+		}
 		s.reqMu.Unlock()
+		// ws yolu: cerceve govdesi [1B bayrak][parca] (protocol/wsframe.go).
+		s.routeWSFrame(frame)
 		return
 	}
 	s.reqMu.Unlock()

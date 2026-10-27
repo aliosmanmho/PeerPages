@@ -52,15 +52,24 @@ func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io
 	counters := stats.New(cfg.Targets.Names())
 
 	px, err := proxy.New(proxy.Config{
-		Targets:    cfg.Targets,
-		TargetName: targetName,
-		Stats:      counters.Target(targetName),
-		MaxBody:    cfg.MaxBody,
-		Logger:     log,
-		Verbose:    cfg.Verbose,
+		Targets:      cfg.Targets,
+		TargetName:   targetName,
+		Stats:        counters.Target(targetName),
+		MaxBody:      cfg.MaxBody,
+		Logger:       log,
+		Verbose:      cfg.Verbose,
+		InjectWSShim: cfg.InjectWSShim,
 	})
 	if err != nil {
 		return err
+	}
+
+	// Kopru kapaliysa nil kalir ve ws-open reddedilir.
+	var wsDialer tunnel.WSDialer
+	if cfg.InjectWSShim {
+		if wsDialer, err = cfg.newWSDialer(targetName); err != nil {
+			return err
+		}
 	}
 
 	sess, err := tunnel.New(tunnel.Config{
@@ -70,7 +79,10 @@ func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io
 		Auth:          cfg.AuthMode(),
 		MaxConcurrent: cfg.MaxConcurrent,
 		MaxBody:       cfg.MaxBody,
+		MaxStreams:    cfg.MaxStreams,
+		MaxWSMessage:  cfg.MaxWSMessage,
 		Proxy:         px,
+		WSDialer:      wsDialer,
 		Logger:        log,
 		Verbose:       cfg.Verbose,
 		// Elle signaling: adaylar tam SDP'nin icinde gitsin, tek parca

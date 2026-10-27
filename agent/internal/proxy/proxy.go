@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -28,7 +29,14 @@ import (
 // cerceveye karsilik gelir ve ek kopyalama olmaz.
 const chunkSize = protocol.MaxPayload
 
-// DefaultTimeout bir isteğin hedefte en fazla bekleyecegi sure.
+// DefaultTimeout cevap BASLIGININ gelmesi icin beklenecek sure.
+//
+// Yalnizca baslik fazi: govde akarken sure siniri YOK. Faz 6'ya kadar bu
+// zaman asimi tum cevabi sariyordu ve 60 saniyeden uzun yasayan her akis
+// (SSE, uzun yoklama) sessizce kesiliyordu — hata gibi gorunmuyordu bile,
+// ziyaretci yalnizca "akis bitti" goruyordu. Govdenin siniri artik
+// ziyaretcinin `abort`'u, oturumun bosta kalma denetimi ya da yukari akisin
+// kendisi.
 const DefaultTimeout = 60 * time.Second
 
 // Config proxy yapilandirmasi.
@@ -50,6 +58,9 @@ type Config struct {
 	Logger *slog.Logger
 	// Verbose loglarda path maskelemesini kapatir.
 	Verbose bool
+	// InjectWSShim true ise HTML cevaplarina protocol.HeaderWSShim eklenir
+	// (Faz 6); govde DEGISMEZ, enjeksiyonu Service Worker yapar.
+	InjectWSShim bool
 }
 
 // Proxy tunnel.Proxy arayuzunu uygular.
@@ -90,6 +101,14 @@ func New(cfg Config) (*Proxy, error) {
 				// Sikistirmayi kendimiz yonetiyoruz (accept-encoding: identity).
 				DisableCompression:  true,
 				MaxIdleConnsPerHost: 16,
+				// Zaman asimi YALNIZCA baslik fazinda: boylece SSE ve uzun
+				// yoklama akislari kesilmez ama cevapsiz kalan bir hedef de
+				// istegi sonsuza kadar askida tutamaz.
+				ResponseHeaderTimeout: cfg.Timeout,
+				DialContext: (&net.Dialer{
+					Timeout: cfg.Timeout,
+				}).DialContext,
+				TLSHandshakeTimeout: cfg.Timeout,
 			},
 		}
 	}
@@ -116,7 +135,10 @@ func (p *Proxy) Serve(ctx context.Context, req protocol.Req, body io.Reader, sin
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, p.cfg.Timeout)
+	// DIKKAT: burada context'e sure sinirlamasi KOYMUYORUZ. Istek baglami
+	// yalnizca oturum kapaninca ya da ziyaretci `abort` yollayinca iptal
+	// olur; baslik fazinin siniri Transport'ta (ResponseHeaderTimeout).
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var reqBody io.Reader
@@ -157,6 +179,12 @@ func (p *Proxy) Serve(ctx context.Context, req protocol.Req, body io.Reader, sin
 	headers := SanitizeResponseHeaders(resp.Header)
 	// http://localhost:3000/... -> /...
 	RewriteLocationHeaders(headers, targetURL)
+	// WebSocket shim isareti: govdeye DOKUNMUYORUZ, yalnizca bir baslik
+	// ekliyoruz. Enjeksiyonu Service Worker yapar (karar ve gerekcesi
+	// README §8).
+	if p.cfg.InjectWSShim && isHTML(headers["content-type"]) {
+		headers[protocol.HeaderWSShim] = "1"
+	}
 
 	if err := sink.SendRes(resp.StatusCode, headers); err != nil {
 		log.Warn("res yollanamadi", slog.String("err", err.Error()))

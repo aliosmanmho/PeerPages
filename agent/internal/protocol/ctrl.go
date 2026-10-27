@@ -14,6 +14,16 @@ import (
 // Version su an desteklenen protokol surumu (hello.v).
 const Version = 1
 
+// HeaderWSShim ajanin WebSocket shim'i icin ziyaretci sayfasina verdigi
+// isaret (Faz 6).
+//
+// ctrl mesaji DEGIL, bir HTTP cevap basligi — ama tel uzerindeki sozlesmenin
+// parcasi oldugu icin burada: `--inject-ws-shim` verildiginde ajan HTML
+// cevaplarina bunu ekler, Service Worker gorunce `<script>` enjekte eder.
+// Boylece protokol surumu kirilmiyor ve ajan govdeye dokunmuyor
+// (protocol/README.md).
+const HeaderWSShim = "x-peerpages-ws-shim"
+
 // CtrlErrorCode iki dilde ayni olan ctrl hata kodlari.
 type CtrlErrorCode string
 

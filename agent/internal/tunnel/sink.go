@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/pion/webrtc/v4"
@@ -53,7 +54,30 @@ func (k *sink) SendRes(status int, headers map[string]string) error {
 	k.resSent = true
 	k.mu.Unlock()
 
+	// Uzun yasayan akis: butceyi degistir (bkz. Session.reclassifyAsStream).
+	if isEventStream(headers["content-type"]) {
+		if err := k.s.reclassifyAsStream(k.id); err != nil {
+			// Ziyaretci sebebi gormeli: sessizce 502 donmek ya da askida
+			// birakmak yanlis teshise yol acar.
+			_ = k.Abort("too-many-streams")
+			return fmt.Errorf("akis kabul edilemedi: %w", err)
+		}
+	}
+
 	return k.s.sendCtrl(protocol.Res{ID: k.id, Status: status, Headers: headers})
+}
+
+// isEventStream content-type'in SSE olup olmadigini soyler.
+//
+// Parametreler (`; charset=utf-8`) ve bas/son bosluklar yok sayilir; baslik
+// adlari ve degerleri ziyaretciden degil yerel sunucudan geliyor ama yine de
+// bicimine guvenmiyoruz.
+func isEventStream(contentType string) bool {
+	mime := contentType
+	if i := strings.IndexByte(mime, ';'); i >= 0 {
+		mime = mime[:i]
+	}
+	return strings.EqualFold(strings.TrimSpace(mime), "text/event-stream")
 }
 
 // Write govdenin bir parcasini 16 KiB'lik cercevelere bolerek yollar.

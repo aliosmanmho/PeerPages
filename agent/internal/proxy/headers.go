@@ -89,6 +89,19 @@ func SanitizeResponseHeaders(in http.Header) map[string]string {
 	return out
 }
 
+// isHTML content-type'in HTML olup olmadigini soyler.
+//
+// Parametreler (`; charset=utf-8`) yok sayilir. `application/xhtml+xml` de
+// HTML sayilir: tarayici onu da belge olarak isler.
+func isHTML(contentType string) bool {
+	mime := contentType
+	if i := strings.IndexByte(mime, ';'); i >= 0 {
+		mime = mime[:i]
+	}
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	return mime == "text/html" || mime == "application/xhtml+xml"
+}
+
 // RewriteLocation hedef origin'ine isaret eden mutlak URL'leri ziyaretcinin
 // gorebilecegi goreli yola cevirir.
 //

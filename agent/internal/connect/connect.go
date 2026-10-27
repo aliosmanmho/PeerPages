@@ -68,6 +68,12 @@ const (
 // tarafta yapilir.
 type ProxyFactory func(targetName string) (tunnel.Proxy, error)
 
+// WSDialerFactory verilen hedef icin WebSocket koprusu uretir.
+//
+// ProxyFactory ile ayni desen ve ayni gerekce: hedef oturum basina degisir.
+// nil ise kopru kapali ve ws-open istekleri reddedilir (Faz 6).
+type WSDialerFactory func(targetName string) (tunnel.WSDialer, error)
+
 // ICEFactory oturum kurulurken gecerli ICE sunucu listesini dondurur.
 //
 // Cloudflare TURN kimlik bilgisi kisa omurludur ve arka planda yenilenir;
@@ -84,6 +90,9 @@ type Config struct {
 	Sealer *signaling.Sealer
 	// NewProxy her oturum icin proxy uretir.
 	NewProxy ProxyFactory
+	// NewWSDialer her oturum icin WebSocket koprusu uretir; nil ise kopru
+	// kapali (Faz 6, varsayilan).
+	NewWSDialer WSDialerFactory
 	// Targets yayinlanan hedeflerin adlari: hem hello mesajinda bildirilir
 	// hem de offer'daki hedef adi buna karsi dogrulanir.
 	Targets []string
@@ -99,6 +108,12 @@ type Config struct {
 	MaxConcurrent int
 	// MaxBody istek govdesi tavani.
 	MaxBody int64
+	// MaxStreams oturum basina uzun yasayan akis tavani (ws + SSE); 0 ise
+	// tunnel.DefaultMaxStreams.
+	MaxStreams int
+	// MaxWSMessage bir ws mesajinin tavani; 0 ise
+	// tunnel.DefaultMaxWSMessage.
+	MaxWSMessage int64
 	// Logger zorunlu.
 	Logger *slog.Logger
 	// Verbose loglarda path maskelemesini kapatir.
@@ -548,6 +563,15 @@ func (a *Acceptor) startSession(
 		return fmt.Errorf("proxy kurulamadi: %w", err)
 	}
 
+	// Kopru kapaliysa (varsayilan) nil kalir ve ws-open reddedilir.
+	var wsDialer tunnel.WSDialer
+	if a.cfg.NewWSDialer != nil {
+		wsDialer, err = a.cfg.NewWSDialer(targetName)
+		if err != nil {
+			return fmt.Errorf("ws koprusu kurulamadi: %w", err)
+		}
+	}
+
 	iceServers, icePolicy := a.iceConfig()
 
 	sess, err := tunnel.New(tunnel.Config{
@@ -557,7 +581,10 @@ func (a *Acceptor) startSession(
 		Auth:          a.authMode(),
 		MaxConcurrent: a.cfg.MaxConcurrent,
 		MaxBody:       a.cfg.MaxBody,
+		MaxStreams:    a.cfg.MaxStreams,
+		MaxWSMessage:  a.cfg.MaxWSMessage,
 		Proxy:         px,
+		WSDialer:      wsDialer,
 		Logger:        a.log.With(slog.String("sid", offerMsg.SID)),
 		Verbose:       a.cfg.Verbose,
 		// Nostr yolunda trickle acik: adaylar ayri event olarak gider

@@ -61,6 +61,17 @@ export function announceTunnelGone(): void {
   navigator.serviceWorker?.controller?.postMessage({ type: "bridge-tunnel-gone" });
 }
 
+/**
+ * Tunelin koptugunu ama yeniden baglanildigini bildirir (Faz 4).
+ *
+ * SW bu haberi aldiktan sonra istekleri kisa bir sure bekletir; boylece
+ * ziyaretcinin gezdigi site kopma aninda 503 yemek yerine yeniden
+ * baglanmayi bekler.
+ */
+export function announceTunnelReconnecting(): void {
+  navigator.serviceWorker?.controller?.postMessage({ type: "bridge-tunnel-reconnecting" });
+}
+
 async function serveRequest(
   msg: BridgeRequest,
   port: MessagePort,

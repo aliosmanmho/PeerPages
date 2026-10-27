@@ -21,6 +21,9 @@ import {
   type BridgeToWorker,
   MAX_BUFFERED_REQUEST_BODY,
   PROBE_TIMEOUT_MS,
+  RECONNECT_WAIT_MS,
+  RECONNECT_WAIT_NAVIGATE_MS,
+  RECONNECT_WINDOW_MS,
 } from "./bridge";
 
 declare const self: ServiceWorkerGlobalScope;
@@ -57,6 +60,43 @@ let tunnelSeenAt = 0;
  */
 const TUNNEL_TRUST_MS = 5000;
 
+/**
+ * Sayfa "yeniden baglaniyorum" dedi ve bu ana kadar bekletmeye deger
+ * (Faz 4). 0 ise bekletme yok.
+ */
+let reconnectingUntil = 0;
+
+/** Tunelin donmesini bekleyen istekler. */
+let tunnelWaiters: Array<() => void> = [];
+
+/** Tunel geri geldi: bekleyen istekleri birlikte serbest birak. */
+function releaseTunnelWaiters(): void {
+  const waiters = tunnelWaiters;
+  tunnelWaiters = [];
+  for (const w of waiters) w();
+}
+
+/**
+ * Tunelin donmesini en fazla `ms` kadar bekler.
+ *
+ * Fetch olayi cevabi beklerken worker hayatta kalir, bu yuzden burada
+ * zamanlayici guvenilir — SW'de PERIYODIK zamanlayicinin guvenilmez olmasi
+ * ayri bir mesele (worker bostayken oldurulur).
+ */
+function waitForTunnel(ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      tunnelWaiters = tunnelWaiters.filter((w) => w !== done);
+      resolve();
+    }, ms);
+    tunnelWaiters.push(done);
+  });
+}
+
 self.addEventListener("install", () => {
   // Yeni SW'yi hemen devreye al: kullanici sekmeyi kapatip acmak zorunda kalmasin.
   self.skipWaiting();
@@ -77,11 +117,20 @@ self.addEventListener("message", (event: ExtendableMessageEvent) => {
         tunnelClientId = source.id;
         tunnelSeenAt = Date.now();
       }
+      reconnectingUntil = 0;
+      releaseTunnelWaiters();
       break;
     }
     case "bridge-tunnel-gone":
       tunnelClientId = null;
       tunnelSeenAt = 0;
+      reconnectingUntil = 0;
+      releaseTunnelWaiters();
+      break;
+    case "bridge-tunnel-reconnecting":
+      tunnelClientId = null;
+      tunnelSeenAt = 0;
+      reconnectingUntil = Date.now() + RECONNECT_WINDOW_MS;
       break;
     default:
       break;
@@ -104,7 +153,15 @@ self.addEventListener("fetch", (event: FetchEvent) => {
 });
 
 async function handle(request: Request, url: URL): Promise<Response> {
-  const client = await findTunnelClient();
+  let client = await findTunnelClient();
+
+  // Sayfa yeniden baglanmaya calisiyorsa istegi hemen reddetmiyoruz:
+  // uyku/uyanmadan sonra site kirilmak yerine yavaslamis gorunur.
+  if (!client && Date.now() < reconnectingUntil) {
+    const waitMs = request.mode === "navigate" ? RECONNECT_WAIT_NAVIGATE_MS : RECONNECT_WAIT_MS;
+    await waitForTunnel(waitMs);
+    client = await findTunnelClient();
+  }
 
   if (!client) {
     if (request.mode === "navigate") {

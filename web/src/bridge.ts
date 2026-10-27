@@ -41,8 +41,23 @@ export interface BridgeTunnelGone {
   readonly type: "bridge-tunnel-gone";
 }
 
+/**
+ * Sayfanin "tunel koptu ama yeniden baglaniyorum" demesi (Faz 4).
+ *
+ * SW bu haberden sonra istegi aninda 503'lemek yerine kisa bir sure
+ * tunelin donmesini bekler: uyku/uyanmadan sonra ziyaretcinin gezdigi site
+ * kirilmak yerine yavaslamis gorunur.
+ */
+export interface BridgeTunnelReconnecting {
+  readonly type: "bridge-tunnel-reconnecting";
+}
+
 export type BridgeToPage = BridgeRequest | BridgeProbe;
-export type BridgeToWorker = BridgeTunnelReady | BridgeTunnelGone | BridgeProbeReply;
+export type BridgeToWorker =
+  | BridgeTunnelReady
+  | BridgeTunnelGone
+  | BridgeTunnelReconnecting
+  | BridgeProbeReply;
 
 /** Cevap basligi. */
 export interface BridgeResponseHead {
@@ -85,3 +100,27 @@ export const MAX_BUFFERED_REQUEST_BODY = 16 * 1024 * 1024;
 
 /** Sayfanin probe'a cevap vermesi icin beklenecek sure. */
 export const PROBE_TIMEOUT_MS = 1000;
+
+/**
+ * Yeniden baglanma boslugunda bir istegin bekletilecegi en uzun sure
+ * (Faz 4).
+ *
+ * Ust sinir ZORUNLU: aksi halde ajan gercekten kapandiginda istekler
+ * askida kalir ve sekme donmus gorunur.
+ */
+export const RECONNECT_WAIT_MS = 10_000;
+
+/**
+ * Gezinme istekleri daha kisa bekler: bos bir sekmeye bakmak, durumu ve
+ * geri sayimi gosteren baglanti ekranina donmekten kotudur.
+ */
+export const RECONNECT_WAIT_NAVIGATE_MS = 3_000;
+
+/**
+ * "Yeniden baglaniyorum" haberinin gecerlilik suresi.
+ *
+ * Sayfa her denemede yeniden haber verir; bu sure dolduktan sonra SW
+ * bekletmeyi birakir, cunku sayfa olmus de olabilir (cokme ya da isletim
+ * sisteminin sekmeyi atmasi durumunda "vazgectim" haberi hic gelmez).
+ */
+export const RECONNECT_WINDOW_MS = 60_000;

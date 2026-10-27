@@ -3,7 +3,12 @@ import { BASE_PATH, inBase } from "./base";
 import { type ConnectResult, connectToAgent } from "./nostr/connect";
 import { PeerIDError, type PeerTarget, parseHash, shortenNpub } from "./nostr/peerid";
 import { RelayListError, relaysFromSearch } from "./nostr/relays";
-import { announceTunnelGone, announceTunnelReady, installBridge } from "./page-bridge";
+import {
+  announceTunnelGone,
+  announceTunnelReady,
+  announceTunnelReconnecting,
+  installBridge,
+} from "./page-bridge";
 import { Supervisor, type SupervisorInfo, type SupervisorState } from "./reconnect";
 import { decodeSDP, encodeSDP } from "./signal";
 import { Tunnel } from "./tunnel";
@@ -312,6 +317,9 @@ function onTunnelLost(state: string): void {
 
   if (supervisor) {
     status.step("tunnel", "active");
+    // SW'ye haber ver: bu boslukta gelen istekler 503 yerine kisa sure
+    // beklesin.
+    announceTunnelReconnecting();
     supervisor.markLost(state);
     return;
   }

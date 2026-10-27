@@ -270,7 +270,8 @@ otomatik test edilmedi. Ayrıntı: `docs/WEBSOCKET.md`.
   (`/style.css`) her durumda scope disina duser ve SW onlari yakalamaz. Bu,
   GitHub Pages proje sayfalarinin yapisal siniri; custom domain ya da
   kullanici sayfasi (`kullanici.github.io/`) ile kalkar. README'nin "sinirlar"
-  bolumune durustce yazilmali.
+  bolumune durustce yazilmali. **(Faz 7'de yapildi:** public README'nin
+  "Honest limits" bolumunde ve FAQ'in custom domain maddesinde.**)**
 
 - Firefox/Safari'de SW `ReadableStream` cevaplari ve `postMessage` performansi —
   **Chromium'da olculdu ve sorun yok**: 5 MB indirme ~103 ms (~48 MB/s), kucuk

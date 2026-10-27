@@ -20,7 +20,7 @@ Data channel protokolü ayrı bir dosyada: [`README.md`](README.md).
 | `pubkey` | gönderenin pubkey'i (ziyaretçide her ziyarette yeni, geçici) |
 
 Relay'ler yalnızca "bir pubkey bir şey aldı" görür; içerik onlara kapalıdır
-(`../README.md` §6 ilke 2).
+(`../docs/BRIEF.md` §6 ilke 2).
 
 ### Kimler kimdir
 
@@ -45,7 +45,7 @@ ziyaretçi                        relay'ler                        ajan
 
 **Offer'ı ziyaretçi yayınlar.** Ajan, ziyaretçinin geçici pubkey'ini önceden
 bilemez — dolayısıyla ilk mesajı o gönderemez (kime şifreleyeceğini bilemez).
-Karar ve gerekçesi `../README.md` §8'de.
+Karar ve gerekçesi `../docs/BRIEF.md` §8'de.
 
 ## Payload
 
@@ -183,7 +183,7 @@ ajanın çevrimiçi olduğu ve ne zaman trafik aldığı gizlenmez. Sır yalnız
 
 ## Güvenlik kuralları (ajan tarafı)
 
-Ziyaretçi güvenilmez (`../README.md` §6 ilke 4):
+Ziyaretçi güvenilmez (`../docs/BRIEF.md` §6 ilke 4):
 
 | Kural | Neden |
 |---|---|

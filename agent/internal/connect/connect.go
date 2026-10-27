@@ -41,6 +41,25 @@ const (
 	SubscribeBacklog = time.Minute
 )
 
+// Abonelik denetimi (Faz 4).
+const (
+	// ResubscribeMin yeniden abone olmadan once beklenen en kisa sure.
+	ResubscribeMin = time.Second
+	// ResubscribeMax geri sayimin ust siniri.
+	ResubscribeMax = time.Minute
+	// epochHealthy bu sureden uzun yasayan abonelik saglikli sayilir ve
+	// geri sayim sifirlanir.
+	epochHealthy = time.Minute
+	// healthInterval relay saglik yoklamasi araligi.
+	healthInterval = 5 * time.Second
+	// downChecksBeforeResubscribe bu kadar yoklama boyunca hicbir relay
+	// bagli degilse abonelik bastan kurulur (yeniden baglanmayi zorlar).
+	downChecksBeforeResubscribe = 3
+	// resumeFactor iki yoklama arasi beklenenin bu katindan fazlaysa surec
+	// askiya alinmis kabul edilir.
+	resumeFactor = 3
+)
+
 // ProxyFactory verilen hedef icin bir Proxy uretir.
 //
 // Hedef oturum basina degisir: ziyaretci URL'de soyler
@@ -77,6 +96,11 @@ type Config struct {
 
 	// now test icin saat enjeksiyonu; nil ise time.Now.
 	now func() time.Time
+	// healthInterval relay saglik yoklamasi araligi; 0 ise healthInterval.
+	healthInterval time.Duration
+	// resubscribeMin yeniden abone olma geri sayiminin tabani; 0 ise
+	// ResubscribeMin. Testler denetimi hizlandirmak icin kisaltir.
+	resubscribeMin time.Duration
 }
 
 // Pool internal/nostr.Pool'un bu paketin ihtiyac duydugu yuzu.
@@ -170,36 +194,189 @@ func New(cfg Config) (*Acceptor, error) {
 }
 
 // Run abone olur ve ctx bitene kadar gelen event'leri isler.
+//
+// Abonelik DENETLENIR: kapanirsa, relay'lerin tamami dusup kalirsa ya da
+// surec askiya alinmissa yeniden kurulur. Daha once bu fonksiyon abonelik
+// kanali kapandiginda hata donuyor ve ajan surecinden cikiyordu — oysa
+// kullanicinin istedigi sey, laptop uyandiginda ajanin kendi kendine
+// toparlanmasi.
 func (a *Acceptor) Run(ctx context.Context) error {
 	npub, err := a.cfg.Identity.Npub()
 	if err != nil {
 		return err
 	}
 
-	filter := nostr.SignalingFilter(a.cfg.Identity.PublicKey, a.now().Add(-SubscribeBacklog))
-	events := a.cfg.Pool.Subscribe(ctx, filter)
-
-	// Abonelik kuruldu: artik gelen offer'lari yakalayabiliriz.
-	a.readyOn.Do(func() { close(a.ready) })
-
 	a.log.Info("signaling dinleniyor",
 		slog.String("peer_id", identity.ShortenNpub(npub)),
 		slog.Bool("sir_gerekli", a.cfg.Sealer != nil),
 	)
+
+	_, backoffMin := a.superviseLimits()
+	backoff := backoffMin
+	for {
+		started := a.now()
+		reason := a.runEpoch(ctx)
+
+		if ctx.Err() != nil {
+			a.closeAll()
+			return nil
+		}
+		if reason == nil {
+			reason = errSubClosed
+		}
+
+		// Uzun suren bir abonelik saglikli sayilir: geri sayim sifirlanir.
+		if a.now().Sub(started) >= epochHealthy {
+			backoff = backoffMin
+		}
+
+		wait := backoff
+		if errors.Is(reason, errResume) {
+			// Uyanma: beklemenin anlami yok, ziyaretciler simdi geliyor.
+			wait = 0
+		}
+		a.log.Warn("signaling abonelligi yenileniyor",
+			slog.String("neden", reason.Error()),
+			slog.Duration("bekleme", wait))
+
+		if wait > 0 {
+			select {
+			case <-ctx.Done():
+				a.closeAll()
+				return nil
+			case <-time.After(wait):
+			}
+			if backoff < ResubscribeMax {
+				backoff = min(2*backoff, ResubscribeMax)
+			}
+		}
+	}
+}
+
+// Abonelik denetimi nedenleri.
+var (
+	errSubClosed = errors.New("relay abonelikleri kapandi")
+	errNoRelay   = errors.New("hicbir relay'e baglanti kalmadi")
+	errResume    = errors.New("surec askiya alinmis gorunuyor")
+)
+
+// runEpoch tek bir abonelik donemini yurutur; yenilenmesi gerektiginde
+// nedeni doner. ctx bitmisse nil doner.
+func (a *Acceptor) runEpoch(ctx context.Context) error {
+	subCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Her donemde filtre YENIDEN kurulur: ephemeral event'ler saklanmadigi
+	// icin eski bir `since` ile abone olmanin faydasi yok.
+	filter := nostr.SignalingFilter(a.cfg.Identity.PublicKey, a.now().Add(-SubscribeBacklog))
+	events := a.cfg.Pool.Subscribe(subCtx, filter)
+
+	// Abonelik kuruldu: artik gelen offer'lari yakalayabiliriz.
+	a.readyOn.Do(func() { close(a.ready) })
+
+	health, _ := a.superviseLimits()
+	ticker := time.NewTicker(health)
+	defer ticker.Stop()
+
+	lastTick := a.now()
+	downChecks := 0
+	lastHealthy := -1
 
 	for {
 		select {
 		case <-ctx.Done():
 			a.closeAll()
 			return nil
+
 		case ev, ok := <-events:
 			if !ok {
-				a.closeAll()
-				return errors.New("relay abonelikleri kapandi")
+				return errSubClosed
 			}
 			a.onEvent(ctx, ev.Event)
+
+		case <-ticker.C:
+			now := a.now()
+			gap := now.Sub(lastTick)
+			lastTick = now
+
+			// Tunnel'daki uyanma tespitinin aynisi: denetim beklenenden cok
+			// gec kosulduysa surec askiya alinmistir. Relay baglantilari o
+			// sirada sessizce olmus olabilir ve go-nostr'un kendi geri
+			// sayimi 5 dakikaya kadar cikabiliyor — ziyaretcinin bu kadar
+			// beklemesi kabul edilemez.
+			if gap > time.Duration(resumeFactor)*health {
+				return errResume
+			}
+
+			healthy, total := a.relayHealth()
+			if total == 0 {
+				continue // havuz saglik bildirmiyor (test sahtesi)
+			}
+			if healthy != lastHealthy {
+				lastHealthy = healthy
+				a.logRelayHealth(healthy, total)
+			}
+			if healthy == 0 {
+				downChecks++
+				if downChecks >= downChecksBeforeResubscribe {
+					return errNoRelay
+				}
+			} else {
+				downChecks = 0
+			}
 		}
 	}
+}
+
+// HealthReporter saglik bildirebilen havuz.
+//
+// Ayri arayuz: testlerdeki sahte havuzlar Pool arayuzunu uyguluyor ve
+// saglikla ilgilenmiyor.
+type HealthReporter interface {
+	Health() []nostr.RelayHealth
+}
+
+// relayHealth bagli ve toplam relay sayisi; havuz bildirmiyorsa (0, 0).
+func (a *Acceptor) relayHealth() (healthy, total int) {
+	hr, ok := a.cfg.Pool.(HealthReporter)
+	if !ok {
+		return 0, 0
+	}
+	list := hr.Health()
+	for _, h := range list {
+		if h.Connected {
+			healthy++
+		}
+	}
+	return healthy, len(list)
+}
+
+func (a *Acceptor) logRelayHealth(healthy, total int) {
+	switch healthy {
+	case 0:
+		a.log.Warn("hicbir relay'e baglanti yok: ziyaretciler su an sana ulasamaz",
+			slog.Int("toplam", total))
+	case total:
+		a.log.Info("tum relay'ler bagli", slog.Int("toplam", total))
+	default:
+		a.log.Info("relay baglantilari degisti",
+			slog.Int("bagli", healthy), slog.Int("toplam", total))
+	}
+}
+
+// RelayStatus durum satiri icin bagli/toplam relay sayisi.
+func (a *Acceptor) RelayStatus() (healthy, total int) { return a.relayHealth() }
+
+// superviseLimits denetim sureleri (yapilandirilmissa onlar).
+func (a *Acceptor) superviseLimits() (health, backoffMin time.Duration) {
+	health, backoffMin = a.cfg.healthInterval, a.cfg.resubscribeMin
+	if health <= 0 {
+		health = healthInterval
+	}
+	if backoffMin <= 0 {
+		backoffMin = ResubscribeMin
+	}
+	return health, backoffMin
 }
 
 // Ready abonelik kuruldugunda kapanan kanali dondurur.

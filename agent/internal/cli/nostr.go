@@ -154,7 +154,7 @@ func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
 PeerPages ajani hazir.
 
   peer-id : %s
-  relay   : %d adet (bagli)
+  relay   : %d/%d bagli (durum satiri canli gosterir)
   sir     : %s
 
 Yayinlanan hedefler ve ziyaretcinin acmasi gereken adresler:
@@ -165,6 +165,7 @@ Bu sekmeyi/terminali acik tut: tunel ajan calistigi surece ayakta.
 `,
 		identity.ShortenNpub(npub),
 		len(connReport.OK),
+		len(connReport.OK)+len(connReport.Failed),
 		secretNote(cfg.Secret),
 		targetLines,
 		ReadyMarker,
@@ -175,8 +176,8 @@ Bu sekmeyi/terminali acik tut: tunel ajan calistigi surece ayakta.
 	defer stopStatus()
 	go printStatusLines(statusCtx, stdout, acceptor, counters)
 
-	// Relay'ler dususe de akis devam etsin; Run yalnizca tum abonelikler
-	// kapandiginda hata doner.
+	// Relay'ler dususe de akis devam etsin: Run abonelligi kendisi
+	// yeniliyor (Faz 4) ve yalnizca ctx bitince doner.
 	runErr := <-errCh
 	stopStatus()
 
@@ -214,7 +215,12 @@ func printStatusLines(
 		}
 
 		t := counters.Total()
-		line := fmt.Sprintf("[durum] oturum %d | istek %d (basari %d, hata %d) | gelen %s | giden %s",
+		// Relay alani onemli: tum relay'ler dusunce ajan calismaya devam
+		// eder ama ziyaretciler ulasamaz. Bu bilgi hicbir yerde
+		// gorunmuyordu.
+		healthy, total := acceptor.RelayStatus()
+		line := fmt.Sprintf("[durum] relay %d/%d | oturum %d | istek %d (basari %d, hata %d) | gelen %s | giden %s",
+			healthy, total,
 			acceptor.SessionCount(), t.Requests, t.Success, t.Errors,
 			size.Format(int64(t.BytesIn)), size.Format(int64(t.BytesOut)))
 		if line == last {

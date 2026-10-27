@@ -280,6 +280,50 @@ func (p *Pool) Close(reason string) {
 	p.pool.Close(reason)
 }
 
+// RelayHealth bir relay'in anlik durumu.
+type RelayHealth struct {
+	// URL relay adresi (bizim normalize ettigimiz bicimde).
+	URL string
+	// Connected WebSocket su an acik mi.
+	Connected bool
+	// Err son baglanti hatasi; yoksa bos.
+	Err string
+}
+
+// Health relay basina anlik durumu dondurur.
+//
+// Neden gerekli: yeniden baglanmanin tamamini go-nostr'un kendi dongusu
+// yapiyor ve bu is PeerPages'e hic gorunmuyordu. Ajan "hazir" dedikten
+// sonra tum relay'ler dusse bile banner'daki sayi donmus kaliyor, log'a tek
+// satir cikmiyordu — yani ziyaretcilerin ulasamadigi bir ajan, kendini
+// calisiyor sanmaya devam ediyordu.
+func (p *Pool) Health() []RelayHealth {
+	out := make([]RelayHealth, 0, len(p.urls))
+	for _, u := range p.urls {
+		h := RelayHealth{URL: u}
+		// go-nostr havuzu kendi normalize bicimiyle anahtarliyor.
+		if r, ok := p.pool.Relays.Load(gonostr.NormalizeURL(u)); ok && r != nil {
+			h.Connected = r.IsConnected()
+			if err := r.ConnectionError; err != nil {
+				h.Err = err.Error()
+			}
+		}
+		out = append(out, h)
+	}
+	return out
+}
+
+// HealthyCount bagli relay sayisi.
+func (p *Pool) HealthyCount() int {
+	n := 0
+	for _, h := range p.Health() {
+		if h.Connected {
+			n++
+		}
+	}
+	return n
+}
+
 // SignalingFilter belirli bir alici pubkey'e gelen signaling event'leri icin
 // filtre uretir.
 //

@@ -211,7 +211,7 @@ ajandaki 60 saniyelik zaman aşımı tüm cevabı sarıyor ve uzun akışları s
 Socket.IO örneği **elle** (`docs/MANUAL-TEST.md`): iki yeni bağımlılık getireceği için
 otomatik test edilmedi. Ayrıntı: `docs/WEBSOCKET.md`.
 
-### Faz 7 — Yayın ve lansman (1 gün) — **tamamlandı (canlı doğrulama bekliyor)**
+### Faz 7 — Yayın ve lansman (1 gün) — **tamamlandı**
 - GitHub Pages deploy workflow (`web/dist` → Pages, Actions kaynağı), custom domain rehberi (`CNAME`, `demo.alanadi.com`).
 - Public **İngilizce README**: 10 saniyelik GIF, "Why" bölümü, karşılaştırma tablosu, güvenlik modeli, sınırlar (dürüstçe), FAQ.
 - `docs/SECURITY.md`: tehdit modeli (peer-id tahmini, relay gözlemi, SSRF, ziyaretçi kötü niyetli olabilir).
@@ -219,14 +219,15 @@ otomatik test edilmedi. Ayrıntı: `docs/WEBSOCKET.md`.
 - Son isim kararı ve domain kontrolü.
 
 **Kabul:** Yabancı biri README'yi okuyup 3 dakikada kendi localhost'unu paylaşabiliyor.
-**Durum:** malzemenin tamamı hazır ve **push edildi** (54 commit, `main`):
-Pages workflow'u, İngilizce README (gerçek ekran görüntüleriyle), SECURITY.md
-tehdit modeli, LAUNCH.md ve isim kararı. GIF kullanıcıda (`docs/LAUNCH.md`).
-**Canlı site henüz yok:** GitHub hesabında bir faturalandırma kilidi var
-(`"The job was not started because your account is locked due to a billing
-issue"`), bu yüzden hem `Pages` hem `CI` workflow'ları başlayamıyor. Kilit
-kalkınca tek komut yetiyor: `gh workflow run Pages`. Kriterin ölçülmesi buna
-bağlı (§8).
+**Durum:** karşılandı ve **canlı ölçüldü**. Site yayında
+(<https://aliosmanmho.github.io/PeerPages/>); ajan bayraksız çalıştırıldı,
+bastığı URL olduğu gibi açıldı, tünel **8.6 saniyede** kuruldu ve yerel site
+github.io adresinde göründü (küçük istek 2 ms, 5 MB 114 ms — gerçek Nostr
+relay'leriyle). Ayrıntı: `docs/MEASUREMENTS.md` Faz 7.
+**Not:** Actions hesaptaki faturalandırma kilidi yüzünden koşamadığı için
+yayın `.github/workflows/pages.yml` ile değil, **dal tabanlı** Pages yolundan
+yapıldı (`gh-pages`). Workflow duruyor ve kilit kalkınca kaynak tek tıkla
+"GitHub Actions"a alınabilir (§8).
 
 ## 6. Güvenlik ilkeleri (her fazda geçerli)
 
@@ -478,23 +479,27 @@ bağlı (§8).
   Tünel koparsa açık soketler 1006 ile düşüyor; yeniden bağlanmayı sayfanın kendi
   kütüphanesi yapar.
 
-- **(Faz 7, AÇIK — dış kaynaklı) GitHub Actions faturalandırma kilidi yüzünden
-  Pages yayına alınamadı.** `main` push edildi (ilk kez), ama hem `Pages` hem
-  `CI` workflow'u *"The job was not started because your account is locked due
-  to a billing issue"* ile başlayamadı; `CI` kuyrukta asılı kaldı. Yani
-  workflow'ların kendisi **GitHub'da hiç koşturulamadı** — Faz 4'ten beri açık
-  olan "release workflow'u gerçek ortamda denenmedi" maddesi genişledi. Kilit
-  hesap ayarlarından kalkınca `gh workflow run Pages` yeterli; yapılandırmanın
-  kendisi yerelde doğrulandı (YAML ayrıştırması + aynı derleme komutunun
-  ürettiği dist, e2e'de `vite preview` ile servis ediliyor).
+- **(Faz 7, AÇIK — dış kaynaklı) GitHub Actions hesapta kilitli; yayın dal
+  tabanlı Pages yolundan yapıldı.** `main` push edildikten sonra hem `Pages`
+  hem `CI` workflow'u *"The job was not started because your account is locked
+  due to a billing issue"* ile başlayamadı (`CI` kuyrukta asılı kalıp iptal
+  oldu). Çözüm olarak site **GitHub'ın kendi Pages derleyicisiyle** yayınlandı:
+  `gh-pages` dalı + `build_type: legacy`. O boru hattı Actions kullanmıyor ve
+  kilide takılmıyor — 27 saniyede derleyip yayına aldı.
+  **Sonuç:** site canlı ama `.github/workflows/pages.yml` ve `ci.yml` GitHub
+  runner'ında **hiç koşmadı**; yani `-race` ve CI sürümü `golangci-lint`
+  yalnızca yerelde denendi (Faz 4'ten beri açık olan "release workflow'u
+  denenmedi" maddesiyle aynı aile). Kilit kalkınca yapılacak: Pages kaynağını
+  "GitHub Actions"a geri al (`gh api -X PUT repos/.../pages -f
+  build_type=workflow`), `gh-pages` dalını sil, `gh workflow run Pages`.
+  Dal tabanlı yayının bedeli: her güncellemede `gh-pages` dalına elle derleyip
+  push etmek gerekiyor.
 
-- **(Faz 7, AÇIK) Kabul kriteri ölçülmedi.** "Yabancı biri 3 dakikada
-  paylaşabiliyor" iddiası canlı Pages sitesi gerektiriyor. Yerelde eşdeğeri
-  koşuyor (e2e tam olarak aynı dist'i aynı base ile servis edip tüneli
-  kuruyor), ama gerçek github.io adresine karşı **denenmedi**. Ayrıca
-  etiket/release olmadığı için binary indirme yolu da yok: bugün tek kurulum
-  yolu `go install` (yani Go kurulu olmayan biri için "3 dakika" geçerli
-  değil).
+- **(Faz 7'de ölçüldü) Kabul kriteri karşılandı, ama binary indirme yolu yok.**
+  Canlı zincir çalıştı (8.6 sn, `docs/MEASUREMENTS.md`). Buna karşılık
+  etiket/release olmadığı için tek kurulum yolu `go install`: Go kurulu olmayan
+  biri için "3 dakika" iddiası **henüz geçerli değil**. `v0.1.0` etiketi
+  atılınca (ve release.yml koşabilince) bu kapanır.
 
 - **(Faz 7'de karar verildi) Arayüz ve belgeler Türkçe kaldı.** Public README
   ve `docs/SECURITY.md` İngilizce; ajanın CLI çıktısı, bağlantı ekranı ve geri

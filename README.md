@@ -221,9 +221,13 @@ and nothing more. Numbers and methodology:
 ## Status
 
 Phases 0–7 are complete: core tunnel, Nostr signaling, multi-target, reconnect,
-TURN fallback, WebSocket/SSE bridge, and this release. The project is not
-versioned yet — no tags, so no binary downloads. The test suite is 397
-TypeScript unit tests, 19 Go packages and 35 end-to-end tests on Chromium.
+TURN fallback, WebSocket/SSE bridge, and this release. The app is live at
+<https://aliosmanmho.github.io/PeerPages/> — the agent prints that URL with your
+peer-id appended, so you do not have to type it.
+
+The project is not versioned yet: no tags, so no binary downloads and
+`go install` is the only install path today. The test suite is 397 TypeScript
+unit tests, 19 Go packages and 35 end-to-end tests on Chromium.
 
 Contributions: [`CONTRIBUTING.md`](CONTRIBUTING.md). Changes:
 [`CHANGELOG.md`](CHANGELOG.md).

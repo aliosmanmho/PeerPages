@@ -518,22 +518,39 @@ Bu fazda **yeni bir performans ölçümü yok**: kod yolu değişmedi, yalnızca
 | Ekran görüntüleri (`docs/img/`, gerçek tünelden) | 52 KB (36 + 16 KB) |
 | Bundle (değişmedi) | 43.2 KB gzip + ayrı 1.9 KB shim |
 
-### Ölçülemeyen: kabul kriteri
+### Kabul kriteri — CANLI ölçüldü
 
-"Yabancı biri 3 dakikada kendi localhost'unu paylaşabiliyor" iddiası canlı bir
-GitHub Pages sitesi gerektiriyor. `main` push edildi ama **Pages ve CI
-workflow'ları başlayamadı**: GitHub hesabında faturalandırma kilidi var
-(*"The job was not started because your account is locked due to a billing
-issue"*). Dolayısıyla:
+Site yayında: <https://aliosmanmho.github.io/PeerPages/>. Ölçüm gerçek
+zincirde yapıldı — GitHub Pages'teki sayfa, **gerçek** public Nostr relay'leri
+(3/4 bağlı; `relay.damus.io` 503 verdi) ve yerel ajan.
 
-- Pages sitesi yayında değil, canlı URL'den tünel denenmedi.
-- CI, GitHub runner'ında ilk kez koşamadı — yani `-race` ve
-  `golangci-lint`'in CI sürümü hâlâ yalnızca yerelde denendi
-  (BRIEF §8).
+| Ne | Değer |
+|---|---|
+| Pages derlemesi (dal tabanlı yayın) | **27 s** |
+| Sayfa yenilemesinden açık tünele | **8.6 s** |
+| Küçük istek (medyan, n=10) | **2 ms** |
+| 5 MB indirme | **114 ms** (44 MB/s) |
+| Seçilen ICE yolu | `host` (iki uç aynı makinede) |
 
-Yerelde doğrulanan eşdeğeri: e2e paketi **aynı derleme komutunun ürettiği
-dist'i** aynı `base` ile `vite preview` üzerinden servis edip tüneli kuruyor
-(35 test). Yani dağıtım artefaktı doğru; doğrulanmamış olan GitHub tarafı.
+Okunuşu: **8.6 saniye**, sahte relay'li e2e'deki 300 ms'in yirmi katı ve fark
+tamamen signaling'de — gerçek relay'lere WebSocket açmak, event yayınlamak ve
+ajanın onu görmesi. Tünel bir kez kurulduktan sonra veri yolu yereldeki kadar
+hızlı (2 ms / 44 MB/s), çünkü trafik zaten iki makine arasında doğrudan
+gidiyor; GitHub Pages yalnızca sayfayı servis etti.
 
-Kilit kalkınca ölçülecekler: Pages dağıtım süresi, canlı URL'den açık tünele
-kadar geçen süre, ve ilk ziyaretin app shell indirme süresi.
+Zincirin doğrulandığı şey: ajan **bayraksız** çalıştırıldı, bastığı URL
+(`DefaultAppURL`) olduğu gibi tarayıcıya yapıştırıldı, bağlantı ekranı kuruldu
+ve `https://aliosmanmho.github.io/PeerPages/` adresinde yerel site göründü —
+CSS, görsel ve JS'in doldurduğu API listesiyle birlikte.
+
+### Ölçülemeyen: Actions
+
+`main` push edildi ama **Pages ve CI workflow'ları başlayamadı**: hesapta bir
+faturalandırma kilidi var (*"The job was not started because your account is
+locked due to a billing issue"*). Site bu yüzden **dal tabanlı** Pages yolundan
+yayınlandı (`gh-pages` dalı, GitHub'ın kendi Pages derleyicisi — Actions
+kullanmıyor ve kilide takılmıyor).
+
+Hâlâ doğrulanmamış olan: `.github/workflows/pages.yml` ve `ci.yml` GitHub
+runner'ında hiç koşmadı, yani `-race` ve CI sürümü `golangci-lint` yalnızca
+yerelde denendi (BRIEF §8).

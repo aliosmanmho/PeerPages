@@ -536,11 +536,19 @@ sayisi 35'te kaliyor.
 
 #### Kabul durumu
 
-**Olculemedi.** Kriter ("yabanci biri 3 dakikada paylasabiliyor") canli bir
-Pages sitesi gerektiriyor; push'tan sonra hem Pages hem CI workflow'u
-GitHub hesabindaki faturalandirma kilidi yuzunden BASLAYAMADI
-("your account is locked due to a billing issue"). Kilit kalkinca
-`gh workflow run Pages` yeterli. Yapilandirma yerelde dogrulandi: YAML
-ayristirmasi temiz ve ayni derleme komutunun urettigi dist e2e'de
-servis ediliyor. Ayrica etiket olmadigi icin binary indirme yolu da yok:
-bugun tek kurulum yolu `go install`.
+**Karsilandi ve CANLI olculdu.** Site yayinda
+(https://aliosmanmho.github.io/PeerPages/): ajan bayraksiz calistirildi,
+bastigi URL oldugu gibi acildi, tunel 8.6 saniyede kuruldu ve yerel site
+github.io adresinde gorundu. Gercek Nostr relay'leriyle (3/4 bagli) kucuk
+istek 2 ms, 5 MB indirme 114 ms.
+
+GitHub Actions hesaptaki faturalandirma kilidi yuzunden KOSAMADI
+("your account is locked due to a billing issue"), bu yuzden yayin
+pages.yml ile degil, GitHub'in kendi dal tabanli Pages derleyicisiyle
+yapildi (`gh-pages` dali, build_type legacy -- Actions kullanmiyor, 27 sn).
+Workflow duruyor; kilit kalkinca kaynak tek komutla "GitHub Actions"a
+alinabilir ve dal silinebilir.
+
+Hala acik: workflow'lar GitHub runner'inda hic kosmadi (-race ve CI surumu
+golangci-lint yalnizca yerelde), ve etiket olmadigi icin binary indirme
+yolu yok -- bugun tek kurulum yolu `go install`.

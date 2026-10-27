@@ -409,3 +409,101 @@ cd agent && go test ./internal/connect/ -run TURN -v
 cd agent && go run . faketurn --port 0 --user u --pass p   # 1. terminal
 cd agent && go run . doctor --turn turn:127.0.0.1:PORT --turn-user u --turn-pass p
 ```
+
+## Faz 6 — 2026-10-27 (WebSocket ve SSE köprüsü)
+
+Ölçümler aynı makinede (Windows 11, Chromium, loopback): ziyaretçi sekmesi,
+tünel sahibi sekme ve ajan hepsi aynı bilgisayarda.
+
+### WebSocket köprüsü
+
+| Ne | Değer |
+|---|---|
+| Küçük mesaj gidiş-dönüş (medyan, n=20) | **0.40 ms** |
+| 1 MB mesaj gidiş-dönüş (yani 2 MB tünel trafiği) | **40 ms** |
+| Metin + ikili + 40 KB mesaj + kapanış turu | 10 ms |
+
+Okunuşu: küçük bir ws mesajının turu, `ctrl` ping RTT'si (0.25 ms, Faz 1) ile
+aynı mertebede — yani köprünün kendi maliyeti ölçüm gürültüsünün içinde. Yol
+şu: ziyaretçi sekmesi → `MessagePort` → tünel sahibi sekme → data channel →
+ajan → yerel ws sunucusu ve geri. 1 MB'lık mesaj iki yönde 64 çerçeveye
+bölünüyor (16 KiB - 1 bayrak baytı).
+
+### Vite HMR (kabul kriteri)
+
+| Ne | Değer |
+|---|---|
+| Kaynak dosya değişiminden sayfanın güncellenmesine | **38 ms** |
+| Sayfa yenilendi mi | **hayır** (window işareti duruyor) |
+
+Hiçbir HMR ayarı verilmedi: Vite'ın istemcisi ws adresini sayfanın kendi
+origin'inden türetiyor, shim de o adresi tünele alıyor. Alt protokol
+(`vite-hmr`) ve token olduğu gibi geçiyor.
+
+### SSE artımlı teslim
+
+| Ne | Değer |
+|---|---|
+| İlk olay | **2 ms** |
+| Üçüncü olay (sunucu 400 ms bekliyor) | 804 ms |
+
+Bu, Faz 1'deki SSE testinin **ölçemediği** şey: o test `res.text()` ile tüm
+gövdeyi bekliyordu, yani üç olay tek çerçevede gelse de geçerdi. İlk olayın
+üçüncüden 800 ms önce gelmesi akışın gerçekten artımlı olduğunu gösteriyor.
+
+### Zaman aşımı düzeltmesi
+
+Faz 6'ya kadar `internal/proxy` istek bağlamını 60 saniyelik bir süreyle
+sarıyordu ve bu **tüm cevabı** kapsıyordu: 60 saniyeden uzun yaşayan her akış
+sessizce kesiliyordu. Artık sınır yalnızca başlık fazında. Go testleri bunu
+hızlı bir şekilde sabitliyor (300 ms'lik bir sınırla, 4 katı kadar susan bir
+upstream):
+
+| Test | Ne kanıtlıyor |
+|---|---|
+| `TestServeBodyHasNoDeadline` | Gövde akarken süre sınırı yok |
+| `TestServeHeaderPhaseStillTimesOut` | Cevapsız hedef isteği askıda tutamıyor (0.30 s) |
+| `TestServeStreamStopsOnCancel` | Ziyaretçi vazgeçince akış hemen duruyor |
+
+### Bundle boyutu
+
+| | gzip |
+|---|---|
+| Faz 4 | 40.7 KB |
+| Faz 5 | 41.6 KB |
+| Faz 6 (+ soket API'si, enjektör, köprü tipleri) | **43.2 KB** |
+| `ws-shim.js` (ayrı dosya, yalnızca bayrak açıkken yüklenir) | **1.9 KB** |
+| `sw.js` | 2.7 KB |
+
+Shim ayrı bir dosya ve app shell'in bundle'ına girmiyor: bayrak kapalıyken
+ziyaretçi onu hiç indirmiyor.
+
+### Henüz ölçülmeyenler (dürüstçe)
+
+- **Socket.IO.** Otomatik test edilmedi (iki yeni bağımlılık); elle doğrulama
+  `docs/MANUAL-TEST.md`'de. Yani "Socket.IO çalışıyor" iddiası ölçülmedi.
+- **Gerçek ağda ws gecikmesi.** Tüm ws ölçümleri loopback; farklı ağlarda
+  mesaj turu, bağlantının kendi gidiş-dönüş süresine ek olarak data channel
+  üzerinden geçer.
+- **Uzun süreli soket dayanıklılığı.** Dakikalar/saatler boyunca açık kalan
+  bir soketin davranışı (uyku/uyanma, relay düşmesi) ölçülmedi; tünel
+  koparsa soketler 1006 ile düşüyor ve yeniden bağlanmayı sayfanın kendi
+  kütüphanesi yapıyor.
+- **Firefox/Safari.** Shim ve `TransformStream` enjeksiyonu yalnızca
+  Chromium'da koştu (e2e matrisi Chromium).
+
+### Ölçümü yeniden üretme
+
+```bash
+# Faz 6 e2e (ws echo + olcumler, SSE, Vite HMR)
+cd web && npx playwright test faz6.spec.ts 2>&1 | grep OLCUM
+
+# Zaman asimi davranisi (Go, tarayicisiz)
+cd agent && go test ./internal/proxy/ -run "Stream|Deadline|HeaderPhase" -v
+
+# ws koprusu (Go, pion loopback)
+cd agent && go test ./internal/tunnel/ -run TestWS -v
+
+# Bundle boyutu
+cd web && node scripts/build.mjs /PeerPages/
+```

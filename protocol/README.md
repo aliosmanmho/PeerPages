@@ -156,6 +156,19 @@ UTF-8 JSON nesneleri. Zorunlu alan `t` (tip).
 `path` doğrulaması **güvenlik kontrolünün ilk katmanıdır**; ikinci ve belirleyici
 katman ajan tarafındaki `internal/target.Resolve`'dur (README ilke 1).
 
+### Ayrılmış başlıklar
+
+`res.headers` içinde ajanın kendi eklediği tek başlık var:
+
+| Başlık | Anlamı |
+|---|---|
+| `x-peerpages-ws-shim: 1` | Ajan `--inject-ws-shim` ile çalışıyor; sayfa tarafı bu HTML cevabına WebSocket shim'ini enjekte etmeli (Faz 6). |
+
+Bu başlık ziyaretçiye **gitmez**: Service Worker onu cevaptan siler. Neden
+`hello` yerine başlık: `hello` tek yönlü, `v != 1`'i reddediyor ve kanonik
+biçimde opsiyonel alan yok — yani kapasite bildirmek protokol sürümünü
+kırmak demekti (README §8).
+
 ### Hata kodları (ctrl)
 
 | Kod | Ne zaman |

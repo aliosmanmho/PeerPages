@@ -473,6 +473,107 @@ Faz 5'in çözdüğü durum tam olarak gerçekleşmiş demektir. İkisi de başa
 > relay'i ajan açar ve telefon yalnızca o genel adrese paket yollar. Yani
 > URL'yi paylaştığın kişi kotanı harcayamaz.
 
+## WebSocket ile deneme (Faz 6)
+
+WebSocket köprüsü **varsayılan kapalı** (HTML'e müdahale ediyor). Açmak için
+tek bayrak: `--inject-ws-shim`.
+
+### (i) Vite HMR — beş dakika
+
+```bash
+# 1. terminal: herhangi bir Vite projesi
+npm create vite@latest deneme -- --template vanilla
+cd deneme && npm install && npm run dev
+
+# 2. terminal: ajan (shim acik)
+cd agent && go run . serve --target http://localhost:5173 --inject-ws-shim
+```
+
+Ajanın bastığı URL'yi aç, sonra ziyaretçi sekmesinde siteyi gez. Şimdi
+`deneme/src/main.js` içindeki bir metni değiştir ve kaydet:
+
+- [ ] Sayfa **yenilenmeden** güncellendi (adres çubuğunda yükleme olmadı).
+- [ ] Tünel sekmesinde `#metrics`'te **"WebSocket: 1 acik"** satırı var.
+- [ ] DevTools → Console'da `[vite] connected.` yazıyor.
+
+> **Kök mutlak yollar.** Proje sayfasında (`kullanici.github.io/PeerPages/`)
+> Vite'ın ürettiği `/src/main.js` gibi yollar kapsam dışına düşer. Çaresi
+> `vite.config.js`'te `base: "/PeerPages/"` ve ajan hedefine aynı öneki
+> vermek: `--target http://localhost:5173/PeerPages/`. Gerekçesi ve ayrıntısı
+> [WEBSOCKET.md](WEBSOCKET.md).
+
+### (ii) Socket.IO — asıl elle kriter
+
+Bu yol **otomatik test edilmedi** (README §8); doğrulaması sende.
+
+```bash
+mkdir io-deneme && cd io-deneme && npm init -y && npm i socket.io
+```
+
+`sunucu.js`:
+
+```js
+const { createServer } = require("node:http");
+const { Server } = require("socket.io");
+
+const http = createServer((req, res) => {
+  res.setHeader("content-type", "text/html; charset=utf-8");
+  res.end(`<!doctype html><html><head><title>io</title></head><body>
+    <h1 id="durum">baglaniyor…</h1>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const s = io();
+      s.on("connect", () => { document.getElementById("durum").textContent = "bagli: " + s.id; });
+      s.on("saat", (t) => { document.getElementById("durum").textContent = t; });
+      s.on("disconnect", (r) => { document.getElementById("durum").textContent = "kopdu: " + r; });
+    </script></body></html>`);
+});
+
+const io = new Server(http);
+io.on("connection", (sock) => {
+  const timer = setInterval(() => sock.emit("saat", new Date().toISOString()), 1000);
+  sock.on("disconnect", () => clearInterval(timer));
+});
+http.listen(3100, () => console.log("http://localhost:3100"));
+```
+
+```bash
+node sunucu.js
+# baska terminalde:
+cd agent && go run . serve --target http://localhost:3100 --inject-ws-shim
+```
+
+Ziyaretçi sekmesinde:
+
+- [ ] Başlık "bagli: <id>" oluyor, sonra saniyede bir saat güncelleniyor.
+- [ ] DevTools → Network → WS sekmesinde **gerçek bir WS bağlantısı
+      görünmüyor** (shim onu tünele aldı; görünen tek şey ilk polling
+      istekleri olabilir).
+- [ ] Tünel sekmesinde "WebSocket: 1 acik" satırı var.
+- [ ] Ajanı Ctrl+C ile kapatınca sayfa "kopdu: transport close" diyor ve
+      ajanı geri açınca Socket.IO kendi kendine yeniden bağlanıyor.
+
+### (iii) SSE — uzun akış artık kesilmiyor
+
+Faz 6'ya kadar ajandaki 60 saniyelik zaman aşımı **tüm cevabı** sarıyordu,
+yani uzun yaşayan bir SSE akışı sessizce kesiliyordu. Test ucu:
+
+```bash
+cd agent && go run . testsite --port 3000      # 1. terminal
+cd agent && go run . serve --target http://localhost:3000   # 2. terminal
+```
+
+Ziyaretçi sekmesinin konsolunda:
+
+```js
+const es = new EventSource("sse?n=0&delay=5000&keepalive=1");
+es.onmessage = (e) => console.log(new Date().toISOString(), e.data);
+```
+
+- [ ] Olaylar 5 saniyede bir geliyor ve **60 saniyeyi geçtikten sonra da
+      devam ediyor** (en az 90 saniye bekle).
+- [ ] Sekmeyi kapatınca ajan logunda akış kapanıyor (kaynak sızmıyor).
+
 ## Sorun giderme
 
 | Belirti | Sebep / çözüm |
@@ -493,4 +594,10 @@ Faz 5'in çözdüğü durum tam olarak gerçekleşmiş demektir. İkisi de başa
 | "yeniden baglaniliyor" bitmiyor | Ajan gerçekten kapalı ya da relay'lere ulaşılamıyor. Ajan terminaline bak: `relay 0/N` mi? |
 | Uyandıktan sonra tünel geri gelmiyor | Sekme arka plandaysa geri sayım yavaşlar; sekmeye geç (odaklanma geri sayımı sıfırlar) ya da "Simdi dene"ye bas. |
 | Kök mutlak yollar (`/style.css`) 404 | Alt yolda (`/PeerPages/`) yayınlanan sitelerin yapısal sınırı: o yol Service Worker'ın kapsamı dışına düşer. Custom domain ya da `kullanici.github.io/` kökünde sorun kalmaz (README §8). |
+| WebSocket `onclose` kodu 1008 | Köprü kapalı: ajanı `--inject-ws-shim` ile başlat. Bayrak verildiyse yerel sunucu el sıkışmayı reddetmiş (yolu kontrol et). |
+| WebSocket `onclose` kodu 1011 | Yerel sunucuya bağlanılamadı: sunucu ayakta mı, yol doğru mu? |
+| WebSocket `onclose` kodu 1013 | Akış bütçesi dolu; `--max-streams` değerini yükselt. |
+| WebSocket `onclose` kodu 1009 | Mesaj `--max-ws-message` tavanını aştı. |
+| Vite HMR bağlanmıyor | Konsolda `[vite] failed to connect` varsa: `base` hizalaması (yukarıdaki not) ya da sayfanın CSP'si. |
+| Sayfa yenileniyor ama HMR çalışmıyor | Bazı çatılarda değişiklik "full reload" gerektirir; bu HMR'ın kendi davranışı, tünelin sorunu değil. |
 | 5 MB indirme çok yavaş | Tarayıcı ve ajan aynı makinedeyse 100 ms civarı olmalı. Farklı ağlardaysan bağlantı hızına bağlı. |

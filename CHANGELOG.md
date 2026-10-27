@@ -411,3 +411,78 @@ Kriter (simetrik NAT simulasyonunda TURN ile baglaniyor) otomatik testlerle
 karsilandi: --ice-relay-only dogrudan yolu imkansiz kiliyor, tunel aciliyor
 ve ekran "TURN uzerinden" diyor. GERCEK iki ag denemesi ve Cloudflare hesabi
 kullanici tarafinda (docs/MANUAL-TEST.md, docs/TURN.md).
+
+### Faz 6 - WebSocket ve SSE koprusu
+
+#### Protokol
+
+- Uc yeni ctrl mesaji: `ws-open` (id, path, protos), `ws-ok` (id, proto),
+  `ws-close` (id, code, reason). `ws-frame` YOK: yuk `data` kanalindan
+  gidiyor.
+- ws cerceve alt bicimi: dis cerceve ([4B id][4B seq][payload]) AYNEN
+  korundu, bir ws id'sine ait cercevenin payload'i [1B bayrak][parca] oldu
+  (bayrak: metin/ikili + son-parca). Backpressure, 16 KiB parcalama ve seq
+  denetimi bedavaya geldi; ikili veri base64 sismesi yemiyor ve toplu ws
+  trafigi ctrl kanalini tikamiyor.
+- ws oturumlari HTTP istekleriyle AYNI id uzayini paylasiyor.
+- Vektorler iki dilde ayni dosyadan: 7 gecerli + 16 gecersiz ctrl, 6 gecerli
+  + 4 gecersiz ws cerceve vektoru.
+
+#### Ajan
+
+- Yeni `internal/wsbridge`: coder/websocket ile yerel hedefe baglanti
+  (zaten dogrudan bagimliliktaydi). Hedef URL'si YALNIZCA allowlist'ten
+  (ilke 1). `Origin` basligi hedefin kendi origin'i olarak gidiyor, yoksa
+  Vite ve Socket.IO el sikismayi reddediyor.
+- `internal/tunnel`: ws oturum dagitimi, iki yonlu pompa, `WSDialer`
+  arayuzu (nil = kopru kapali -> ws-close 1008). `Proxy` arayuzune metot
+  EKLENMEDI (testlerde birkac yerde gercekleniyor).
+- Yeni bayraklar: `--inject-ws-shim` (kopru + shim, varsayilan KAPALI),
+  `--max-ws-message` (1MB), `--max-streams` (8).
+- Test sitesi: `/sse?n=&delay=&keepalive=` (varsayilanlar degismedi) ve
+  yeni `/ws` yanki ucu.
+
+#### Web
+
+- `Tunnel.openSocket`: mesaj bazli ws arayuzu; parcalama, FIN birlestirme,
+  seq denetimi ve backpressure iceride.
+- Yeni `src/ws-shim.ts` -> `dist/ws-shim.js` (klasik IIFE, ucuncu vite
+  yapilandirmasi). Yalnizca AYNI HOSTNAME'e giden ws adreslerini tunele
+  aliyor; scope onekini `document.currentScript.src`'den hesapliyor.
+- Yeni `src/inject.ts`: HTML akisina `<script>` sokan TransformStream
+  (etiket cerceveye bolunmus olabilir; 8 KiB sonra basa yazar).
+- SW: shim el sikismasinda portu tunel sahibi sekmeye AKTARIYOR, sonrasi
+  sekme <-> sekme. SW bosta oldurulebilir, uzun yasayan bir soket ona
+  dayanamaz.
+- `#metrics`'e kosullu "WebSocket: N acik" satiri.
+
+#### Yolda bulunan hata
+
+`internal/proxy` istek baglamini 60 saniyelik bir sureyle sariyordu ve bu
+TUM cevabi kapsiyordu: 60 saniyeden uzun yasayan her SSE akisi sessizce
+kesiliyordu -- ziyaretci hata gormuyor, yalnizca "akis bitti" goruyordu.
+Sinir artik Transport'ta ve yalnizca baslik fazinda. Cevapsiz kalan hedef
+hala istegi askida tutamiyor.
+
+#### Kararlar (README'den sapma)
+
+Shim'i HTML'e ajan degil Service Worker sokuyor; ajan yalnizca
+`x-peerpages-ws-shim` basligini ekliyor. Boylece protokol surumu kirilmiyor
+(`hello` tek yonlu ve opsiyonel alan kabul etmiyor) ve `internal/proxy`
+bayt bayt gecirgen kaliyor. Gerekcesi README §8, ayrinti docs/WEBSOCKET.md.
+
+#### Testler
+
+397 TS birim testi (+88), 19 Go paketi (yeni: `internal/wsbridge`), 35 Playwright
+testi (+5).
+
+OLCUM ws kucuk mesaj RTT medyan 0.40 ms; 1 MB gidis-donus 40 ms;
+Vite HMR guncellemesi 38 ms (sayfa yenilenmeden); SSE ilk olay 2 ms /
+ucuncu 804 ms; bundle 41.6 -> 43.2 KB + ayri 1.9 KB shim.
+
+#### Kabul durumu
+
+Vite HMR kriteri otomatik testle karsilandi: fixture projede `vite dev`
+kosuyor, kaynak dosya degisiyor ve sayfa YENILENMEDEN guncelleniyor.
+Socket.IO ornegi elle dogrulamada (docs/MANUAL-TEST.md): iki yeni
+bagimlilik getirecegi icin otomatik test edilmedi.

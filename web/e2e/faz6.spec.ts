@@ -134,6 +134,47 @@ test.describe("Faz 6 — WebSocket koprusu", () => {
       expect(result.bigOk).toBe(true);
       expect(result.closeCode).toBe(1000);
 
+      // Olcum: kucuk mesaj gidis-donusu ve 1 MB aktarim.
+      const perf = await visitor.evaluate(async () => {
+        const sock = new WebSocket("ws");
+        sock.binaryType = "arraybuffer";
+        const ok = await new Promise<boolean>((resolve) => {
+          sock.onopen = () => resolve(true);
+          sock.onclose = () => resolve(false);
+          setTimeout(() => resolve(false), 20_000);
+        });
+        if (!ok) return null;
+
+        const next = () =>
+          new Promise<MessageEvent>((resolve) => {
+            sock.onmessage = resolve;
+          });
+
+        const rtts: number[] = [];
+        for (let i = 0; i < 20; i++) {
+          const t0 = performance.now();
+          sock.send(`olcum-${i}`);
+          await next();
+          rtts.push(performance.now() - t0);
+        }
+        rtts.sort((a, b) => a - b);
+
+        const mb = new Uint8Array(1 << 20);
+        const t1 = performance.now();
+        sock.send(mb);
+        await next();
+        const bigMs = performance.now() - t1;
+
+        sock.close();
+        return { median: rtts[10] ?? 0, bigMs };
+      });
+      if (perf) {
+        console.log(
+          `OLCUM ws kucuk mesaj RTT: medyan ${perf.median.toFixed(2)} ms (n=20); ` +
+            `1 MB gidis-donus: ${perf.bigMs.toFixed(0)} ms`,
+        );
+      }
+
       await visitor.close();
       await tunnelPage.close();
     } finally {

@@ -134,6 +134,11 @@ PEERPAGES_CF_TURN_TOKEN=... go run . serve --target http://localhost:3000   --tu
 # Teshis: dogrudan yolu imkansiz kil (baglanti kurulursa TURN'den gecti)
 go run . serve --target http://localhost:3000   --turn turn:127.0.0.1:3478 --turn-user u --turn-pass p --ice-relay-only
 
+# WebSocket koprusu (Faz 6): shim HTML'e enjekte edilir, varsayilan KAPALI
+go run . serve --target http://localhost:5173 --inject-ws-shim
+# Sinirlar: uzun yasayan akis (ws + SSE) sayisi ve ws mesaj tavani
+go run . serve --target http://localhost:3000 --max-streams 16 --max-ws-message 4MB
+
 # Surum ve derleme bilgisi
 go run . version
 
@@ -149,6 +154,12 @@ go run . serve --target http://localhost:3000 --verbose
 Testler icin gizli komutlar: `peerpages testsite` (yerel test sitesi),
 `peerpages fakerelay` (surec ici Nostr relay'i), `peerpages faketurn`
 (surec ici TURN sunucusu, Faz 5).
+
+Test sitesinin akis uclari (Faz 6): `/sse?n=5&delay=400&keepalive=1` ve
+`/ws` (metin + ikili yanki; `?proto=` alt protokol, `?close=4002` sunucu
+kapanisi). SSE'nin varsayilani Faz 1'deki gibi: uc olay, beklemesiz.
+
+WebSocket koprusu ve shim: [WEBSOCKET.md](WEBSOCKET.md).
 
 Sifre ve jeton icin ortam degiskenleri: `PEERPAGES_TURN_PASS`,
 `PEERPAGES_CF_TURN_TOKEN`. Komut satiri argumanlari `ps` ciktisinda baska

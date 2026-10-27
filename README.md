@@ -50,7 +50,9 @@ Opsiyonel: TURN fallback — yalnızca AJAN tarafında, kimlik bilgisi ziyaretç
 - SW olmadan ziyaretçi sayfası sadece "iframe içinde HTML gösteren bir viewer" olurdu; SW ile relative link, CSS, JS, görsel, XHR/fetch dahil **her şey** şeffaf çalışır.
 - SW içinde WebRTC yok → WebRTC bağlantısını **sayfa** tutar, SW isteği sayfaya `postMessage` ile yollar. Tünel sayfası kapalıysa SW "bağlan" ekranına yönlendirir.
 - Aynı origin'de aynı anda **tek aktif tünel** olur (SW kapsamı origin bazlı). Birden fazla proje `#peer-id/proje-adi` ile seçilir, ajan tarafında hedef eşlemesi yapılır.
-- Yerel uygulamanın kendi WebSocket'lerini SW yakalayamaz → Faz 6'da ayrı köprü.
+- Yerel uygulamanın kendi WebSocket'lerini SW yakalayamaz (`fetch` olayı WebSocket el sıkışmasını
+  kapsamaz) → Faz 6'da ayrı köprü: `--inject-ws-shim` ile sayfaya `window.WebSocket`'i saran bir
+  shim enjekte edilir ve yük data channel üzerinden taşınır (`docs/WEBSOCKET.md`).
 - Arama motorları içeriği görmez. Bu bir demo/paylaşım aracı; SEO hedefi yok.
 
 ## 3. Protokol (data channel)
@@ -189,11 +191,17 @@ yol **imkânsız** olur; `web/e2e/faz5.spec.ts` (4 test) ve `agent/internal/conn
 tünelin bu durumda açıldığını, negatif kontrolde (TURN yok) açılmadığını doğruluyor.
 Gerçek iki ağ denemesi ve Cloudflare hesabı sende (`docs/MANUAL-TEST.md`, `docs/TURN.md`).
 
-### Faz 6 — WebSocket ve SSE köprüsü (1 gün)
+### Faz 6 — WebSocket ve SSE köprüsü (1 gün) — **tamamlandı**
 - SSE zaten streaming cevapla çalışmalı; test ekle.
 - WebSocket: sayfaya enjekte edilen küçük bir shim `window.WebSocket`'i sarar, data channel üzerinde `ws-open/ws-frame/ws-close` mesajlarıyla ajan tarafında gerçek WS'e köprüler. Shim yalnızca `--inject-ws-shim` ile açılır (HTML'e müdahale ediyoruz, varsayılan kapalı).
 
 **Kabul:** Vite HMR ve Socket.IO örneği tünel üzerinden çalışıyor.
+**Durum:** Vite HMR **karşılandı ve otomatik** — `web/e2e/faz6.spec.ts` fixture bir projede
+`vite dev` başlatıp kaynak dosyayı değiştiriyor, sayfa **yenilenmeden** güncelleniyor (38 ms).
+SSE'nin artımlı aktığı da artık ölçülüyor (ilk olay 2 ms, üçüncü 804 ms); Faz 6'ya kadar
+ajandaki 60 saniyelik zaman aşımı tüm cevabı sarıyor ve uzun akışları sessizce kesiyordu.
+Socket.IO örneği **elle** (`docs/MANUAL-TEST.md`): iki yeni bağımlılık getireceği için
+otomatik test edilmedi. Ayrıntı: `docs/WEBSOCKET.md`.
 
 ### Faz 7 — Yayın ve lansman (1 gün)
 - GitHub Pages deploy workflow (`web/dist` → Pages, Actions kaynağı), custom domain rehberi (`CNAME`, `demo.alanadi.com`).
@@ -405,6 +413,53 @@ Gerçek iki ağ denemesi ve Cloudflare hesabı sende (`docs/MANUAL-TEST.md`, `do
   duyurulunca tarayıcı gelen kontrolü **peer-reflexive** saydı ve seçilen aday çifti
   relay görünmedi — yani test, doğru çalışan bir TURN'ü ölçemiyordu. Gerçek bir TURN
   sunucusunda bu tutarlılık zaten var; sahte sunucu artık LAN adresini duyuruyor.
+
+- **(Faz 6'da karar verildi — README'den SAPMA) Shim'i HTML'e ajan değil Service Worker sokuyor.**
+  Faz 6 maddesi "sayfaya enjekte edilen shim" diyor ve bayrağı ajana koyuyor; bayrak ajanda
+  kaldı ama **enjeksiyonu SW yapıyor**. Ajan yalnızca HTML cevaplarına
+  `x-peerpages-ws-shim: 1` başlığını ekliyor, gövdeye hiç dokunmuyor. Üç sebep:
+  (a) kapsam önekini (`/PeerPages/`) bilen taraf SW, ajan değil — ajan mutlak bir script
+  yolu üretemez; (b) `internal/proxy` böylece **bayt bayt geçirgen** kalıyor ve bunu
+  doğrulayan testler geçerliliğini koruyor; (c) alternatif, kapasiteyi `hello` mesajıyla
+  bildirmekti, ama `hello` tek yönlü, `v != 1`'i sertçe reddediyor ve kanonik biçimde
+  "opsiyonel alan yok" kuralı var — yani protokol sürümünü kırmak gerekirdi.
+  Politika ajanda, mekanik SW'de. Ayrıntı: `docs/WEBSOCKET.md`.
+
+- **(Faz 6'da bulundu ve KAPANDI) 60 saniyelik zaman aşımı uzun akışları sessizce kesiyordu.**
+  `internal/proxy` istek bağlamını `context.WithTimeout(ctx, 60s)` ile sarıyordu ve bu
+  **tüm cevabı** kapsıyordu. 60 saniyeden uzun yaşayan her SSE akışı (ve Socket.IO'nun
+  uzun yoklaması) kesiliyordu; ziyaretçi bir hata görmüyor, yalnızca "akış bitti"
+  görüyordu — yani sessiz bir bozulma. Artık sınır `http.Transport`'ta ve **yalnızca
+  başlık fazında** (`ResponseHeaderTimeout`); gövde akarken sınır yok. Cevapsız kalan bir
+  hedef hâlâ isteği askıda tutamıyor (test: `TestServeHeaderPhaseStillTimesOut`).
+
+- **(Faz 6, AÇIK — dürüst sınır) Uzun yaşayan akışların bütçesi 8.**
+  `--max-streams` ws oturumlarını **ve** SSE cevaplarını birlikte sınırlıyor; bütçe
+  dolduğunda SSE `abort too-many-streams`, ws `ws-close 1013` alıyor. Neden ayrı bütçe:
+  uzun yaşayan bir akış `--max-concurrent` slotunu ömrü boyunca tutar, yani tek bütçe
+  olsa 64 SSE isteği tüneli normal istekler için kullanılamaz hale getirirdi. Hangi
+  cevabın uzun yaşadığını **önceden bilemiyoruz**: `content-type: text/event-stream`
+  görüldüğü anda yeniden sınıflıyoruz, bu dürüst olan tek işaret. Çok sayıda eşzamanlı
+  SSE kullanan bir uygulama bu sayıyı yükseltmek zorunda.
+
+- **(Faz 6, AÇIK) `Origin` başlığı hedefin kendi origin'i olarak gönderiliyor.**
+  Yerel sunucular (Vite, Socket.IO) WebSocket el sıkışmasında `Origin` denetimi yapar ve
+  ziyaretçinin `github.io` origin'ini reddederdi. Yani tünel, yerel sunucuya **yerel bir
+  istemci gibi** görünüyor. Bedeli açık: yerel sunucunun origin denetimi tünelden gelen
+  trafiği ayırt edemez. Köprü varsayılan kapalı olduğu için bu bilinçli bir takas;
+  Faz 7'nin `SECURITY.md`'sine tehdit modeli olarak yazılmalı.
+
+- **(Faz 6, AÇIK) Socket.IO otomatik test edilmedi.** Kabul kriterinin iki yarısından
+  Vite HMR gerçekten koşuyor (`vite` zaten devDependency); Socket.IO `socket.io` +
+  `socket.io-client` bağımlılıklarını getireceği için elle doğrulamada
+  (`docs/MANUAL-TEST.md`). Polling aşaması normal HTTP, yükseltme shim üzerinden geçiyor,
+  ikili yük destekli — ama "çalışıyor" iddiası ölçülmedi.
+
+- **(Faz 6, AÇIK) `bufferedAmount` her zaman 0 ve uzantı pazarlığı yok.**
+  Gerçek gönderim tamponu tünelin içinde; shim'in değeri taklit etmesi yanıltıcı olurdu.
+  Alt protokol geçiyor, `permessage-deflate` gibi uzantılar geçmiyor (`extensions` boş).
+  Tünel koparsa açık soketler 1006 ile düşüyor; yeniden bağlanmayı sayfanın kendi
+  kütüphanesi yapar.
 
 - Nostr relay'lerinin ephemeral event'leri bazı relay'ler düşürebilir → `doctor` ile relay sağlığı; liste güncel tutulur.
 - GitHub Pages kullanım şartları: statik vitrin için uygun; projeyi ticari proxy gibi sunma, README'de "demo/paylaşım aracı" de.

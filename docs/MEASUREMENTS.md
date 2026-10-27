@@ -329,3 +329,83 @@ cd web && npx playwright test faz4.spec.ts 2>&1 | grep OLCUM
 goreleaser check && goreleaser release --snapshot --clean
 ls -la dist/
 ```
+
+---
+
+## Faz 5 — 2026-10-27 (TURN fallback)
+
+### TURN'ün bedeli: doğrudan yol ile karşılaştırma
+
+Aynı makinede, sahte TURN sunucusuyla (`peerpages faketurn`), aynı test
+sitesinden. `relayOnly=true` ajanı yalnızca relay adayı toplamaya zorluyor,
+yani doğrudan yol **imkânsız**.
+
+| | Seçilen yol | Ping RTT (medyan) | 5 MB indirme | Küçük GET (medyan / p95) |
+|---|---|---|---|---|
+| Doğrudan | `prflx` | 0.30 ms | **96 ms** (52.2 MB/s) | 1.70 / 2.20 ms |
+| TURN üzerinden | `relay` | 0.30 ms | **114 ms** (43.8 MB/s) | 1.60 / 2.10 ms |
+
+**Okunuşu:** loopback'te TURN'ün ek sıçraması 5 MB'da ~%16 (18 ms) maliyet
+çıkardı; ping ve küçük istekler ölçüm gürültüsünün içinde kaldı. Gerçek ağda
+bedel bundan büyük olur: her paket TURN sunucusunun bulunduğu yere kadar
+gidip döner, yani gecikmeye o mesafenin bir gidiş-dönüşü eklenir. Kota da
+gerçek: 5 MB'lık indirme sağlayıcının kotasından 5 MB yer.
+
+### TURN ile tünel kurulma süresi
+
+| Ne | Süre |
+|---|---|
+| URL'den açık tünele (yalnızca TURN, sahte relay) | **306 ms** |
+| Aynı yol, Go tarafı (tarayıcısız) | 3.1 sn |
+| TURN allocation (`doctor`) | 52–57 ms |
+
+Go testinin daha uzun sürmesi ICE değil kurulum: sahte relay aboneliğinin
+oturması için beklenen 500 ms ve pion'un aday toplaması.
+
+### ICE doğrudan yolu tercih ediyor
+
+TURN verildiği hâlde `--ice-relay-only` olmadan koşulduğunda seçilen yol
+`prflx` (doğrudan) çıktı. Yani TURN tanımlamak kotayı boşa harcamıyor;
+relay yalnızca başka yol kalmadığında kullanılıyor.
+
+### NAT / STUN (değişmedi)
+
+Bu ağda `doctor` hâlâ **simetrik NAT** görüyor (iki STUN farklı dış port:
+Faz 2 ölçümü). Faz 5'in tavsiye satırı artık bunu TURN durumuyla birleştirip
+tek cümlede söylüyor: "NAT simetrik ama TURN hazır".
+
+### Bundle boyutu
+
+| | gzip |
+|---|---|
+| Faz 3 | 39.7 KB |
+| Faz 4 | 40.7 KB |
+| Faz 5 (+ ICE yapılandırması ve yol göstergesi) | **41.6 KB** |
+
++0.9 KB: `src/ice.ts` (STUN listesi, URL ayrıştırma, `getStats` okuması) ve
+`#metrics`'teki yeni satır.
+
+### Henüz ölçülmeyenler (dürüstçe)
+
+- **Gerçek TURN sunucusu.** Tüm ölçümler süreç içi sahte sunucuyla; gerçek
+  bir coturn ya da Cloudflare TURN üzerinden gecikme/throughput ölçülmedi.
+- **Cloudflare Realtime TURN.** Gerçek hesaba karşı hiç çalıştırılmadı
+  (`docs/TURN.md`).
+- **İki ağ (hotspot ↔ Wi-Fi).** Faz 5'in asıl kabul denemesi; tek makineden
+  yapılamaz, yöntem `docs/MANUAL-TEST.md`.
+- **`turns:` (TLS) yolu.** Ajana verilebiliyor ama ölçülmedi; `doctor`'ın
+  allocation denemesi TLS'i atlayıp UDP deniyor.
+
+### Ölçümü yeniden üretme
+
+```bash
+# Faz 5 e2e (TURN uzerinden tunel, negatif kontrol, doctor raporu)
+cd web && npx playwright test faz5.spec.ts 2>&1 | grep OLCUM
+
+# Go tarafi (tarayicisiz): relay-only + faketurn
+cd agent && go test ./internal/connect/ -run TURN -v
+
+# doctor TURN kontrolu (sahte sunucuya karsi)
+cd agent && go run . faketurn --port 0 --user u --pass p   # 1. terminal
+cd agent && go run . doctor --turn turn:127.0.0.1:PORT --turn-user u --turn-pass p
+```

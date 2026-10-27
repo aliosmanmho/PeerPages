@@ -89,7 +89,9 @@ zaman signaling çalışmaz ama hata da görünmez. Ayrıca iki STUN sunucusunun
 gördüğü dış portu karşılaştırıp NAT tipi tahmini verir.
 
 "NAT tahmini: simetrik" görürsen not et: karşı taraf da simetrik NAT
-arkasındaysa doğrudan bağlantı kurulamaz ve TURN gerekir (Faz 5).
+arkasındaysa doğrudan bağlantı kurulamaz ve TURN gerekir. Çıktının sonundaki
+**tavsiye satırı** NAT kararıyla TURN durumunu birleştirip ne yapman
+gerektiğini tek cümlede söylüyor ([TURN.md](TURN.md)).
 
 ## 4. Ajanı Nostr modunda başlat
 
@@ -345,11 +347,11 @@ Nostr ile signaling taşımak gerekmiyor — tek yapman gereken URL'yi taşımak
    `Service Worker → Signaling → ICE → Tunel` ilerler.
 
 **Farklı ağlardan** (telefon mobil veride, laptop ev Wi-Fi'ında) bağlanmak
-çoğu NAT'ta çalışır çünkü ajan STUN kullanıyor. Ama `doctor` bu ağda
-**simetrik NAT** gördü: karşı taraf da simetrik NAT arkasındaysa doğrudan
-bağlantı kurulamaz ve **TURN gerekir (Faz 5)**. Bu durumda tarayıcıda
-"Veri kanallari acilmadi" hatası görürsün — bu bir yazılım hatası değil, ağ
-topolojisinin sonucu.
+çoğu NAT'ta çalışır: artık **iki taraf da** STUN kullanıyor (Faz 5'e kadar
+yalnızca ajan kullanıyordu). Ama `doctor` bu ağda **simetrik NAT** gördü:
+karşı taraf da simetrik NAT arkasındaysa doğrudan bağlantı kurulamaz. O
+zaman "Veri kanallari acilmadi" hatası görürsün — yazılım hatası değil, ağ
+topolojisinin sonucu. Çözüm TURN: "TURN ile deneme (Faz 5)" bölümü.
 
 ## Uyku/uyanma (Faz 4)
 
@@ -418,6 +420,59 @@ Beklenen: sürüm, commit, tarih, platform ve Go sürümü. Kaynaktan
 `go build` ile derlediysen sürüm `dev (<commit>)` görünür; release
 binary'sinde `v0.1.0` gibi bir etiket olur. Ayrıntı: `docs/INSTALL.md`.
 
+## TURN ile deneme (Faz 5)
+
+Bu ağda `doctor` **simetrik NAT** görüyor: karşı taraf da simetrik NAT
+arkasındaysa doğrudan bağlantı kurulamaz. TURN bu duruma çıkış yolu.
+Ayrıntılı kurulum ve güvenlik notları: [TURN.md](TURN.md).
+
+### (i) Yerelde beş dakikalık deneme (gerçek TURN sunucusu gerekmez)
+
+```bash
+# 1. terminal: surec ici TURN sunucusu
+cd agent && go run . faketurn --port 0 --user u --pass p
+# Bastigi adresi al: turn:127.0.0.1:XXXXX
+
+# 2. terminal: ajan YALNIZCA relay adayi toplasin
+cd agent && go run . serve --target http://localhost:3000   --turn turn:127.0.0.1:XXXXX --turn-user u --turn-pass p --ice-relay-only
+```
+
+Ajanın bastığı URL'yi aç. Beklenen:
+
+- Tünel açılıyor (banner'daki `ice` satırı `turn 1 … YALNIZCA RELAY` diyor).
+- `#metrics` içindeki **Baglanti yolu** satırı **`TURN uzerinden (relay)`**.
+- Site normal çalışıyor.
+
+`--ice-relay-only` doğrudan yolu **imkânsız** kılıyor, yani tünel açıldıysa
+trafik mutlaka TURN'den geçmiştir. Teşhis bayrağı; üretimde gerekmez.
+
+Karşılaştırma için `--ice-relay-only`'yi kaldırıp tekrar dene: aynı TURN
+tanımlıyken bile **Baglanti yolu** `dogrudan` çıkmalı (ICE doğru yolu seçer,
+kota boşa gitmez).
+
+### (ii) Asıl kriter: iki ağ (mobil hotspot ↔ Wi-Fi)
+
+**Bunu benim yerime sen doğrulamalısın.** Gerçek bir TURN sunucusu gerekiyor
+(coturn ya da Cloudflare — [TURN.md](TURN.md)).
+
+1. `peerpages doctor --turn <adres> --turn-user … --turn-pass …` çalıştır.
+   `TURN` bölümünde **relay adresi** görmelisin; tavsiye satırı
+   "NAT simetrik ama TURN hazır" demeli.
+2. Ajanı aynı TURN bilgisiyle başlat (`--ice-relay-only` **KOYMA**: gerçek
+   hayatta doğrudan yol varsa kullanılsın).
+3. Telefonu **mobil veriye** al (laptop Wi-Fi'da kalsın) ve ziyaretçi URL'sini
+   telefonda aç (QR en kolay yol).
+4. Bağlantı ekranındaki **Baglanti yolu** satırına bak.
+
+Beklenen: tünel açılıyor. Satır `dogrudan (NAT uzerinden)` derse bu ağ
+çiftinde TURN'e gerek kalmamış (iyi haber); `TURN uzerinden (relay)` derse
+Faz 5'in çözdüğü durum tam olarak gerçekleşmiş demektir. İkisi de başarı
+— başarısızlık yalnızca "Veri kanallari acilmadi" hatası.
+
+> **TURN kimlik bilgisi telefona gitmiyor.** Ziyaretçi TURN'ü hiç bilmez;
+> relay'i ajan açar ve telefon yalnızca o genel adrese paket yollar. Yani
+> URL'yi paylaştığın kişi kotanı harcayamaz.
+
 ## Sorun giderme
 
 | Belirti | Sebep / çözüm |
@@ -428,7 +483,9 @@ binary'sinde `v0.1.0` gibi bir etiket olur. Ayrıntı: `docs/INSTALL.md`.
 | Ajan "girdi okunamadi: girdi bitti" | Terminale yapıştırıp Enter'a basmadan ajan kapanmış. Yeniden başlat. |
 | "Ajan yanit vermedi" | Ajan çalışmıyor, ya da relay'ler mesajı iletmiyor. `go run . doctor` çalıştır: relay'ler "uygun" mu? |
 | "Paylasilan sir uyusmuyor" | URL'deki sır ajanın `--secret` değeriyle aynı değil. |
-| "Veri kanallari acilmadi" | Signaling çalıştı ama WebRTC kurulamadı. Büyük olasılıkla simetrik NAT; TURN gerekiyor (Faz 5). `doctor`'ın NAT tahminine bak. |
+| "Veri kanallari acilmadi" | Signaling çalıştı ama WebRTC kurulamadı. Büyük olasılıkla simetrik NAT. `doctor`'ın tavsiye satırına bak; `--turn` ile bir TURN sunucusu ver ([TURN.md](TURN.md)). |
+| TURN verdim, yine olmadı | `peerpages doctor --turn …` çalıştır: allocation alınıyor mu? Alınmıyorsa adres/kimlik bilgisi yanlış ya da UDP kapalı (`turns:` dene). |
+| Baglanti yolu "TURN uzerinden" diyor | Beklenen davranış: doğrudan yol kurulamadı, trafik relay'den geçiyor. Şifreleme sürüyor (DTLS), ama kota harcanıyor. |
 | "hicbir relay'e baglanilamadi" | Ağ WebSocket'i engelliyor olabilir. `--relay` ile kendi relay'ini ver. |
 | peer-id hatası | URL'nin `#` sonrasını eksiksiz kopyalamadın. npub 63 karakter. |
 | Site sekmesi bağlantı ekranına düşüyor | Tünel sahibi sekme kapalı. `/connect/` sekmesinin açık olduğundan emin ol. |

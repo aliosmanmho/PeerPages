@@ -122,9 +122,17 @@ go run . serve -t http://localhost:3000 -t admin=http://localhost:4000 --manual 
 # Kendi relay listen
 go run . serve --target http://localhost:3000 --relay wss://nos.lol
 
-# Teshis: relay sagligi + NAT tipi
+# Teshis: relay sagligi + NAT tipi (+ TURN allocation)
 go run . doctor
 go run . doctor --json
+go run . doctor --turn turn:ornek.com:3478 --turn-user u --turn-pass p
+
+# TURN (simetrik NAT'ta gerekir; yalnizca AJAN tarafinda kullanilir)
+go run . serve --target http://localhost:3000   --turn turn:ornek.com:3478 --turn-user u --turn-pass p
+# Cloudflare Realtime TURN: kimlik bilgisi API'den cekilir ve yenilenir
+PEERPAGES_CF_TURN_TOKEN=... go run . serve --target http://localhost:3000   --turn-cloudflare-key-id <anahtar>
+# Teshis: dogrudan yolu imkansiz kil (baglanti kurulursa TURN'den gecti)
+go run . serve --target http://localhost:3000   --turn turn:127.0.0.1:3478 --turn-user u --turn-pass p --ice-relay-only
 
 # Surum ve derleme bilgisi
 go run . version
@@ -139,7 +147,14 @@ go run . serve --target http://localhost:3000 --verbose
 ```
 
 Testler icin gizli komutlar: `peerpages testsite` (yerel test sitesi),
-`peerpages fakerelay` (surec ici Nostr relay'i).
+`peerpages fakerelay` (surec ici Nostr relay'i), `peerpages faketurn`
+(surec ici TURN sunucusu, Faz 5).
+
+Sifre ve jeton icin ortam degiskenleri: `PEERPAGES_TURN_PASS`,
+`PEERPAGES_CF_TURN_TOKEN`. Komut satiri argumanlari `ps` ciktisinda baska
+kullanicilara gorunur, bu yuzden bayrak tek yol degil.
+
+TURN kurulumu ve guvenlik notlari: [TURN.md](TURN.md).
 
 Loglar varsayilan olarak URL path'lerini maskeler (`/api/items` → `/*3/*5`);
 `--verbose` bunu kapatir (README guvenlik ilkesi 6).

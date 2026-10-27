@@ -31,7 +31,7 @@ Ziyaretçi tarayıcısı                              Senin makinen
                │ offer/answer/ICE (NIP-44 şifreli, ephemeral event)         │
                └──────────────► Nostr relay'leri (wss://…) ◄────────────────┘
                                  (public, ücretsiz, en az 3 tane)
-Opsiyonel: TURN fallback (Cloudflare Realtime TURN, ayda 1 TB ücretsiz)
+Opsiyonel: TURN fallback — yalnızca AJAN tarafında, kimlik bilgisi ziyaretçiye gitmez (Faz 5)
 ```
 
 ### Bileşenler
@@ -168,12 +168,26 @@ relay düşüp dönmesini ve kopma boşluğunu otomatik doğruluyor; **gerçek u
 (`docs/MANUAL-TEST.md`). Binary tarafı yerelde doğrulandı (6 arşiv + checksums); **workflow GitHub'da
 koşturulmadı**, çünkü hiç push/etiket yok (§8).
 
-### Faz 5 — TURN fallback (yarım gün)
-- `--turn <url> --turn-user --turn-pass` ile kullanıcı kendi TURN'ünü verebilir.
-- Opsiyonel: `cloudflare-turn/` içinde 30 satırlık Worker — Cloudflare Realtime TURN için kısa ömürlü credential üretir. README'de **opsiyonel** ve "tek sunucu gerektiren parça" diye açıkça yazılır.
-- `doctor` komutu TURN gerekip gerekmediğini söyler.
+### Faz 5 — TURN fallback (yarım gün) — **tamamlandı**
+- `--turn <url> --turn-user --turn-pass` ile kullanıcı kendi TURN'ünü verebilir
+  (`PEERPAGES_TURN_PASS` ortam değişkeni de okunur: komut satırı argümanları `ps`
+  çıktısında görünür). `--ice-relay-only` teşhis için doğrudan yolu imkânsız kılar.
+- **TURN yalnızca ajan tarafında**; ziyaretçiye kimlik bilgisi hiç gönderilmez. Gerekçe §8.
+- Cloudflare Realtime TURN: ajan kısa ömürlü kimlik bilgisini **API'den kendisi çeker** ve
+  süresi bitmeden yeniler (`--turn-cloudflare-key-id`, `PEERPAGES_CF_TURN_TOKEN`).
+  **Worker yazılmadı** — gerekçe §8; "tek sunucu gerektiren parça" ortadan kalktı.
+- `doctor` her TURN sunucusundan **allocation ister** ("ayakta mı" değil "relay adresi
+  veriyor mu") ve NAT kararıyla birleştiren tek satırlık tavsiye basar.
+- Bağlantı ekranı seçilen yolu gösteriyor: doğrudan / TURN üzerinden (`pc.getStats()`).
+- Ziyaretçi tarafına da STUN geldi: bu faza kadar sayfa **hiç** ICE sunucusu vermiyordu
+  (yalnızca host adayı topluyordu, §8).
+- Kurulum ve güvenlik notları: [`docs/TURN.md`](docs/TURN.md).
 
 **Kabul:** Simetrik NAT simülasyonunda (ör. mobil hotspot ↔ kurumsal ağ) TURN ile bağlanıyor.
+**Durum:** karşılandı — ajan `--ice-relay-only` ile yalnızca relay adayı topladığında doğrudan
+yol **imkânsız** olur; `web/e2e/faz5.spec.ts` (4 test) ve `agent/internal/connect/turn_test.go`
+tünelin bu durumda açıldığını, negatif kontrolde (TURN yok) açılmadığını doğruluyor.
+Gerçek iki ağ denemesi ve Cloudflare hesabı sende (`docs/MANUAL-TEST.md`, `docs/TURN.md`).
 
 ### Faz 6 — WebSocket ve SSE köprüsü (1 gün)
 - SSE zaten streaming cevapla çalışmalı; test ekle.
@@ -347,6 +361,50 @@ koşturulmadı**, çünkü hiç push/etiket yok (§8).
   başlatacak bir denetleyici yok; README bunu bilinçli olarak "sadece dokümantasyon" diye
   işaretlemişti. `docs/INSTALL.md` Task Scheduler (yeniden başlatma politikasıyla) ve NSSM
   yollarını anlatıyor.
+
+- **(Faz 5'te karar verildi) TURN yalnızca ajan tarafında.**
+  Ziyaretçiye ne TURN adresi ne kimlik bilgisi gönderiliyor. Zorlayan sebep yapısal:
+  ziyaretçi offer'ı ajandan tek kelime duymadan **önce** üretiyor (rol değişimi, yukarıda),
+  yani TURN bilgisini signaling ile göndermek çok geç kalırdı. Tek taraflı TURN yeterli:
+  ajan relay adayı toplar, ziyaretçi o genel adrese dışa doğru paket yollar — tek hedef
+  olduğu için simetrik NAT'ta bile eşleme tutarlı — ve ajan onu peer-reflexive tanır.
+  Kazanç: kota ve sır sahibinde kalır (ilke 4), adres kısa kalır, QR/pano üzerinden sır
+  dolaşmaz. Bedeli: ziyaretçinin kendi relay'ini kullanması gereken egzotik durumlar
+  kapsam dışı (yükseltme yolu açık).
+
+- **(Faz 5'te karar verildi — README'den SAPMA) Cloudflare Worker yazılmadı.**
+  Faz 5 maddesi `cloudflare-turn/` altında 30 satırlık bir Worker öngörüyordu; danışıldı ve
+  iptal edildi. Worker'ın tek işi API jetonunu **tarayıcıdan** saklamaktı — TURN'ü yalnızca
+  ajan kullandığı ve jeton zaten sahibinin makinesinde durduğu için aradaki sunucu
+  gereksiz. Ajan kimlik bilgisini API'den kendisi çekiyor ve TTL'in %80'inde yeniliyor.
+  Böylece **"tek sunucu gerektiren parça" tamamen ortadan kalktı**: sıfır sunucu iddiası
+  TURN'le bile bozulmuyor.
+
+- **(Faz 5'te bulundu ve KAPANDI) Ziyaretçi sayfası hiç ICE sunucusu vermiyordu.**
+  `new RTCPeerConnection(undefined)` — yani tarayıcı yalnızca **host adayı** topluyordu ve
+  ağlar arası bağlantı, ajanın srflx adayına gelen paketten ziyaretçiyi peer-reflexive
+  öğrenmesine bel bağlamıştı. `ConnectOptions.iceServers` alanı vardı ama tek çağıranı
+  yoktu (ölü kod). Artık varsayılan STUN listesi veriliyor (`web/src/ice.ts`, Go tarafındaki
+  `ice.DefaultSTUN` ile aynı) ve ziyaretçi de kendi srflx adayını topluyor — bu tek başına
+  TURN'e gerek kalmadan daha çok NAT'ta doğrudan bağlantı demek.
+
+- **(Faz 5, AÇIK) Cloudflare TURN gerçek hesaba karşı denenmedi.**
+  İstek biçimi ve cevap ayrıştırması `httptest` ile doğrulandı; canlı doğrulama kullanıcı
+  tarafında (`docs/TURN.md`). API'nin cevap şekli belgelendiğinden farklıysa ilk denemede
+  anlaşılır bir hata ile ajan başlamaz (sessizce TURN'süz devam etmiyor).
+
+- **(Faz 5 notu) `--ice-relay-only` bir teşhis bayrağı.**
+  Doğrudan yolu imkânsız kılar; "bağlantı gerçekten TURN'den mi geçiyor" sorusunu
+  deterministik olarak cevaplamanın tek yolu bu, ve kabul kriterinin otomatik testi buna
+  dayanıyor. Üretimde gerekmez: ICE doğrudan yolu zaten tercih eder (ölçüldü, §MEASUREMENTS).
+
+- **(Faz 5'te öğrenildi) Sahte TURN sunucusunun duyurduğu adres, paket gönderirken
+  kullandığı kaynak adresle aynı olmalı.** `faketurn` ilk sürümde relay'i 127.0.0.1'e
+  bağlıyordu; karşı taraf (pion ve tarayıcılar) loopback adayı üretmediği için relay
+  oraya paket gönderemiyordu. Sonra soket tüm arayüzlere bağlanıp adres 127.0.0.1 olarak
+  duyurulunca tarayıcı gelen kontrolü **peer-reflexive** saydı ve seçilen aday çifti
+  relay görünmedi — yani test, doğru çalışan bir TURN'ü ölçemiyordu. Gerçek bir TURN
+  sunucusunda bu tutarlılık zaten var; sahte sunucu artık LAN adresini duyuruyor.
 
 - Nostr relay'lerinin ephemeral event'leri bazı relay'ler düşürebilir → `doctor` ile relay sağlığı; liste güncel tutulur.
 - GitHub Pages kullanım şartları: statik vitrin için uygun; projeyi ticari proxy gibi sunma, README'de "demo/paylaşım aracı" de.

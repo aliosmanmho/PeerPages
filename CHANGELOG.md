@@ -331,3 +331,83 @@ denenmeli: `docs/MANUAL-TEST.md` → "Uyku/uyanma (Faz 4)".
 Release workflow'u YERELDE dogrulandi (`goreleaser check` + `--snapshot`:
 6 arsiv + checksums); GitHub Actions'ta kosturulmadi, cunku hic push ya da
 etiket yok (README §8).
+
+### Faz 5 - TURN fallback
+
+Baglanamayan aglara (simetrik NAT) cikis yolu. Protokol DEGISMEDI: ne
+signaling ne data channel mesajlarina alan eklendi.
+
+#### Karar: TURN yalnizca ajan tarafinda
+
+Ziyaretciye ne TURN adresi ne kimlik bilgisi gonderiliyor. Zorlayan sebep
+yapisal: ziyaretci offer'i ajandan tek kelime duymadan ONCE uretiyor, yani
+TURN bilgisini signaling ile gondermek cok gec kalirdi. Tek tarafli TURN
+yeterli (ajan relay adayi toplar, ziyaretci o genel adrese paket yollar) ve
+kota ile sir sahibinde kaliyor.
+
+#### Karar: Cloudflare Worker yazilmadi (README'den sapma)
+
+Worker'in tek isi API jetonunu TARAYICIDAN saklamakti; TURN'u yalnizca ajan
+kullandigi ve jeton zaten sahibinin makinesinde durdugu icin aradaki sunucu
+gereksiz. Ajan kimlik bilgisini API'den kendisi cekiyor. "Tek sunucu
+gerektiren parca" tamamen ortadan kalkti.
+
+#### Ajan
+
+- Yeni `internal/ice`: ParseServerURL (stun/stuns/turn/turns, portsuz
+  adrese 3478/5349, ?transport korunur, URL icinde kullanici bilgisi
+  REDDEDILIR), Config.Validated(), Servers() (STUN ve TURN ayri girdiler:
+  Username/Credential girdi basinadir), Policy(), Describe() (sifre asla
+  yazilmaz), DefaultSTUN.
+- `tunnel.Config.STUN` yerine `ICEServers` + `ICEPolicy`; `ICETransportPolicy`
+  ilk kez kullaniliyor. `connect.Config.ICE` bir FONKSIYON (ICEFactory):
+  Cloudflare kimlik bilgisi sureli, her yeni oturum gecerli listeyi aliyor.
+- `serve`: --turn, --turn-user, --turn-pass (PEERPAGES_TURN_PASS),
+  --ice-relay-only, --turn-cloudflare-key-id, --turn-cloudflare-token
+  (PEERPAGES_CF_TURN_TOKEN). Baslangicta dogrulama ve banner'da `ice` satiri.
+- `internal/ice/cloudflare.go`: kisa omurlu kimlik bilgisi, TTL'in %80'inde
+  yenileme, yenileme basarisizsa eskisini kullanmaya devam. Ilk cekim
+  basarisizsa ajan BASLAMAZ (sessizce TURN'suz devam etmek yanlis olur).
+- `doctor`: her TURN sunucusundan ALLOCATION isteniyor ("ayakta mi" degil
+  "relay adresi veriyor mu"), rapora relay adresi yaziliyor; Report.Advice
+  NAT karariyla TURN sonucunu birlestiriyor; TURN istendi ama hicbiri
+  allocation vermediyse cikis kodu sifirdan farkli. Simetrik NAT tek basina
+  hata DEGIL.
+- `internal/ice/faketurn` + gizli `peerpages faketurn` komutu (pion/turn v5,
+  zaten dolayli bagimliliktaydi).
+
+#### Web
+
+- Yeni `src/ice.ts`: DEFAULT_STUN (Go tarafiyla ayni), normalizeStunURL,
+  stunFromSearch (?stun=...), iceServers(), routeFromStats().
+- Sayfa bu faza kadar HIC ICE sunucusu vermiyordu (yalnizca host adayi
+  topluyordu); artik varsayilan STUN listesi veriliyor ve ziyaretci de kendi
+  srflx adayini topluyor.
+- `#metrics`'e "Baglanti yolu" satiri: dogrudan / TURN uzerinden
+  (pc.getStats()'tan secilen aday cifti). Ziyaretci trafigin bir sunucudan
+  gectigini goruyor; ucten uca sifreleme surer ama yol degisir.
+
+#### Yolda ogrenilen
+
+Sahte TURN sunucusunun DUYURDUGU adres, paket gonderirken kullandigi kaynak
+adresle ayni olmali. Relay 127.0.0.1'e bagliyken karsi taraf (loopback adayi
+uretmeyen pion ve tarayicilar) ulasamiyordu; tum arayuzlere baglanip
+127.0.0.1 duyurulunca da tarayici gelen kontrolu peer-reflexive sayiyor ve
+secilen aday cifti relay GORUNMUYORDU — test calisan bir TURN'u olcemiyordu.
+Gercek bir TURN sunucusunda bu tutarlilik zaten var.
+
+#### Testler
+
+309 TS birim testi (+24), 18 Go paketi, 30 Playwright testi (+4). Go
+tarafinda relay-only + faketurn ile tunel aciliyor ve negatif kontrol
+(TURN yok) baglanamiyor.
+
+OLCUM: 5 MB indirme dogrudan 96 ms / TURN uzerinden 114 ms (~%16);
+URL'den TURN tuneline 306 ms; allocation 52-57 ms; bundle 40.7 -> 41.6 KB.
+
+#### Kabul durumu
+
+Kriter (simetrik NAT simulasyonunda TURN ile baglaniyor) otomatik testlerle
+karsilandi: --ice-relay-only dogrudan yolu imkansiz kiliyor, tunel aciliyor
+ve ekran "TURN uzerinden" diyor. GERCEK iki ag denemesi ve Cloudflare hesabi
+kullanici tarafinda (docs/MANUAL-TEST.md, docs/TURN.md).

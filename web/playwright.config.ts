@@ -28,6 +28,11 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
+  // README gorsellerini ureten `demo.spec.ts` normal kosumda ATLANIR: bir
+  // test degil, bir uretim betigi. Elle kostur:
+  //   Git Bash : PEERPAGES_DEMO=1 npx playwright test demo
+  //   PowerShell: $env:PEERPAGES_DEMO=1; npx playwright test demo
+  grepInvert: process.env.PEERPAGES_DEMO ? undefined : /@demo/,
   retries: process.env.CI ? 1 : 0,
   timeout: 120_000,
   expect: { timeout: 20_000 },

@@ -442,7 +442,7 @@ func TestIntegrationTestSiteOverTunnel(t *testing.T) {
 		}
 	})
 
-	// README Faz 1 kabul: 5 MB dosya indirme.
+	// BRIEF Faz 1 kabul: 5 MB dosya indirme.
 	t.Run("5 MB dosya", func(t *testing.T) {
 		res := v.get(t, 9, "/big.bin")
 		if res.abort != "" {

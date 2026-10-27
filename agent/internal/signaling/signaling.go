@@ -61,7 +61,7 @@ func ValidTargetName(name string) bool {
 // Type mesaj tipi.
 type Type string
 
-// Mesaj tipleri (README bolum 4'teki liste).
+// Mesaj tipleri (BRIEF bolum 4'teki liste).
 const (
 	TypeOffer     Type = "offer"
 	TypeAnswer    Type = "answer"

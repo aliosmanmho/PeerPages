@@ -17,7 +17,7 @@ temel alır. Proje henüz sürümlenmiyor; girdiler faz bazlı tutulur.
 - `agent/`: Go + cobra. `peerpages serve --target ...`; `--max-body` (50MB),
   `--max-concurrent` (64), `--manual`, `--stun`, `--verbose`.
   - `internal/target`: hedef allowlist'i; istek yolundan host turetmek
-    imkansiz (SSRF korumasi, README ilke 1).
+    imkansiz (SSRF korumasi, BRIEF ilke 1).
   - `internal/logging`: varsayilan olarak URL path'leri maskelenir (ilke 6).
   - `internal/size`: boyut ifadeleri (1024 tabanli).
 - Lint/format: `biome` (web), `gofmt` + `go vet` + `golangci-lint` (agent).
@@ -30,7 +30,7 @@ temel alır. Proje henüz sürümlenmiyor; girdiler faz bazlı tutulur.
 ### Faz 1 - Cekirdek kanit: elle signaling + SW proxy
 
 Signaling sunucusu ve Nostr YOK: offer/answer kopyala-yapistir ile tasiniyor.
-Amac SW + WebRTC + reverse proxy zincirini kanitlamak (README Faz 1).
+Amac SW + WebRTC + reverse proxy zincirini kanitlamak (BRIEF Faz 1).
 
 #### Protokol (`protocol/`)
 
@@ -103,7 +103,7 @@ Ayrinti: `docs/MEASUREMENTS.md`.
   sorun giderme.
 - `docs/MEASUREMENTS.md`: olculenler ve **olculmeyenler** (Firefox/Safari,
   gercek ag, eszamanli yuk).
-- README bolum 8: iki karar kapatildi, Firefox/Safari acik kaldi.
+- BRIEF bolum 8: iki karar kapatildi, Firefox/Safari acik kaldi.
 
 ### Faz 2 - Nostr signaling
 
@@ -281,7 +281,7 @@ Kopan baglanti artik kendini topluyor ve ajan kurulabilir hale geldi.
 - Yeni `src/reconnect.ts`: geri sayimli denetleyici (1-2-4-8-15-30 sn).
   Her deneme SIFIRDAN oturum kurar (yeni sid + yeni gecici keypair) — ajan
   answerer-only ve oturum tek seferlik oldugu icin ICE restart yerine bu yol
-  secildi (README §8 sapma notu).
+  secildi (BRIEF §8 sapma notu).
 - `online` ve `visibilitychange` geri sayimi sifirlar (uyanma yolu).
 - Canlilik denetimi: ust uste iki cevapsiz ping kopma sayilir. WebRTC durum
   makinesi her kopmayi bildirmiyor.
@@ -330,7 +330,7 @@ baslamasi, relay dusup donmesi, kopma boslugu). GERCEK uyku/uyanma elle
 denenmeli: `docs/MANUAL-TEST.md` → "Uyku/uyanma (Faz 4)".
 Release workflow'u YERELDE dogrulandi (`goreleaser check` + `--snapshot`:
 6 arsiv + checksums); GitHub Actions'ta kosturulmadi, cunku hic push ya da
-etiket yok (README §8).
+etiket yok (BRIEF §8).
 
 ### Faz 5 - TURN fallback
 
@@ -345,7 +345,7 @@ TURN bilgisini signaling ile gondermek cok gec kalirdi. Tek tarafli TURN
 yeterli (ajan relay adayi toplar, ziyaretci o genel adrese paket yollar) ve
 kota ile sir sahibinde kaliyor.
 
-#### Karar: Cloudflare Worker yazilmadi (README'den sapma)
+#### Karar: Cloudflare Worker yazilmadi (BRIEF'ten sapma)
 
 Worker'in tek isi API jetonunu TARAYICIDAN saklamakti; TURN'u yalnizca ajan
 kullandigi ve jeton zaten sahibinin makinesinde durdugu icin aradaki sunucu
@@ -464,12 +464,12 @@ kesiliyordu -- ziyaretci hata gormuyor, yalnizca "akis bitti" goruyordu.
 Sinir artik Transport'ta ve yalnizca baslik fazinda. Cevapsiz kalan hedef
 hala istegi askida tutamiyor.
 
-#### Kararlar (README'den sapma)
+#### Kararlar (BRIEF'ten sapma)
 
 Shim'i HTML'e ajan degil Service Worker sokuyor; ajan yalnizca
 `x-peerpages-ws-shim` basligini ekliyor. Boylece protokol surumu kirilmiyor
 (`hello` tek yonlu ve opsiyonel alan kabul etmiyor) ve `internal/proxy`
-bayt bayt gecirgen kaliyor. Gerekcesi README §8, ayrinti docs/WEBSOCKET.md.
+bayt bayt gecirgen kaliyor. Gerekcesi BRIEF §8, ayrinti docs/WEBSOCKET.md.
 
 #### Testler
 

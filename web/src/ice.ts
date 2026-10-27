@@ -12,8 +12,8 @@
  * kullaniliyor: ziyaretci offer'i ajandan tek kelime duymadan once uretiyor,
  * yani kimlik bilgisini signaling ile gondermek cok gec kalirdi. Tek tarafli
  * TURN yeterli — ajan relay adayi toplar, ziyaretci o genel adrese paket
- * yollar. Kota ve sir sahibinde kalir (README §6 ilke 4: ziyaretci
- * guvenilmez). Ayrinti: README §8.
+ * yollar. Kota ve sir sahibinde kalir (BRIEF §6 ilke 4: ziyaretci
+ * guvenilmez). Ayrinti: BRIEF §8.
  */
 
 export class IceConfigError extends Error {

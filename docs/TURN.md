@@ -134,7 +134,7 @@ gerekmez (ICE doğrudan yolu zaten tercih eder, kota boşa gitmez).
 - **Kimlik bilgisi ajandan çıkmaz.** Ziyaretçi TURN'ü hiç bilmez: sayfaya ne
   adres ne kullanıcı ne şifre gönderilir. Tek taraflı TURN yeterli, çünkü
   ziyaretçi ajanın relay adresine doğrudan paket yollar. Böylece kotanı
-  tanımadığın ziyaretçiler harcayamaz (README §6 ilke 4: ziyaretçi
+  tanımadığın ziyaretçiler harcayamaz (BRIEF §6 ilke 4: ziyaretçi
   güvenilmez kabul edilir).
 - **Trafik TURN üzerinden geçse bile uçtan uca şifreli kalır.** WebRTC data
   channel DTLS ile şifrelidir; TURN sunucusu baytları taşır, **içeriği

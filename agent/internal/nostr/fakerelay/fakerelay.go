@@ -37,7 +37,7 @@ import (
 // Options relay davranisini test senaryosuna gore degistirir.
 type Options struct {
 	// DropEphemeral true ise ephemeral event'ler kabul edilir ama abonelere
-	// ILETILMEZ. README bolum 8'deki "bazi relay'ler ephemeral event'leri
+	// ILETILMEZ. BRIEF bolum 8'deki "bazi relay'ler ephemeral event'leri
 	// dusurebilir" durumunu modellemek icin.
 	DropEphemeral bool
 	// RejectAll true ise her yayin "OK false" ile reddedilir.

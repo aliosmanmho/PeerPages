@@ -1,6 +1,6 @@
 // Package doctor relay'lerin ve ag yolunun saglik kontrolu.
 //
-// Neden Faz 2'nin ILK adimi: README bolum 4 "gercek relay listesini Faz 2'de
+// Neden Faz 2'nin ILK adimi: BRIEF bolum 4 "gercek relay listesini Faz 2'de
 // canli test edip guncelle" diyor ve bolum 8 "bazi relay'ler ephemeral
 // event'leri dusurebilir" uyarisini tasiyor. Signaling akisini yazmadan once
 // relay'lerin gercekten ise yaradigini olcmek gerekiyor; aksi halde
@@ -13,7 +13,7 @@
 //     mu? Bu en kritik adim: relay event'i "OK" ile kabul edip sessizce
 //     dusurebilir, o zaman signaling calismaz.
 //
-// Ayrica STUN erisimi ve NAT tipi tahmini (README Faz 4'te duruyor ama
+// Ayrica STUN erisimi ve NAT tipi tahmini (BRIEF Faz 4'te duruyor ama
 // baglanti sorunlarinin teshisi icin burada lazim).
 package doctor
 
@@ -88,7 +88,7 @@ const (
 	VerdictUsable Verdict = "uygun"
 	// VerdictUnreachable baglanti kurulamadi.
 	VerdictUnreachable Verdict = "ulasilamadi"
-	// VerdictAuthRequired NIP-42 auth istiyor; README bunlari atlamamizi soyluyor.
+	// VerdictAuthRequired NIP-42 auth istiyor; BRIEF bunlari atlamamizi soyluyor.
 	VerdictAuthRequired Verdict = "atla: auth istiyor"
 	// VerdictRejected yayin reddedildi.
 	VerdictRejected Verdict = "atla: yayin reddedildi"
@@ -333,7 +333,7 @@ func checkRelay(ctx context.Context, raw string, log *slog.Logger, opts Options)
 
 		case <-echoCtx.Done():
 			// Yayin kabul edildi ama event aboneye hic ulasmadi: relay
-			// ephemeral event'leri dusuruyor (README bolum 8).
+			// ephemeral event'leri dusuruyor (BRIEF bolum 8).
 			report.Verdict = VerdictDropsEphemeral
 			report.Err = fmt.Sprintf("event %s icinde geri gelmedi", opts.EchoTimeout)
 			return report

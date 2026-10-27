@@ -45,7 +45,7 @@ ziyaretçi sekmesi                         tünel sahibi sekme        senin maki
 > ajanın yeniden yazmasını öngörüyordu. Kapsam önekini (`/PeerPages/`) bilen
 > taraf SW, ajan değil; ayrıca bu seçim `internal/proxy`'nin **bayt bayt
 > geçirgen** kalmasını ve protokol sürümünün kırılmamasını sağlıyor. Politika
-> ajanda (bayrak), mekanik SW'de. README'den sapma; gerekçesi README §8.
+> ajanda (bayrak), mekanik SW'de. BRIEF'ten sapma; gerekçesi BRIEF §8.
 
 ## Shim hangi adresleri tünele alır
 
@@ -58,7 +58,7 @@ ziyaretçi sekmesi                         tünel sahibi sekme        senin maki
 
 Port neden önemsiz: Vite HMR adresine kendi portunu koyabiliyor, ama o port
 ziyaretçinin tarayıcısında anlamsız — hedefi ajandaki allowlist belirler
-(README ilke 1). Başka hostname'lere hiç dokunmuyoruz (ilke 5'in shim
+(BRIEF ilke 1). Başka hostname'lere hiç dokunmuyoruz (ilke 5'in shim
 karşılığı).
 
 ## Vite HMR
@@ -72,7 +72,7 @@ Yine de iki şey bilmeye değer:
 
 - **`base` hizalaması.** Dev sunucunun ürettiği **kök-mutlak** yollar
   (`/src/main.js`) GitHub Pages proje sayfasında kapsam dışına düşer ve SW
-  onları yakalamaz (README §8'deki yapısal sınır). Çaresi: dev sunucunun
+  onları yakalamaz (BRIEF §8'deki yapısal sınır). Çaresi: dev sunucunun
   `base` değerini kapsam köküyle aynı yapıp ajan hedefine de o öneki vermek:
 
   ```bash
@@ -115,12 +115,12 @@ Elle deneme adımları: `docs/MANUAL-TEST.md` → "WebSocket ile deneme (Faz 6)"
   Socket.IO) `Origin` denetimi yapar ve ziyaretçinin `github.io` origin'ini
   reddederdi. Yani tünel, yerel sunucuya **yerel bir istemci gibi** görünür.
   Bu bilinçli bir seçim ve bir sınır: yerel sunucunun origin denetimi
-  tünelden gelen trafiği ayırt edemez (README §8).
+  tünelden gelen trafiği ayırt edemez (BRIEF §8).
 - **Tünel koparsa açık soketler düşer** (kod 1006). Faz 4'ün denetleyicisi
   yeni bir oturum kurar ama soketleri geri getirmez; yeniden bağlanmayı
   sayfanın kendi kütüphanesi yapar (Vite ve Socket.IO ikisi de yapar).
 - **Mesaj tavanı** `--max-ws-message` (varsayılan 1MB), iki yönde de.
-  Ziyaretçi güvenilmez (README ilke 4): sınırsız mesaj ajanın belleğini tek
+  Ziyaretçi güvenilmez (BRIEF ilke 4): sınırsız mesaj ajanın belleğini tek
   istekle şişirebilirdi. Aşılırsa `ws-close 1009`.
 
 ## Uzun yaşayan akış bütçesi

@@ -24,7 +24,7 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/wsbridge"
 )
 
-// Varsayilan limitler — README guvenlik ilkesi 4 (ziyaretci guvenilmez).
+// Varsayilan limitler — BRIEF guvenlik ilkesi 4 (ziyaretci guvenilmez).
 const (
 	defaultMaxBody       = "50MB"
 	defaultMaxConcurrent = 64

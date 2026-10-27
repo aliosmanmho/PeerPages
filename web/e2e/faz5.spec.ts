@@ -22,7 +22,7 @@ import {
  * cunku orada dogrudan yol da calismis olabilir.
  *
  * Ziyaretci tarafi NORMAL yapilandirmayla geliyor: TURN kimlik bilgisi
- * sayfaya hic gitmiyor (README §8).
+ * sayfaya hic gitmiyor (BRIEF §8).
  *
  * Gercek iki ag denemesi elle: docs/MANUAL-TEST.md.
  */

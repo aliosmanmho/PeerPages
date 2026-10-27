@@ -17,7 +17,7 @@ describe("isAppShellPath", () => {
 
   /**
    * Scope kokunun KENDISI app shell degil: orasi yerel sitenin koku ve tunel
-   * acikken tunelden gecer (README bolum 8 karari).
+   * acikken tunelden gecer (BRIEF bolum 8 karari).
    */
   it("scope kokunu ve site yollarini tunele birakir", () => {
     expect(isAppShellPath("/PeerPages/", base)).toBe(false);

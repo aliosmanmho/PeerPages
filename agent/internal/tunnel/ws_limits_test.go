@@ -69,7 +69,7 @@ func TestWSMultiFrameMessage(t *testing.T) {
 }
 
 // Kopru kapaliyken (varsayilan) ws-open reddedilmeli: HTML'e mudahale ve ws
-// koprusu acik bir secim olmali (README Faz 6).
+// koprusu acik bir secim olmali (BRIEF Faz 6).
 func TestWSBridgeDisabled(t *testing.T) {
 	sess, v := connect(t, Config{Proxy: noopProxy()})
 	defer func() { _ = sess.Close() }()
@@ -104,7 +104,7 @@ func TestWSDialFailureCarriesCode(t *testing.T) {
 	}
 }
 
-// Mesaj tavani (README ilke 4: ziyaretci guvenilmez).
+// Mesaj tavani (BRIEF ilke 4: ziyaretci guvenilmez).
 func TestWSMessageTooLarge(t *testing.T) {
 	conn := newFakeWSConn()
 	sess, v := connect(t, Config{

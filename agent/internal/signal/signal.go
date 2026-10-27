@@ -4,7 +4,7 @@
 // Faz 1'de signaling sunucusu ve Nostr YOK: ajan offer'i tek satir olarak
 // stdout'a basar, kullanici ziyaretci sayfasina yapistirir, sayfanin urettigi
 // answer ajanin stdin'ine yapistirilir. Amac SW + WebRTC + reverse proxy
-// zincirini kanitlamak (README Faz 1).
+// zincirini kanitlamak (BRIEF Faz 1).
 //
 // Bicim: base64(JSON(RTCSessionDescription)). Tek satir, kopyalanabilir.
 // TypeScript karsiligi: web/src/signal.ts.

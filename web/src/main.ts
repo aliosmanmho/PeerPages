@@ -35,7 +35,7 @@ import { StatusView } from "./ui/status";
  * Rol degisimi (Faz 2): kanallari (`ctrl`/`data`) ve offer'i ziyaretci
  * uretir, ajan answer doner. Nedeni: Nostr'da ajan ziyaretcinin gecici
  * pubkey'ini onceden bilemez, ilk mesaji o gonderemez. Karar ve gerekcesi
- * README bolum 8'de.
+ * BRIEF bolum 8'de.
  *
  * WebRTC baglantisini BU sayfa tutar; Service Worker icinde WebRTC yok.
  * Sayfa kapanirsa tunel kapanir.
@@ -640,7 +640,7 @@ async function connectViaNostr(target: PeerTarget): Promise<void> {
  *
  * Her cagri SIFIRDAN kurar: yeni sid, yeni gecici keypair, yeni offer.
  * Ajan answerer-only ve oturum tek seferlik oldugu icin (ICE restart
- * yerine bu yol secildi, README §8) yeniden baglanma da budur.
+ * yerine bu yol secildi, BRIEF §8) yeniden baglanma da budur.
  */
 async function openNostrSession(): Promise<void> {
   const target = reconnectTarget;
@@ -652,11 +652,11 @@ async function openNostrSession(): Promise<void> {
 
   const session = await connectToAgent({
     target,
-    // README bolum 4: relay listesi kullanici tarafindan degistirilebilir
+    // BRIEF bolum 4: relay listesi kullanici tarafindan degistirilebilir
     // (?relay=wss://...). Verilmezse varsayilan liste.
     ...(relayOverride ? { relays: relayOverride } : {}),
     // STUN listesi de URL'den degistirilebilir (?stun=...); TURN kimlik
-    // bilgisi sayfaya HIC gelmiyor (README §8).
+    // bilgisi sayfaya HIC gelmiyor (BRIEF §8).
     iceServers: iceServers(stunOverride),
     hooks: {
       onStage: (stage, detail) => {

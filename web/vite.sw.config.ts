@@ -6,7 +6,7 @@ import { defineConfig } from "vite";
  * Neden ayri:
  *  - SW dosyasinin adi hash'siz ve sabit olmali (`dist/sw.js`), cunku scope
  *    kokunde `register(base + "sw.js", { scope: base })` ile kaydediliyor.
- *  - SW'nin ne bundle'landigi uzerinde tam kontrol lazim (README karari).
+ *  - SW'nin ne bundle'landigi uzerinde tam kontrol lazim (BRIEF karari).
  *
  * `emptyOutDir: false` — app derlemesinden sonra calisir, dist'i silmemeli.
  * Bu yuzden `npm run build` sirasi: build:app, sonra build:sw.

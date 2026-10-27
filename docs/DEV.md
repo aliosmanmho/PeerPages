@@ -65,7 +65,7 @@ asilir.
 | `/<base>/sw.js` | Service Worker. Hash'siz ve scope kokunde olmak zorunda. |
 | `/<base>/assets/…` | App shell'in JS/CSS dosyalari. |
 
-Gerekcesi README bolum 8'de ("App shell ile yerel sitenin koku ayni URL'yi
+Gerekcesi BRIEF bolum 8'de ("App shell ile yerel sitenin koku ayni URL'yi
 istiyor"). SW kapsamini **calisma zamaninda** `registration.scope`'tan
 turetiyor (`src/sw.ts`), derleme zamani bir sabitten degil.
 
@@ -84,7 +84,7 @@ Service Worker ayri derlenir cunku:
 - scope kokunde tek dosya olmali (ek chunk = ek istek),
 - ne bundle'landigi uzerinde tam kontrol gerekiyor.
 
-`vite-plugin-pwa` bilerek kullanilmiyor (README karari).
+`vite-plugin-pwa` bilerek kullanilmiyor (BRIEF karari).
 
 İkinci derleme `emptyOutDir: false` ile calisir; bu yuzden **sira onemli**.
 
@@ -168,7 +168,7 @@ kullanicilara gorunur, bu yuzden bayrak tek yol degil.
 TURN kurulumu ve guvenlik notlari: [TURN.md](TURN.md).
 
 Loglar varsayilan olarak URL path'lerini maskeler (`/api/items` → `/*3/*5`);
-`--verbose` bunu kapatir (README guvenlik ilkesi 6).
+`--verbose` bunu kapatir (BRIEF guvenlik ilkesi 6).
 
 Ajan **yalnizca** `--target` ile verilen hostlara istek atar. Istek yolundan
 host turetmek `internal/target` icinde kasten imkansiz kilindi ve testlerle

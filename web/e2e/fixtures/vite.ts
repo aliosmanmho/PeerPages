@@ -42,7 +42,7 @@ export interface ViteAppOptions {
  * Vite ise onekli yollar bekliyor. Ikisini hizalamak icin fixture'in base'i
  * scope koku, ajanin hedefi de ayni oneki tasiyan URL olur. Bu ayni zamanda
  * Vite'in urettigi KOK-MUTLAK yollarin scope icinde kalmasini sagliyor
- * (README §8'deki yapisal sinir).
+ * (BRIEF §8'deki yapisal sinir).
  */
 export async function startViteApp(opts: ViteAppOptions): Promise<ViteApp> {
   const original = readFileSync(MESSAGE_FILE, "utf8");

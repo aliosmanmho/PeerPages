@@ -17,7 +17,7 @@ karşılığıdır ve **hem** TypeScript (`web/src/protocol/`) **hem** Go
 | `data` | evet | evet | ikili çerçeveler (aşağıda) |
 
 İki kanal kullanılmasının nedeni okunabilirlik: tek kanal + 1 bayt tip prefiksi
-de mümkündü, MVP'de iki kanal tercih edildi (README §3).
+de mümkündü, MVP'de iki kanal tercih edildi (BRIEF §3).
 
 Kanalları **ajan** açar (ajan offerer'dır), ziyaretçi sayfası `ondatachannel`
 ile alır.
@@ -44,7 +44,7 @@ ile alır.
 
 - Başlık **8 bayt**, payload en fazla **16384 bayt (16 KiB)**, dolayısıyla en
   büyük çerçeve **16392 bayt**. 16 KiB sınırı tarayıcı data channel
-  uyumluluğu için (README §3).
+  uyumluluğu için (BRIEF §3).
 - **Boş payload geçerlidir** (8 baytlık çerçeve). Gövdenin bittiğini payload
   değil, `ctrl` kanalındaki `end` mesajı söyler.
 - Aynı framing **her iki yön** için kullanılır: istek gövdesi ve cevap gövdesi.
@@ -154,7 +154,7 @@ UTF-8 JSON nesneleri. Zorunlu alan `t` (tip).
 `frames` ve `len` tutarlı olmalıdır: biri 0 ise diğeri de 0 olmalı.
 
 `path` doğrulaması **güvenlik kontrolünün ilk katmanıdır**; ikinci ve belirleyici
-katman ajan tarafındaki `internal/target.Resolve`'dur (README ilke 1).
+katman ajan tarafındaki `internal/target.Resolve`'dur (BRIEF ilke 1).
 
 ### Ayrılmış başlıklar
 
@@ -167,7 +167,7 @@ katman ajan tarafındaki `internal/target.Resolve`'dur (README ilke 1).
 Bu başlık ziyaretçiye **gitmez**: Service Worker onu cevaptan siler. Neden
 `hello` yerine başlık: `hello` tek yönlü, `v != 1`'i reddediyor ve kanonik
 biçimde opsiyonel alan yok — yani kapasite bildirmek protokol sürümünü
-kırmak demekti (README §8).
+kırmak demekti (BRIEF §8).
 
 ### Hata kodları (ctrl)
 

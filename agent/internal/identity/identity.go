@@ -5,9 +5,9 @@
 // var (yanlis kopyalama yakalanir) ve kullanici isterse baska bir Nostr
 // aracina aktarabilir. Okuma tarafi ham hex'i de kabul eder.
 //
-// peer-id = TAM npub. README bolum 4 "npub'in kisa formu" diyordu ama NIP-44
+// peer-id = TAM npub. BRIEF bolum 4 "npub'in kisa formu" diyordu ama NIP-44
 // sifreleme ve `#p` tag'i tam 32 baytlik pubkey gerektiriyor; kisaltilmis
-// id'den turetilemez. Karar ve gerekcesi README bolum 8'de.
+// id'den turetilemez. Karar ve gerekcesi BRIEF bolum 8'de.
 package identity
 
 import (
@@ -113,7 +113,7 @@ func (i Identity) PeerID() (string, error) { return i.Npub() }
 
 // Short ekranda/logda gosterim icin kisaltilmis npub.
 //
-// README bolum 4'un "okunur form" niyeti burada karsilaniyor: URL tam npub
+// BRIEF bolum 4'un "okunur form" niyeti burada karsilaniyor: URL tam npub
 // tasir, insan gozune kisaltilmis hali gosterilir.
 func (i Identity) Short() string {
 	npub, err := i.Npub()

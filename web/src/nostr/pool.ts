@@ -1,7 +1,7 @@
 /**
  * Ziyaretci tarafindaki Nostr relay katmani.
  *
- * Go karsiligi: `agent/internal/nostr`. README bolum 4'un iki kuralini
+ * Go karsiligi: `agent/internal/nostr`. BRIEF bolum 4'un iki kuralini
  * uyguluyor:
  *  - Ayni mesaj TUM relay'lere yollanir, EN AZ BIRI kabul ederse basarili.
  *  - Bir relay dusse digerleri calismaya devam eder.

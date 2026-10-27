@@ -2,11 +2,11 @@
 
 /**
  * PeerPages Service Worker — elle yazilmis, elle derlenir
- * (README karari: vite-plugin-pwa kullanilmaz).
+ * (BRIEF karari: vite-plugin-pwa kullanilmaz).
  *
  * Gorevi: kendi kapsamindaki TUM `fetch` isteklerini yakalayip tunel sayfasina
  * iletmek ve cevabi `ReadableStream` ile akitmak. Boylece goreli link, CSS,
- * JS, gorsel ve fetch/XHR seffaf calisir (README §2).
+ * JS, gorsel ve fetch/XHR seffaf calisir (BRIEF §2).
  *
  * Sinirlar (bilincli):
  *  - SW icinde WebRTC yok → baglantiyi sayfa tutar, SW yalnizca koprudur.
@@ -179,7 +179,7 @@ async function forwardWsOpen(
 self.addEventListener("fetch", (event: FetchEvent) => {
   const request = event.request;
 
-  // Yalnizca kendi kapsamimizdaki istekler (README guvenlik ilkesi 5).
+  // Yalnizca kendi kapsamimizdaki istekler (BRIEF guvenlik ilkesi 5).
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (!url.pathname.startsWith(SCOPE_PATH)) return;
@@ -284,7 +284,7 @@ async function readLimitedBody(request: Request): Promise<ArrayBuffer | null> {
  * Istegi tunel sayfasina iletir ve cevabi akis halinde dondurur.
  *
  * Tam govde beklenmez: `res` gelir gelmez Response olusturulur, parcalar
- * geldikce akisa yazilir (README Faz 1).
+ * geldikce akisa yazilir (BRIEF Faz 1).
  */
 function forward(
   client: Client,

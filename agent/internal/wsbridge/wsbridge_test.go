@@ -145,7 +145,7 @@ func TestDialEchoAndSubprotocol(t *testing.T) {
 }
 
 // Origin hedefin kendi origin'i olmali: yerel sunucular ziyaretcinin
-// github.io origin'ini reddederdi (README §8).
+// github.io origin'ini reddederdi (BRIEF §8).
 func TestDialSendsTargetOrigin(t *testing.T) {
 	srv := echoServer(t)
 	d := newDialer(t, srv.URL)
@@ -238,7 +238,7 @@ func TestReadNormalClosure(t *testing.T) {
 	}
 }
 
-// Yol allowlist'in disina cikamaz (README ilke 1): host path'ten turetilmez.
+// Yol allowlist'in disina cikamaz (BRIEF ilke 1): host path'ten turetilmez.
 func TestDialRejectsBadPath(t *testing.T) {
 	srv := echoServer(t)
 	d := newDialer(t, srv.URL)

@@ -43,7 +43,7 @@ describe("isTunneled", () => {
     expect(isTunneled(new URL("wss://x.github.io:5173/"), "x.github.io")).toBe(true);
   });
 
-  // README ilke 5'in shim karsiligi: kendi kapsamimizin disina dokunmuyoruz.
+  // BRIEF ilke 5'in shim karsiligi: kendi kapsamimizin disina dokunmuyoruz.
   it("baska hostname gercek WebSocket'e gider", () => {
     expect(isTunneled(new URL("wss://baska.example/ws"), "x.github.io")).toBe(false);
     expect(isTunneled(new URL("ws://localhost:9000/"), "x.github.io")).toBe(false);

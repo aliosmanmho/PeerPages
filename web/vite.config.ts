@@ -8,7 +8,7 @@ import { defineConfig } from "vite";
  * Varsayilan `/` lokal gelistirme ve `vite preview` icin uygundur.
  *
  * Service Worker BU derlemeye dahil degil; `vite.sw.config.ts` ile ayrica
- * derlenir (README: vite-plugin-pwa kullanilmaz, SW elle yazilir ve elle
+ * derlenir (BRIEF: vite-plugin-pwa kullanilmaz, SW elle yazilir ve elle
  * derlenir — scope kokunde sabit `sw.js` adi gerekiyor).
  */
 export default defineConfig({
@@ -23,7 +23,7 @@ export default defineConfig({
     //                      yerel sitenin kokune proxy'ler.
     //  - connect/index.html : baglanti ekrani + tunel sahibi sayfa. SW bu
     //                      yolu asla tunelden gecirmez.
-    // Gerekcesi README §8.
+    // Gerekcesi BRIEF §8.
     rollupOptions: {
       input: {
         boot: "index.html",

@@ -51,7 +51,7 @@ var dropFromResponse = map[string]bool{
 // SanitizeRequestHeaders ziyaretciden gelen basliklari hedefe gonderilecek
 // hale getirir.
 //
-// Girdi guvenilmez (README ilke 4): baslik adlari ve degerleri dogrulanir,
+// Girdi guvenilmez (BRIEF ilke 4): baslik adlari ve degerleri dogrulanir,
 // gecersizler sessizce atilir.
 func SanitizeRequestHeaders(in map[string]string) http.Header {
 	out := make(http.Header, len(in))

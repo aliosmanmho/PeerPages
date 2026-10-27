@@ -188,7 +188,7 @@ func TestRequestBodyStreaming(t *testing.T) {
 	}
 }
 
-// README ilke 4: govde boyutu tavani.
+// BRIEF ilke 4: govde boyutu tavani.
 func TestRequestBodyTooLarge(t *testing.T) {
 	_, v := connect(t, Config{
 		MaxBody: 1024,
@@ -296,7 +296,7 @@ func TestDuplicateIDAborts(t *testing.T) {
 	}
 }
 
-// README ilke 4: eszamanli istek tavani.
+// BRIEF ilke 4: eszamanli istek tavani.
 func TestMaxConcurrent(t *testing.T) {
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })

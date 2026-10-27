@@ -42,7 +42,7 @@ let relay: FakeRelay | null = null;
 /** Ajanin ve sayfanin kullanacagi relay listesi. */
 let relayURLs: string[] = [];
 
-/** `?relay=` sorgu dizesi (README bolum 4: liste kullanici degistirebilir). */
+/** `?relay=` sorgu dizesi (BRIEF bolum 4: liste kullanici degistirebilir). */
 function relayQuery(urls: string[] = relayURLs): string {
   return urls.map((u) => `relay=${encodeURIComponent(u)}`).join("&");
 }
@@ -66,7 +66,7 @@ test.afterAll(() => {
 /**
  * Ajani baslatir ve ziyaretci sayfasini URL ile acar.
  *
- * `?relay=` ziyaretcinin relay listesini degistirmesi icin (README bolum 4);
+ * `?relay=` ziyaretcinin relay listesini degistirmesi icin (BRIEF bolum 4);
  * burada sahte relay'e yonlendirmek icin kullaniliyor, yani test icin ayri
  * bir arka kapi yok.
  */
@@ -193,7 +193,7 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
     }
   });
 
-  // peer-id'yi bilip sirri bilmeyen biri BAGLANAMAZ (README bolum 4).
+  // peer-id'yi bilip sirri bilmeyen biri BAGLANAMAZ (BRIEF bolum 4).
   test("sir gerekliyken sirsiz ziyaretci baglanamiyor", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
@@ -278,7 +278,7 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
 
   // Ephemeral event'i dusuren relay: yayin kabul edilir ama iletilmez.
   // Ziyaretci bunu "ajan yanit vermedi" olarak gorur; `doctor` ise nedeni
-  // soyler (README bolum 8).
+  // soyler (BRIEF bolum 8).
   test("ephemeral dusuren relay ile baglanti kurulamiyor", async ({ context }) => {
     test.skip(USING_REAL_RELAYS, "bu test sahte relay'in davranisini tasiyor");
     const dropper = await startFakeRelay(["--drop-ephemeral"]);

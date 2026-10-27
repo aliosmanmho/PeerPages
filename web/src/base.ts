@@ -6,7 +6,7 @@ import { WS_SHIM_FILE } from "./bridge";
  * Vite `import.meta.env.BASE_URL` olarak derleme zamani `base` degerini verir
  * ("/" ya da "/PeerPages/"). Service Worker scope'u ve app shell URL'leri bu
  * degerden turetilir — boylece SW yalnizca kendi kapsamindaki istekleri
- * yakalar (README guvenlik ilkesi 5).
+ * yakalar (BRIEF guvenlik ilkesi 5).
  */
 export const BASE_PATH: string = normalizeBase(import.meta.env.BASE_URL);
 
@@ -30,7 +30,7 @@ export function inBase(path: string): string {
  *  - ziyaretci sitenin kokunu dogal URL'de gorur,
  *  - tunel sahibi sekmenin URL'si hicbir zaman tunelden gecmez, yani o sekme
  *    yenilendiginde tunel kendini kapatmaz.
- * Karari ve gerekcesi: README §8.
+ * Karari ve gerekcesi: BRIEF §8.
  */
 export const CONNECT_PATH: string = `${BASE_PATH}connect/`;
 

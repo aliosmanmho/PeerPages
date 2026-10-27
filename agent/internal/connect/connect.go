@@ -32,7 +32,7 @@ import (
 // Zamanlamalar.
 const (
 	// SessionSetupTimeout offer geldikten sonra tunelin acilmasi icin
-	// taninan sure (README Faz 2: 30 sn).
+	// taninan sure (BRIEF Faz 2: 30 sn).
 	SessionSetupTimeout = 30 * time.Second
 	// PublishTimeout tek bir signaling mesajinin yayini icin.
 	PublishTimeout = 15 * time.Second
@@ -486,7 +486,7 @@ func (a *Acceptor) onOffer(ctx context.Context, peerPub string, msg signaling.Ms
 
 	// Hedef once: en ucuz kontrol ve basarisizsa WebRTC'ye hic girmiyoruz.
 	// Sessizce default'a dusmuyoruz — ziyaretci yanlis projeyi gezdigini
-	// fark etmeyebilir (README bolum 8).
+	// fark etmeyebilir (BRIEF bolum 8).
 	targetName, ok := a.resolveTarget(msg.Target)
 	if !ok {
 		a.log.Warn("bilinmeyen hedef, offer reddedildi",
@@ -588,7 +588,7 @@ func (a *Acceptor) startSession(
 		Logger:        a.log.With(slog.String("sid", offerMsg.SID)),
 		Verbose:       a.cfg.Verbose,
 		// Nostr yolunda trickle acik: adaylar ayri event olarak gider
-		// (README Faz 2).
+		// (BRIEF Faz 2).
 		Trickle: true,
 	})
 	if err != nil {

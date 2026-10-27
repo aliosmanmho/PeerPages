@@ -1,8 +1,8 @@
 # Katkı rehberi (taslak)
 
-PeerPages henüz erken aşamada (Faz 1). Dışarıdan katkı için public README ve
-`docs/SECURITY.md` Faz 7'de yazılacak; şimdilik bu dosya repo içi çalışma
-kurallarını tutar.
+PeerPages'in Faz 0–7'si bitti. Kullanıcıya dönük giriş noktaları kökteki
+İngilizce `README.md` ve `docs/SECURITY.md`; bu dosya repo içi çalışma
+kurallarını tutar. Projenin iç brief'i ve karar defteri: `docs/BRIEF.md`.
 
 ## Monorepo düzeni
 
@@ -21,14 +21,15 @@ Windows'ta eşdeğerleri için `docs/DEV.md`'ye bak.
 
 ## Değişmez kurallar
 
-Bu kararlar brief'te (`README.md`) sabitlendi; değiştirmek için önce tartışma açılır:
+Bu kararlar brief'te (`docs/BRIEF.md`) sabitlendi; değiştirmek için önce tartışma açılır:
 
 1. Ajan **Go**, tek statik binary.
 2. Web **Vite + TypeScript**, UI framework yok (bundle küçük kalsın).
 3. Service Worker **elle** yazılır ve elle derlenir — `vite-plugin-pwa` kullanılmaz.
 4. Data channel **iki tane**: `ctrl` (JSON) ve `data` (binary).
 5. Binary framing payload sınırı **16 KiB**.
-6. `README.md` §6'daki güvenlik ilkeleri her fazda geçerlidir. Özellikle:
+6. `docs/BRIEF.md` §6'daki güvenlik ilkeleri her fazda geçerlidir (aynı
+   numaralarla public README'de de var). Özellikle:
    ajan yalnızca CLI'da verilen hedeflere istek atar (path'ten host türetmek yasak).
 7. Signaling içeriği her zaman **NIP-44** ile şifreli; relay'ler yalnızca
    "bir pubkey bir şey aldı" görür.

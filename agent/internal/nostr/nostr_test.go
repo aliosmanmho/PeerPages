@@ -90,7 +90,7 @@ func TestDefaultRelaysAreValid(t *testing.T) {
 		t.Fatalf("varsayilan relay listesi gecersiz: %v", err)
 	}
 	if len(got) < 3 {
-		t.Errorf("README en az 3 relay istiyor, %d var", len(got))
+		t.Errorf("BRIEF en az 3 relay istiyor, %d var", len(got))
 	}
 }
 
@@ -298,7 +298,7 @@ func TestPublishFailsWhenAllReject(t *testing.T) {
 	}
 }
 
-// README bolum 8: bazi relay'ler ephemeral event'leri dusurebilir.
+// BRIEF bolum 8: bazi relay'ler ephemeral event'leri dusurebilir.
 // Dusuren relay yayini KABUL eder ama abonelere iletmez; doctor bunu
 // yakalamali, pool ise yayini basarili saymali.
 func TestEphemeralDroppingRelay(t *testing.T) {

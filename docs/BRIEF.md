@@ -1,7 +1,15 @@
-# PeerPages — Sıfır sunucuyla localhost'u GitHub Pages üzerinden yayınla
+# PeerPages — iç brief ve yol haritası
 
-> Çalışma adı: **PeerPages** (geçici; Faz 7'de son isim seçilecek). 
-> Bu dosya Claude Code için proje brief'i + yol haritasıdır. Public README Faz 7'de İngilizce olarak ayrıca yazılacak.
+> **Bu dosya ne:** projenin iç brief'i, faz planı ve karar defteri (§8).
+> Faz 0–6 boyunca repo kökündeki `README.md` idi; Faz 7'de kök artık
+> **public İngilizce README**, bu dosya da `docs/BRIEF.md` oldu.
+>
+> **Koddaki atıflar:** kaynak dosyalardaki `BRIEF §8`, `BRIEF ilke 1`,
+> `BRIEF bolum 4` gibi yorumlar bu dosyayı gösterir; bölüm numaraları
+> taşınırken korundu. Altı güvenlik ilkesi (§6) **aynı numaralarla** public
+> README'de de duruyor.
+>
+> **İsim:** `PeerPages` Faz 7'de kesinleşti (bkz. §5 Faz 7).
 
 ## 1. Tek cümlelik fikir
 
@@ -480,7 +488,12 @@ otomatik test edilmedi. Ayrıntı: `docs/WEBSOCKET.md`.
 
 ## 10. Claude Code'a verilecek başlangıç metni
 
-Aşağıdaki metni repo kökünde (bu `README.md` dosyası ile birlikte) Claude Code'a yapıştır:
+> **Tarihsel kayıt.** Bu metin projenin ilk gününde, bu dosya henüz repo
+> kökündeki `README.md` iken yazıldı ve aynen korunuyor: Faz 0–7'nin nasıl
+> yürütüldüğünü açıklayan şey o. Bugün aynı işi yapacak biri dosya adını
+> `docs/BRIEF.md` olarak okumalı.
+
+Aşağıdaki metni repo kökünde (bu brief dosyası ile birlikte) Claude Code'a yapıştır:
 
 ```
 Bu repodaki README.md projenin brief'i ve yol haritasıdır; önce tamamını oku.

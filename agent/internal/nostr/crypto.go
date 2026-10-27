@@ -6,7 +6,7 @@ import (
 	"github.com/nbd-wtf/go-nostr/nip44"
 )
 
-// NIP-44: signaling icerigi her zaman sifreli (README bolum 6 ilke 2).
+// NIP-44: signaling icerigi her zaman sifreli (BRIEF bolum 6 ilke 2).
 // Relay'ler yalnizca "bir pubkey bir sey aldi" gorur.
 //
 // Konusma anahtari ECDH ile iki taraftan da ayni cikar, bu yuzden sifreleme

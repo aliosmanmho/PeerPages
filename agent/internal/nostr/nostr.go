@@ -1,11 +1,11 @@
 // Package nostr PeerPages'in Nostr relay katmani.
 //
 // Signaling icin kullanilan tek event turu: ephemeral kind 25050, icerigi
-// NIP-44 ile sifreli, `#p` tag'i alici pubkey (README bolum 4). Relay'ler
+// NIP-44 ile sifreli, `#p` tag'i alici pubkey (BRIEF bolum 4). Relay'ler
 // yalnizca "bir pubkey bir sey aldi" gorur (guvenlik ilkesi 2).
 //
 // Bu paket go-nostr'un SimplePool'unu ince bir katmanla sarar; amac
-// README'nin iki kuralini tek yerde uygulamak:
+// BRIEF'in iki kuralini tek yerde uygulamak:
 //   - Ayni mesaj TUM relay'lere yollanir ve ILK basari yeterlidir (hedged).
 //   - Bir relay dusse digerleri calismaya devam eder.
 package nostr
@@ -38,13 +38,13 @@ const TagRecipient = "p"
 // ephemeral kind 25050 event'i kabul etti ve aboneye geri iletti
 // (yanki 72-103 ms). Olcum: docs/MEASUREMENTS.md.
 //
-// README bolum 4'teki ucuncu relay (wss://relay.nostr.band) listeden cikarildi:
+// BRIEF bolum 4'teki ucuncu relay (wss://relay.nostr.band) listeden cikarildi:
 // gelistirme agindan WebSocket el sikismasi zaman asimina ugradi. Baska bir
 // agdan calisabilir, bu yuzden "bozuk" demiyoruz — varsayilan olmaktan
 // cikardik. Kendi listeni `--relay` ile verebilirsin; `peerpages doctor`
 // hangilerinin ise yaradigini soyler.
 //
-// README en az 3 istiyor; dort tutuyoruz ki biri dusunce yine 3 kalsin.
+// BRIEF en az 3 istiyor; dort tutuyoruz ki biri dusunce yine 3 kalsin.
 var DefaultRelays = []string{
 	"wss://nos.lol",
 	"wss://relay.primal.net",

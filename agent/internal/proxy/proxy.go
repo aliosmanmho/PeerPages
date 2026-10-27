@@ -1,9 +1,9 @@
 // Package proxy ziyaretciden gelen istekleri yerel hedefe reverse proxy yapar.
 //
 // Guvenlik: hedef URL'si YALNIZCA internal/target allowlist'inden gelir;
-// istek yolundan host turetmek imkansiz (README ilke 1). Ziyaretci
+// istek yolundan host turetmek imkansiz (BRIEF ilke 1). Ziyaretci
 // guvenilmez kabul edilir: basliklar temizlenir, govde boyutu sinirlidir
-// (README ilke 4).
+// (BRIEF ilke 4).
 package proxy
 
 import (
@@ -181,7 +181,7 @@ func (p *Proxy) Serve(ctx context.Context, req protocol.Req, body io.Reader, sin
 	RewriteLocationHeaders(headers, targetURL)
 	// WebSocket shim isareti: govdeye DOKUNMUYORUZ, yalnizca bir baslik
 	// ekliyoruz. Enjeksiyonu Service Worker yapar (karar ve gerekcesi
-	// README §8).
+	// BRIEF §8).
 	if p.cfg.InjectWSShim && isHTML(headers["content-type"]) {
 		headers[protocol.HeaderWSShim] = "1"
 	}
@@ -219,7 +219,7 @@ func (p *Proxy) Serve(ctx context.Context, req protocol.Req, body io.Reader, sin
 
 // streamBody cevabi 16 KiB'lik parcalar halinde tunele akitir.
 //
-// Tam govde beklenmez (README Faz 1): ilk parca gelir gelmez yollanir, boylece
+// Tam govde beklenmez (BRIEF Faz 1): ilk parca gelir gelmez yollanir, boylece
 // Service Worker tarafinda ReadableStream akmaya baslar.
 func (p *Proxy) streamBody(ctx context.Context, r io.Reader, sink tunnel.ResponseSink) (int64, error) {
 	buf := make([]byte, chunkSize)

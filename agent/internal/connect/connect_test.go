@@ -412,7 +412,7 @@ func TestNostrHandshakeWithSecret(t *testing.T) {
 	}
 }
 
-// peer-id'yi bilip sirri bilmeyen biri BAGLANAMAZ (README bolum 4).
+// peer-id'yi bilip sirri bilmeyen biri BAGLANAMAZ (BRIEF bolum 4).
 func TestSecretlessVisitorRejected(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {

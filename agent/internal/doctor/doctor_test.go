@@ -72,7 +72,7 @@ func TestHealthyRelayIsUsable(t *testing.T) {
 
 // EN KRITIK DURUM: relay yayini "OK" ile kabul ediyor ama event'i aboneye
 // iletmiyor. Bu sessiz arizayi doctor yakalamak zorunda, yoksa signaling
-// calismaz ve nedeni gorunmez (README bolum 8).
+// calismaz ve nedeni gorunmez (BRIEF bolum 8).
 func TestRelayThatDropsEphemeralIsDetected(t *testing.T) {
 	r := checkOne(t, fakerelay.Options{DropEphemeral: true})
 
@@ -90,7 +90,7 @@ func TestRelayThatDropsEphemeralIsDetected(t *testing.T) {
 	}
 }
 
-// NIP-42 auth isteyen relay'ler atlanir (README bolum 4).
+// NIP-42 auth isteyen relay'ler atlanir (BRIEF bolum 4).
 func TestAuthRequiredRelayIsSkipped(t *testing.T) {
 	r := checkOne(t, fakerelay.Options{RequireAuth: true})
 

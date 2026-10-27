@@ -202,7 +202,7 @@ function headersField(o: Raw, k: string, t: string): Record<string, string> {
 /**
  * Istek yolunun ilk katman dogrulamasi.
  *
- * Belirleyici katman ajandaki `internal/target.Resolve`'dur (README ilke 1);
+ * Belirleyici katman ajandaki `internal/target.Resolve`'dur (BRIEF ilke 1);
  * burada yalnizca bariz gecersizleri reddediyoruz.
  */
 function validatePath(p: string, t: string): string {

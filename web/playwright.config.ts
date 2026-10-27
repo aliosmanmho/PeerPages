@@ -10,7 +10,7 @@ import { defineConfig, devices } from "@playwright/test";
  *  - Test kendisi ajani ve test sitesini child process olarak baslatir,
  *    offer/answer'i stdout/stdin uzerinden tasir (fixtures/agent.ts).
  *
- * Signaling sunucusu ve Nostr YOK (README Faz 1).
+ * Signaling sunucusu ve Nostr YOK (BRIEF Faz 1).
  */
 
 const PORT = 4173;

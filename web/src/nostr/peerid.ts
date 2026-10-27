@@ -5,9 +5,9 @@
  *
  * Ornekler: `#npub1…`, `#npub1…/admin`, `#npub1…:gizli`, `#npub1…/admin:gizli`
  *
- * peer-id TAM npub'dir. README bolum 4 "npub'in kisa formu" diyordu ama
+ * peer-id TAM npub'dir. BRIEF bolum 4 "npub'in kisa formu" diyordu ama
  * NIP-44 sifreleme ve `#p` tag'i tam 32 baytlik pubkey gerektiriyor;
- * kisaltilmis id'den turetilemez. Karar ve gerekcesi README bolum 8'de.
+ * kisaltilmis id'den turetilemez. Karar ve gerekcesi BRIEF bolum 8'de.
  * Ekranda kisaltilmis GOSTERIM kullaniliyor (`shortenNpub`).
  *
  * Hash'in sunucuya gitmedigini de not etmek gerek: `#` sonrasi tarayicida

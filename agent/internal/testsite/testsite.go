@@ -1,7 +1,7 @@
 // Package testsite Faz 1 testlerinin hedefi olan kucuk statik siteyi servis
 // eder.
 //
-// Ziyaretci tarayicisinda dogrulanacaklar (README Faz 1 kabul kriterleri):
+// Ziyaretci tarayicisinda dogrulanacaklar (BRIEF Faz 1 kabul kriterleri):
 // HTML, CSS, JS, gorsel, fetch ile JSON ve 5 MB dosya indirme.
 //
 // Buyuk dosya (big.bin) repoda TUTULMAZ: deterministik olarak uretilir
@@ -21,7 +21,7 @@ import (
 // BigFileName uretilen buyuk dosyanin adi.
 const BigFileName = "big.bin"
 
-// BigFileSize README'deki "5 MB dosya indirme" kabul kriteri.
+// BigFileSize BRIEF'teki "5 MB dosya indirme" kabul kriteri.
 const BigFileSize = 5 * 1024 * 1024
 
 // bigPattern deterministik icerik: i. bayt (i*31+7) mod 256.

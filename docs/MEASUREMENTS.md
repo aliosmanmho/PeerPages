@@ -50,10 +50,10 @@ tarayıcı yok (`agent/internal/proxy` entegrasyon testi):
 
 ### Henüz ölçülmeyenler (dürüstçe)
 
-- **Firefox ve Safari.** README §8'deki "SW `ReadableStream` yanıtları ve
+- **Firefox ve Safari.** BRIEF §8'deki "SW `ReadableStream` yanıtları ve
   `postMessage` performansı" sorusu **Chromium'da** yanıtlandı; Firefox ve
   Safari ölçülmedi. Faz 1 e2e'si yalnızca Chromium çalıştırıyor. Elle matris
-  (README §7) Faz 4 öncesinde yapılacak; Safari'de streaming yanıtların
+  (BRIEF §7) Faz 4 öncesinde yapılacak; Safari'de streaming yanıtların
   davranışı ayrıca kontrol edilmeli.
 - **Gerçek ağ.** İki cihaz, farklı ağlar, STUN/TURN ile gecikme ve throughput:
   Faz 2'nin kabul kriteriyle birlikte ölçülecek.
@@ -317,7 +317,7 @@ Ping RTT medyan 0.30 ms, küçük GET medyan 1.50 ms / p95 2.50 ms,
   workflow'un kendisi **çalıştırılmadı**.
 - **Uzun süreli relay dayanıklılığı.** Saatler boyunca açık kalan bir ajanın
   relay bağlantılarını kaç kez kaybettiği ölçülmedi.
-- **Firefox ve Safari.** Hâlâ ölçülmedi (README §7 elle matris).
+- **Firefox ve Safari.** Hâlâ ölçülmedi (BRIEF §7 elle matris).
 
 ### Ölçümü yeniden üretme
 

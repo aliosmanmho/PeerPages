@@ -13,7 +13,7 @@
 // gec kalir. Tek tarafli TURN yeterlidir: ajan relay adayi toplar, ziyaretci
 // o genel adrese disa dogru paket yollar (tek hedef, yani simetrik NAT'ta
 // bile tutarli esleme) ve ajan onu peer-reflexive olarak tanir.
-// Ayrinti: ../../README.md §8.
+// Ayrinti: ../../docs/BRIEF.md §8.
 package ice
 
 import (

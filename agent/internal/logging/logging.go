@@ -1,6 +1,6 @@
 // Package logging ajanin yapilandirilmis loglamasini kurar.
 //
-// README guvenlik ilkesi 6: "Varsayilan loglarda URL path'leri maskelenir
+// BRIEF guvenlik ilkesi 6: "Varsayilan loglarda URL path'leri maskelenir
 // (--verbose ile acilir)." Bu paket maskelemeyi tek yerde tutar; proxy ve CLI
 // katmanlari dogrudan ham path loglamaz.
 package logging

@@ -1,7 +1,7 @@
 /**
  * Service Worker <-> tunel sayfasi arasindaki mesaj bicimi.
  *
- * Service Worker icinde WebRTC YOK (README §2): WebRTC baglantisini sayfa
+ * Service Worker icinde WebRTC YOK (BRIEF §2): WebRTC baglantisini sayfa
  * tutar. SW yakaladigi her `fetch` istegini bir `MessageChannel` uzerinden
  * sayfaya yollar, sayfa cevabi parca parca geri gonderir ve SW bunu
  * `ReadableStream` ile servis eder.

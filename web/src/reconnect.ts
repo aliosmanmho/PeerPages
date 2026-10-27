@@ -1,5 +1,5 @@
 /**
- * Tunelin kendi kendine toparlanmasi (README Faz 4).
+ * Tunelin kendi kendine toparlanmasi (BRIEF Faz 4).
  *
  * Neden ziyaretci tarafi: ajan yalnizca CEVAP veren taraftir (answerer-only)
  * ve oturum tek seferliktir — yeni bir baglanti ancak ziyaretcinin yeni bir

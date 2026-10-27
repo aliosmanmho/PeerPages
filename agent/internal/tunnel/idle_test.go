@@ -80,7 +80,7 @@ func TestActiveSessionStaysOpen(t *testing.T) {
 // Tavani asan govde `req`'TEN ONCE gelirse de istek iptal edilir.
 //
 // Bu yol gercekten gorulebilir: ctrl ve data ayri SCTP akislari oldugu icin
-// aralarinda siralama garantisi YOK (Faz 1'de olculdu, README bolum 8).
+// aralarinda siralama garantisi YOK (Faz 1'de olculdu, BRIEF bolum 8).
 // Daha once bu durumda cerceve sessizce dusuruluyordu: govde hic gelmedigi
 // icin proxy sonsuza kadar bekliyor, ziyaretci abort almiyor ve istek
 // askida kaliyordu — yani tavan korumasi kaynak sizintisina donusuyordu.

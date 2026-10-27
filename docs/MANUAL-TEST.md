@@ -18,7 +18,7 @@ PEERPAGES_E2E_RELAYS="wss://nos.lol,wss://nostr.mom" npx playwright test nostr.s
 > **Yön notu.** Faz 2'de roller değişti: **ziyaretçi** offer üretir, ajan
 > answer döner. Nedeni: Nostr'da ajan ziyaretçinin geçici pubkey'ini önceden
 > bilemediği için ilk mesajı gönderemez. Elle yol da aynı yönü kullanıyor ki
-> tek bir kod yolu olsun (README §8).
+> tek bir kod yolu olsun (BRIEF §8).
 
 ## 0. Hazırlık (bir kez)
 
@@ -145,7 +145,7 @@ Service Worker → Signaling → ICE → Tunel
 Yaklaşık bir saniye içinde "Tunel acik" paneli görünür. **Kopyala-yapıştır
 yok.** Bu sekme tünel sahibidir, kapatma.
 
-Kendi relay listenizi denemek isterseniz (README §4: liste kullanıcı
+Kendi relay listenizi denemek isterseniz (BRIEF §4: liste kullanıcı
 tarafından değiştirilebilir):
 
 ```
@@ -230,7 +230,7 @@ http://localhost:4173/PeerPages/connect/
 - **Kopyala**'ya bas.
 
 > **Bu sekmeyi kapatma.** WebRTC bağlantısını bu sayfa tutuyor; Service
-> Worker'ın içinde WebRTC yok (README §2). Sekme kapanırsa tünel kapanır.
+> Worker'ın içinde WebRTC yok (BRIEF §2). Sekme kapanırsa tünel kapanır.
 
 ### Offer'ı ajana, answer'ı sayfaya taşı
 
@@ -504,7 +504,7 @@ Ajanın bastığı URL'yi aç, sonra ziyaretçi sekmesinde siteyi gez. Şimdi
 
 ### (ii) Socket.IO — asıl elle kriter
 
-Bu yol **otomatik test edilmedi** (README §8); doğrulaması sende.
+Bu yol **otomatik test edilmedi** (BRIEF §8); doğrulaması sende.
 
 ```bash
 mkdir io-deneme && cd io-deneme && npm init -y && npm i socket.io
@@ -593,7 +593,7 @@ es.onmessage = (e) => console.log(new Date().toISOString(), e.data);
 | Alt kaynaklar 503 | Aynı sebep: tünel yok. Bağlantı ekranı "yeniden baglaniliyor" diyorsa birkaç saniye bekle: SW kopma boşluğunda isteği bir süre bekletir (alt kaynak 10 sn, gezinme 3 sn), sonra 503'e döner. |
 | "yeniden baglaniliyor" bitmiyor | Ajan gerçekten kapalı ya da relay'lere ulaşılamıyor. Ajan terminaline bak: `relay 0/N` mi? |
 | Uyandıktan sonra tünel geri gelmiyor | Sekme arka plandaysa geri sayım yavaşlar; sekmeye geç (odaklanma geri sayımı sıfırlar) ya da "Simdi dene"ye bas. |
-| Kök mutlak yollar (`/style.css`) 404 | Alt yolda (`/PeerPages/`) yayınlanan sitelerin yapısal sınırı: o yol Service Worker'ın kapsamı dışına düşer. Custom domain ya da `kullanici.github.io/` kökünde sorun kalmaz (README §8). |
+| Kök mutlak yollar (`/style.css`) 404 | Alt yolda (`/PeerPages/`) yayınlanan sitelerin yapısal sınırı: o yol Service Worker'ın kapsamı dışına düşer. Custom domain ya da `kullanici.github.io/` kökünde sorun kalmaz (BRIEF §8). |
 | WebSocket `onclose` kodu 1008 | Köprü kapalı: ajanı `--inject-ws-shim` ile başlat. Bayrak verildiyse yerel sunucu el sıkışmayı reddetmiş (yolu kontrol et). |
 | WebSocket `onclose` kodu 1011 | Yerel sunucuya bağlanılamadı: sunucu ayakta mı, yol doğru mu? |
 | WebSocket `onclose` kodu 1013 | Akış bütçesi dolu; `--max-streams` değerini yükselt. |

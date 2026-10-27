@@ -6,8 +6,8 @@
 // istemcisinin bagimliligi) kullaniliyor.
 //
 // Guvenlik: hedef URL'si YALNIZCA internal/target allowlist'inden gelir;
-// ws yolundan host turetmek imkansiz (README ilke 1). Ziyaretci guvenilmez:
-// mesaj boyutu sinirli (README ilke 4) ve yolu allowlist dogruluyor.
+// ws yolundan host turetmek imkansiz (BRIEF ilke 1). Ziyaretci guvenilmez:
+// mesaj boyutu sinirli (BRIEF ilke 4) ve yolu allowlist dogruluyor.
 package wsbridge
 
 import (
@@ -97,7 +97,7 @@ func (d *Dialer) Dial(ctx context.Context, open protocol.WSOpen) (tunnel.WSConn,
 		Subprotocols: open.Protos,
 		// Origin: yerel sunucular (Vite, Socket.IO) Origin denetimi yapar ve
 		// ziyaretcinin github.io origin'ini reddederdi. Tunel yerel bir
-		// istemci gibi davraniyor; karar ve gerekcesi README §8.
+		// istemci gibi davraniyor; karar ve gerekcesi BRIEF §8.
 		HTTPHeader: http.Header{"Origin": {targetOrigin(targetURL)}},
 	})
 	if err != nil {

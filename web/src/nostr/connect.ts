@@ -24,7 +24,7 @@ import {
   type SignalingMsg,
 } from "./signaling";
 
-/** Ajandan answer beklerken ust sinir (README Faz 2: 30 sn). */
+/** Ajandan answer beklerken ust sinir (BRIEF Faz 2: 30 sn). */
 export const ANSWER_TIMEOUT_MS = 30_000;
 
 /** Kanallarin acilmasi icin ust sinir. */
@@ -77,7 +77,7 @@ export interface ConnectOptions {
 /**
  * Ajana baglanir ve acik data channel'lari dondurur.
  *
- * Kanallari BU TARAF acar (rol degisimi, README bolum 8): `ctrl` ve `data`,
+ * Kanallari BU TARAF acar (rol degisimi, BRIEF bolum 8): `ctrl` ve `data`,
  * ikisi de ordered + reliable.
  */
 export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResult> {

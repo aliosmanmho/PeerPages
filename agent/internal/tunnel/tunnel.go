@@ -6,7 +6,7 @@
 //
 // Neden boyle: Nostr'da ajan, ziyaretcinin gecici pubkey'ini onceden bilemez,
 // dolayisiyla ilk mesaji o gonderemez (kime sifreleyecegini bilemez). Gelen
-// taraf offer'i yayinlar. Karar ve gerekcesi README bolum 8'de. Elle signaling
+// taraf offer'i yayinlar. Karar ve gerekcesi BRIEF bolum 8'de. Elle signaling
 // yolu (`--manual`) da ayni yonu kullanir: tek bir kod yolu var.
 //
 // Istegin HTTP tarafi burada DEGIL: bu paket yalnizca protokolu konusur ve
@@ -83,7 +83,7 @@ const (
 	earlyTTL = 30 * time.Second
 )
 
-// Bosta kalma denetimi (README Faz 3: ziyaretci gidince ajan kaynak
+// Bosta kalma denetimi (BRIEF Faz 3: ziyaretci gidince ajan kaynak
 // sizdirmasin).
 const (
 	// DefaultIdleTimeout hic trafik gelmeden gecen bu sureden sonra oturum
@@ -628,7 +628,7 @@ func (s *Session) onCtrlMessage(msg webrtc.DataChannelMessage) {
 }
 
 func (s *Session) onReq(req protocol.Req) {
-	// Eszamanlilik tavani (README ilke 4).
+	// Eszamanlilik tavani (BRIEF ilke 4).
 	select {
 	case s.sem <- struct{}{}:
 	default:
@@ -786,7 +786,7 @@ func (s *Session) runBodyWriter(fl *inflight) {
 				nextSeq++
 				seen += int64(len(ev.frame.Payload))
 
-				// Govde boyutu tavani (README ilke 4).
+				// Govde boyutu tavani (BRIEF ilke 4).
 				if seen > s.cfg.MaxBody {
 					s.log.Warn("istek govdesi tavani asildi",
 						slog.Uint64("id", uint64(fl.id)), slog.Int64("bayt", seen))

@@ -112,7 +112,7 @@ type Pong struct{}
 // imkansiz.
 type WSOpen struct {
 	ID uint32
-	// Path ws yolu; hedef host ASLA buradan turetilmez (README ilke 1).
+	// Path ws yolu; hedef host ASLA buradan turetilmez (BRIEF ilke 1).
 	Path string
 	// Protos istenen alt protokoller; bos olabilir.
 	Protos []string
@@ -643,7 +643,7 @@ func parseWSClose(o map[string]json.RawMessage, t string) (Msg, error) {
 }
 
 // validatePath istek yolunun ilk katman dogrulamasi. Belirleyici katman
-// internal/target.Resolve (README ilke 1).
+// internal/target.Resolve (BRIEF ilke 1).
 func validatePath(p, t string) *CtrlError {
 	if p == "" {
 		return &CtrlError{CodeBadField, t + ".path bos olamaz"}

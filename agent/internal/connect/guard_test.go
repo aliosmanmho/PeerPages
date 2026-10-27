@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Ziyaretci guvenilmez (README bolum 6 ilke 4). Bu testler korumalarin
+// Ziyaretci guvenilmez (BRIEF bolum 6 ilke 4). Bu testler korumalarin
 // kendisini dogrular; akis icindeki kullanimlari connect_test.go'da.
 
 func TestSeenSetDetectsReplay(t *testing.T) {

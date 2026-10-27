@@ -4,7 +4,7 @@
  * Ajan `--inject-ws-shim` ile calisirken HTML cevaplarina
  * `x-peerpages-ws-shim: 1` basligini ekler; govdeye DOKUNMAZ. Enjeksiyonu
  * Service Worker yapar, cunku scope onekini (`/PeerPages/`) bilen taraf o ve
- * boylece `internal/proxy` bayt bayt gecirgen kalir (README §8).
+ * boylece `internal/proxy` bayt bayt gecirgen kalir (BRIEF §8).
  *
  * Cozmesi gereken uc sey:
  *  1. `<head>` etiketi iki cerceveye bolunmus olabilir → sinirli tampon,

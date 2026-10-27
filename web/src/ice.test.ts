@@ -35,7 +35,7 @@ describe("normalizeStunURL", () => {
     }
   });
 
-  // TURN sayfaya HIC gelmiyor: kimlik bilgisi ajanda kaliyor (README §8).
+  // TURN sayfaya HIC gelmiyor: kimlik bilgisi ajanda kaliyor (BRIEF §8).
   it("TURN adresini kabul etmez", () => {
     expect(() => normalizeStunURL("turn:turn.example.com:3478")).toThrow(IceConfigError);
   });

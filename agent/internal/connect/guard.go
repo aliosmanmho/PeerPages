@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Ziyaretci guvenilmez (README bolum 6 ilke 4). Bu dosya signaling'e
+// Ziyaretci guvenilmez (BRIEF bolum 6 ilke 4). Bu dosya signaling'e
 // uygulanan korumalari tutar: replay, saat kaymasi ve hiz limiti.
 
 // Varsayilan koruma parametreleri (protocol/signaling.md).

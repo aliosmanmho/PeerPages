@@ -51,7 +51,7 @@ export function scopeFromSrc(src: string | undefined, base: string): string {
  *
  * Kural: yalnizca AYNI HOSTNAME (port farkli olabilir). Baska her adres
  * gercek `WebSocket`'e gider — kendi kapsamimizin disina dokunmuyoruz
- * (README ilke 5'in shim karsiligi).
+ * (BRIEF ilke 5'in shim karsiligi).
  *
  * Port neden onemsiz: Vite HMR adresine kendi portunu koyabiliyor
  * (`wss://host:5173/`), ama o port ziyaretcinin tarayicisinda anlamsiz;

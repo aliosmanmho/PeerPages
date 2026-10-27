@@ -17,13 +17,13 @@ import (
 
 // Cloudflare Realtime TURN destegi.
 //
-// NEDEN WORKER YOK: README Faz 5, kisa omurlu kimlik bilgisi uretmek icin
+// NEDEN WORKER YOK: BRIEF Faz 5, kisa omurlu kimlik bilgisi uretmek icin
 // `cloudflare-turn/` altinda 30 satirlik bir Worker ongoruyordu. Worker'in
 // tek isi API jetonunu TARAYICIDAN saklamakti — PeerPages'te TURN'u yalnizca
 // AJAN kullandigi ve jeton zaten sahibinin makinesinde durdugu icin aradaki
 // sunucu gereksiz. Ajan kimlik bilgisini API'den kendisi cekiyor, boylece
 // "tek sunucu gerektiren parca" tamamen ortadan kalkiyor ve sifir sunucu
-// iddiasi TURN'le bile bozulmuyor. Karar ve gerekcesi: ../../README.md §8.
+// iddiasi TURN'le bile bozulmuyor. Karar ve gerekcesi: ../../docs/BRIEF.md §8.
 
 const (
 	// cloudflareAPIBase kimlik bilgisi ureten uc nokta.

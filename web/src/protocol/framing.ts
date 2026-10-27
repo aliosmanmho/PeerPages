@@ -9,7 +9,7 @@
 /** Cerceve basligi: id (4) + seq (4). */
 export const HEADER_BYTES = 8;
 
-/** En buyuk payload: 16 KiB (tarayici data channel uyumlulugu, README §3). */
+/** En buyuk payload: 16 KiB (tarayici data channel uyumlulugu, BRIEF §3). */
 export const MAX_PAYLOAD = 16384;
 
 /** En buyuk cerceve: baslik + payload. */

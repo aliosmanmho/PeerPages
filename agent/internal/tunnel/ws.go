@@ -40,7 +40,7 @@ type WSConn interface {
 // WSDialer ws-open istegini yerel hedefe cevirir.
 //
 // Gerceklemesi internal/wsbridge; hedef URL'si YALNIZCA allowlist'ten gelir
-// (README ilke 1).
+// (BRIEF ilke 1).
 type WSDialer interface {
 	// Dial baglantiyi kurar ve sunucunun sectigi alt protokolu doner.
 	Dial(ctx context.Context, open protocol.WSOpen) (WSConn, string, error)
@@ -83,7 +83,7 @@ func (e *WSCloseError) Error() string {
 const (
 	// DefaultMaxWSMessage bir ws mesajinin en buyuk boyu (iki yonde de).
 	//
-	// Ziyaretci guvenilmez (README ilke 4): sinirsiz mesaj, ajanin bellegini
+	// Ziyaretci guvenilmez (BRIEF ilke 4): sinirsiz mesaj, ajanin bellegini
 	// tek istekle sisirebilirdi.
 	DefaultMaxWSMessage = 1 << 20 // 1 MiB
 	// DefaultMaxStreams ayni anda acik uzun yasayan akis sayisi (ws oturumu

@@ -19,7 +19,7 @@ import (
 
 // Faz 3: hedef ziyaretcinin URL'sinden gelir ve offer'da tasinir.
 //
-// Buradaki testler tek ajanin IKI projeyi yayinlamasini (README Faz 3 kabul
+// Buradaki testler tek ajanin IKI projeyi yayinlamasini (BRIEF Faz 3 kabul
 // kriteri) ve bilinmeyen hedefin sessizce default'a dusmemesini dogrular.
 
 // targetEchoProxy hangi hedefe kuruldugunu cevap govdesinde soyler.
@@ -114,7 +114,7 @@ func bodyOf(t *testing.T, v *visitor, path string) string {
 }
 
 // Tek ajan iki projeyi yayinliyor: her ziyaretci URL'sinde yazan hedefe
-// baglaniyor (README Faz 3 kabul kriteri).
+// baglaniyor (BRIEF Faz 3 kabul kriteri).
 func TestTwoTargetsServedByOneAgent(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {

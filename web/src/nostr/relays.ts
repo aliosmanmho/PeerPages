@@ -1,7 +1,7 @@
 /**
  * Ziyaretcinin relay listesini URL'den degistirmesi.
  *
- * README bolum 4: "Varsayilan relay listesi (en az 3, **kullanici
+ * BRIEF bolum 4: "Varsayilan relay listesi (en az 3, **kullanici
  * degistirebilir**)". Bu dosya o degistirmeyi uyguluyor:
  *
  *     .../connect/?relay=wss://nos.lol&relay=wss://nostr.mom#npub1…

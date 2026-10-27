@@ -1,6 +1,6 @@
 // Package target ajanin proxy yapmasina izin verilen yerel hedefleri tutar.
 //
-// README guvenlik ilkesi 1: "Ajan asla CLI'da verilmeyen bir hosta istek
+// BRIEF guvenlik ilkesi 1: "Ajan asla CLI'da verilmeyen bir hosta istek
 // atmaz." Bu paket o kurali uygulayan tek yer. Istek yolundan (path) host
 // turetmek kasten imkansiz: Resolve yalnizca allowlist'teki taban URL'nin
 // scheme/host/port'unu kullanir, path'ten gelen her sey sadece yol olarak

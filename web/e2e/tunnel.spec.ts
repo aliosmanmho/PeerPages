@@ -9,7 +9,7 @@ import {
 } from "./fixtures/agent";
 
 /**
- * Faz 1 kabul kriterleri (README Faz 1):
+ * Faz 1 kabul kriterleri (BRIEF Faz 1):
  *
  *   "Ziyaretci tarayicisinda test sitesi (HTML, CSS, JS, gorsel, fetch ile
  *    JSON) github.io benzeri origin'de eksiksiz render oluyor; 5 MB dosya
@@ -24,7 +24,7 @@ import {
 
 const BASE = "/PeerPages/";
 // Baglanti ekrani scope kokunde DEGIL: scope koku yerel sitenin koku
-// (karar ve gerekcesi README bolum 8).
+// (karar ve gerekcesi BRIEF bolum 8).
 const CONNECT = `${BASE}connect/`;
 
 let site: TestSite;
@@ -312,7 +312,7 @@ test.describe("Faz 1 kabul kriterleri", () => {
 
     // 2) Yuzde kodlu bolu (`%2f`): URL ayristiricisi bunu COZMEZ, yani yol
     //    scope ICINDE kalir ve istek gercekten tunele girer. Ajan cozup
-    //    `..` gorur ve reddeder (README ilke 1).
+    //    `..` gorur ve reddeder (BRIEF ilke 1).
     //    Not: `%2e%2e` ise tarayici tarafinda `..`ya normalize edilip scope
     //    disina dusuyor, bu yuzden ajana hic ulasmiyor. Ajanin kodlanmis
     //    gezinmeyi reddettigi Go tarafinda dogrulaniyor

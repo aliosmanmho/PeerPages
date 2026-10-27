@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/aliosmanmho/PeerPages/agent/internal/doctor"
+	"github.com/aliosmanmho/PeerPages/agent/internal/ice"
 	"github.com/aliosmanmho/PeerPages/agent/internal/logging"
 	"github.com/aliosmanmho/PeerPages/agent/internal/nostr"
 )
@@ -92,11 +93,11 @@ dis portu karsilastirir).`,
 }
 
 // defaultSTUNServers NAT tipi tahmini icin IKI sunucu gerekiyor.
+//
+// Liste internal/ice'tan geliyor: daha once hem burada hem serve.go'da
+// kopyalanmisti ve ikisi sessizce ayrilabilirdi.
 func defaultSTUNServers() []string {
-	return []string{
-		"stun:stun.l.google.com:19302",
-		"stun:stun1.l.google.com:19302",
-	}
+	return ice.DefaultSTUN
 }
 
 func printReport(w io.Writer, report doctor.Report) {

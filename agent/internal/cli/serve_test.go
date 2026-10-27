@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/aliosmanmho/PeerPages/agent/internal/ice"
 )
 
 func TestServeFlagsValidation(t *testing.T) {
@@ -14,7 +16,7 @@ func TestServeFlagsValidation(t *testing.T) {
 			maxConcurrent: defaultMaxConcurrent,
 			maxSessions:   defaultMaxSessions,
 			manual:        true,
-			stun:          []string{defaultSTUN},
+			stun:          ice.DefaultSTUN,
 		}
 	}
 

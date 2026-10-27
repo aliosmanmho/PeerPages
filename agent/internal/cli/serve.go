@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/aliosmanmho/PeerPages/agent/internal/ice"
 	"github.com/aliosmanmho/PeerPages/agent/internal/identity"
 	"github.com/aliosmanmho/PeerPages/agent/internal/logging"
 	"github.com/aliosmanmho/PeerPages/agent/internal/nostr"
@@ -23,10 +24,13 @@ const (
 	defaultMaxBody       = "50MB"
 	defaultMaxConcurrent = 64
 	defaultMaxSessions   = 4
-	defaultSTUN          = "stun:stun.l.google.com:19302"
-	// defaultSTUN2 NAT tipi tahmini ve yedek icin ikinci sunucu.
-	defaultSTUN2 = "stun:stun1.l.google.com:19302"
 )
+
+// envTURNPass TURN sifresi icin ortam degiskeni.
+//
+// Neden bayrak tek yol degil: komut satiri argumanlari `ps` ciktisinda ve
+// Gorev Yoneticisi'nde baska kullanicilara gorunur.
+const envTURNPass = "PEERPAGES_TURN_PASS"
 
 // ServeConfig serve komutunun dogrulanmis yapilandirmasi.
 type ServeConfig struct {
@@ -40,13 +44,14 @@ type ServeConfig struct {
 	// ManualTarget --manual yolunda kullanilacak hedef adi. Elle signaling'de
 	// ziyaretcinin URL'si yok, dolayisiyla hedefi bayrak soyler.
 	ManualTarget string
-	STUN         []string
-	Relays       []string
-	Secret       string
-	KeyPath      string
-	AppURL       string
-	Verbose      bool
-	Logger       *slog.Logger
+	// ICE dogrulanmis STUN/TURN yapilandirmasi.
+	ICE     ice.Config
+	Relays  []string
+	Secret  string
+	KeyPath string
+	AppURL  string
+	Verbose bool
+	Logger  *slog.Logger
 }
 
 type serveFlags struct {
@@ -57,6 +62,10 @@ type serveFlags struct {
 	manual        bool
 	manualTarget  string
 	stun          []string
+	turn          []string
+	turnUser      string
+	turnPass      string
+	iceRelayOnly  bool
 	relays        []string
 	secret        string
 	keyPath       string
@@ -115,8 +124,15 @@ Ornekler:
 		"ajan anahtar dosyasi (varsayilan: ~/.peerpages/key)")
 	fl.StringVar(&f.appURL, "app-url", DefaultAppURL,
 		"app shell'in yayinlandigi adres (ziyaretci URL'sini basmak icin)")
-	fl.StringArrayVar(&f.stun, "stun", []string{defaultSTUN, defaultSTUN2},
+	fl.StringArrayVar(&f.stun, "stun", ice.DefaultSTUN,
 		"ICE icin STUN sunucusu (tekrarlanabilir)")
+	fl.StringArrayVar(&f.turn, "turn", nil,
+		"TURN sunucusu (turn:/turns:, tekrarlanabilir); simetrik NAT'ta gerekir")
+	fl.StringVar(&f.turnUser, "turn-user", "", "TURN kullanici adi")
+	fl.StringVar(&f.turnPass, "turn-pass", "",
+		"TURN sifresi ("+envTURNPass+" ortam degiskeni de kullanilabilir)")
+	fl.BoolVar(&f.iceRelayOnly, "ice-relay-only", false,
+		"yalnizca TURN relay adayi topla (teshis: dogrudan yolu imkansiz kilar)")
 	fl.BoolVarP(&f.verbose, "verbose", "v", false,
 		"ayrintili log; URL path'leri MASKELENMEZ")
 
@@ -143,8 +159,23 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 		return nil, fmt.Errorf("--max-sessions en az 1 olmali, verilen: %d", f.maxSessions)
 	}
 
-	if len(f.stun) == 0 {
+	if len(f.stun) == 0 && len(f.turn) == 0 {
 		return nil, fmt.Errorf("--stun bos olamaz")
+	}
+
+	turnPass := f.turnPass
+	if turnPass == "" {
+		turnPass = os.Getenv(envTURNPass)
+	}
+	iceCfg, err := ice.Config{
+		STUN:      f.stun,
+		TURN:      f.turn,
+		User:      f.turnUser,
+		Pass:      turnPass,
+		RelayOnly: f.iceRelayOnly,
+	}.Validated()
+	if err != nil {
+		return nil, err
 	}
 
 	relays := f.relays
@@ -188,7 +219,7 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 		MaxSessions:   f.maxSessions,
 		Manual:        f.manual,
 		ManualTarget:  manualTarget,
-		STUN:          f.stun,
+		ICE:           iceCfg,
 		Relays:        relays,
 		Secret:        f.secret,
 		KeyPath:       keyPath,

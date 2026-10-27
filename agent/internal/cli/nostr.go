@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pion/webrtc/v4"
+
 	"github.com/aliosmanmho/PeerPages/agent/internal/connect"
 	"github.com/aliosmanmho/PeerPages/agent/internal/identity"
 	"github.com/aliosmanmho/PeerPages/agent/internal/nostr"
@@ -102,12 +104,14 @@ func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
 	}
 
 	acceptor, err := connect.New(connect.Config{
-		Identity:      id,
-		Pool:          pool,
-		Sealer:        sealer,
-		NewProxy:      newProxy,
-		Targets:       cfg.Targets.Names(),
-		STUN:          cfg.STUN,
+		Identity: id,
+		Pool:     pool,
+		Sealer:   sealer,
+		NewProxy: newProxy,
+		Targets:  cfg.Targets.Names(),
+		ICE: func() ([]webrtc.ICEServer, webrtc.ICETransportPolicy) {
+			return cfg.ICE.Servers(), cfg.ICE.Policy()
+		},
 		MaxSessions:   cfg.MaxSessions,
 		MaxConcurrent: cfg.MaxConcurrent,
 		MaxBody:       cfg.MaxBody,
@@ -156,6 +160,7 @@ PeerPages ajani hazir.
   peer-id : %s
   relay   : %d/%d bagli (durum satiri canli gosterir)
   sir     : %s
+  ice     : %s
 
 Yayinlanan hedefler ve ziyaretcinin acmasi gereken adresler:
 
@@ -167,6 +172,7 @@ Bu sekmeyi/terminali acik tut: tunel ajan calistigi surece ayakta.
 		len(connReport.OK),
 		len(connReport.OK)+len(connReport.Failed),
 		secretNote(cfg.Secret),
+		cfg.ICE.Describe(),
 		targetLines,
 		ReadyMarker,
 	)

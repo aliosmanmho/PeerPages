@@ -123,9 +123,15 @@ var ErrDisconnected = errors.New("WebRTC baglantisi koptu ve geri donmedi")
 
 // Config oturum yapilandirmasi.
 type Config struct {
-	// STUN ICE icin kullanilacak STUN sunuculari. Bos ise yalnizca host
-	// adaylari toplanir (loopback testleri).
-	STUN []string
+	// ICEServers ICE icin kullanilacak STUN/TURN sunuculari. Bos ise
+	// yalnizca host adaylari toplanir (loopback testleri).
+	//
+	// Hazir liste aliyoruz (ice.Config.Servers()), cunku TURN kimlik
+	// bilgisi sunucu girdisi basinadir ve kimlik bilgisini bu katmana
+	// kadar tasimanin bir faydasi yok.
+	ICEServers []webrtc.ICEServer
+	// ICEPolicy aday politikasi; sifir deger "all" demektir.
+	ICEPolicy webrtc.ICETransportPolicy
 	// Targets hello mesajinda bildirilecek hedef adlari.
 	Targets []string
 	// Auth hello mesajindaki auth degeri.
@@ -291,8 +297,9 @@ func New(cfg Config) (*Session, error) {
 	}
 
 	var rtcCfg webrtc.Configuration
-	if len(cfg.STUN) > 0 {
-		rtcCfg.ICEServers = []webrtc.ICEServer{{URLs: cfg.STUN}}
+	rtcCfg.ICETransportPolicy = cfg.ICEPolicy
+	if len(cfg.ICEServers) > 0 {
+		rtcCfg.ICEServers = cfg.ICEServers
 	}
 	pc, err := webrtc.NewPeerConnection(rtcCfg)
 	if err != nil {

@@ -62,7 +62,8 @@ func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io
 	}
 
 	sess, err := tunnel.New(tunnel.Config{
-		STUN:          cfg.STUN,
+		ICEServers:    cfg.ICE.Servers(),
+		ICEPolicy:     cfg.ICE.Policy(),
 		Targets:       cfg.Targets.Names(),
 		Auth:          cfg.AuthMode(),
 		MaxConcurrent: cfg.MaxConcurrent,
@@ -99,7 +100,9 @@ uretilen offer'i asagiya yapistirip Enter'a bas.
 		return fmt.Errorf("offer okunamadi: %w", err)
 	}
 
-	log.Info("ICE adaylari toplaniyor", slog.Any("stun", cfg.STUN))
+	// Kimlik bilgisi log'a GIRMEZ: Describe yalnizca adresleri ve sifre
+	// uzunlugunu yaziyor.
+	log.Info("ICE adaylari toplaniyor", slog.String("ice", cfg.ICE.Describe()))
 	answerCtx, cancelAnswer := context.WithTimeout(ctx, iceGatheringLimit)
 	defer cancelAnswer()
 

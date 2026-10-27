@@ -68,6 +68,12 @@ const (
 // tarafta yapilir.
 type ProxyFactory func(targetName string) (tunnel.Proxy, error)
 
+// ICEFactory oturum kurulurken gecerli ICE sunucu listesini dondurur.
+//
+// Cloudflare TURN kimlik bilgisi kisa omurludur ve arka planda yenilenir;
+// bu yuzden liste oturum basina sorulur, baslangicta bir kez okunmaz.
+type ICEFactory func() (servers []webrtc.ICEServer, policy webrtc.ICETransportPolicy)
+
 // Config kabul akisinin yapilandirmasi.
 type Config struct {
 	// Identity ajanin Nostr kimligi.
@@ -81,8 +87,12 @@ type Config struct {
 	// Targets yayinlanan hedeflerin adlari: hem hello mesajinda bildirilir
 	// hem de offer'daki hedef adi buna karsi dogrulanir.
 	Targets []string
-	// STUN ICE sunuculari.
-	STUN []string
+	// ICE her oturum icin ICE sunucu listesini ve politikasini verir.
+	//
+	// Statik liste degil FONKSIYON: Cloudflare TURN kimlik bilgisi sureli,
+	// yani her yeni oturum o anki gecerli listeyi almali (ProxyFactory ile
+	// ayni desen). nil ise ICE sunucusu kullanilmaz (loopback testleri).
+	ICE ICEFactory
 	// MaxSessions ayni anda kac ziyaretci kabul edilir.
 	MaxSessions int
 	// MaxConcurrent oturum basina eszamanli istek tavani.
@@ -538,8 +548,11 @@ func (a *Acceptor) startSession(
 		return fmt.Errorf("proxy kurulamadi: %w", err)
 	}
 
+	iceServers, icePolicy := a.iceConfig()
+
 	sess, err := tunnel.New(tunnel.Config{
-		STUN:          a.cfg.STUN,
+		ICEServers:    iceServers,
+		ICEPolicy:     icePolicy,
 		Targets:       a.cfg.Targets,
 		Auth:          a.authMode(),
 		MaxConcurrent: a.cfg.MaxConcurrent,
@@ -631,6 +644,14 @@ func (a *Acceptor) watchSession(ctx context.Context, peerPub, sid string, sess *
 	case <-ctx.Done():
 	}
 	a.dropSession(sid)
+}
+
+// iceConfig oturum icin ICE listesini alir; fabrika yoksa bos doner.
+func (a *Acceptor) iceConfig() ([]webrtc.ICEServer, webrtc.ICETransportPolicy) {
+	if a.cfg.ICE == nil {
+		return nil, webrtc.ICETransportPolicyAll
+	}
+	return a.cfg.ICE()
 }
 
 // closeReason kapanma nedenini kisa bir etikete cevirir.

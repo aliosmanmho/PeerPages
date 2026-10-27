@@ -40,11 +40,11 @@ func TestConfigValidate(t *testing.T) {
 		}
 	}
 
-	// STUN bos olabilir: yalnizca host adaylari toplanir.
+	// ICE sunucusu bos olabilir: yalnizca host adaylari toplanir.
 	c := ok
-	c.STUN = nil
+	c.ICEServers = nil
 	if err := c.validate(); err != nil {
-		t.Errorf("bos STUN kabul edilmeliydi: %v", err)
+		t.Errorf("bos ICE listesi kabul edilmeliydi: %v", err)
 	}
 }
 

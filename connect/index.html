@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>PeerPages</title>
+    <script type="module" crossorigin src="/PeerPages/assets/connect-CeE__me-.js"></script>
+    <link rel="modulepreload" crossorigin href="/PeerPages/assets/base-D_0kx8x0.js">
+    <link rel="stylesheet" crossorigin href="/PeerPages/assets/connect-9TrCQprs.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="shell__head">
+        <h1 class="shell__title">PeerPages</h1>
+        <p class="shell__sub">Sunucusuz tunel</p>
+      </header>
+
+      <section class="status" aria-live="polite">
+        <ol class="status__steps" id="status-steps">
+          <li class="status__step" data-step="sw">Service Worker</li>
+          <li class="status__step" data-step="signal">Signaling</li>
+          <li class="status__step" data-step="ice">ICE</li>
+          <li class="status__step" data-step="tunnel">Tunel</li>
+        </ol>
+        <p class="status__msg" id="status-msg">Baslatiliyor…</p>
+      </section>
+
+      <section class="panel" id="panel-nostr" hidden>
+        <h2 class="panel__title">Ajana baglaniliyor</h2>
+        <p class="panel__hint">
+          peer-id: <code id="nostr-peer">—</code>
+        </p>
+        <p class="panel__hint" id="nostr-detail"></p>
+        <div class="panel__actions">
+          <button type="button" id="btn-retry" class="btn" disabled>Yeniden dene</button>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-manual">
+        <h2 class="panel__title">1. Offer uret ve ajana yapistir</h2>
+        <p class="panel__hint">
+          Ajani calistir: <code id="agent-cmd">peerpages serve --manual --target http://localhost:3000</code>
+          — sonra burada offer uret ve ajanin terminaline yapistir.
+        </p>
+        <div class="panel__actions">
+          <button type="button" id="btn-make-offer" class="btn btn--primary">Offer uret</button>
+          <button type="button" id="btn-copy-offer" class="btn" disabled>Kopyala</button>
+        </div>
+        <textarea
+          id="offer-output"
+          class="panel__io"
+          rows="4"
+          spellcheck="false"
+          readonly
+          placeholder="(Offer uret'e basinca burada olusur)"
+        ></textarea>
+
+        <h2 class="panel__title">2. Ajanin answer'ini yapistir</h2>
+        <textarea
+          id="answer-input"
+          class="panel__io"
+          rows="4"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="eyJ0eXBlIjoiYW5zd2VyIi…"
+        ></textarea>
+        <div class="panel__actions">
+          <button type="button" id="btn-accept-answer" class="btn btn--primary" disabled>
+            Answer'i uygula
+          </button>
+        </div>
+      </section>
+
+      <section class="panel panel--ok" id="panel-connected" hidden>
+        <h2 class="panel__title">Tunel acik</h2>
+        <p class="panel__hint">
+          Bu sekmeyi <strong>kapatma</strong> — WebRTC baglantisini bu sayfa tutuyor.
+          Service Worker istekleri buraya yonlendiriyor.
+        </p>
+        <p class="panel__hint">
+          Siteyi <strong>yeni bir sekmede</strong> ac:
+          <a id="link-site" href="../" target="_blank" rel="noopener">tunel uzerinden ac</a>
+        </p>
+        <dl class="metrics" id="metrics"></dl>
+
+        <div class="share">
+          <p class="panel__hint">
+            Bu adresi baska bir cihazda ac — ayni tunele baglanir:
+          </p>
+          <code class="share__url" id="share-url"></code>
+          <p class="panel__actions">
+            <button class="btn" id="btn-copy-url" type="button">Adresi kopyala</button>
+            <button class="btn" id="btn-qr" type="button" aria-expanded="false">QR kod</button>
+          </p>
+          <div class="qr" id="qr" hidden>
+            <canvas id="qr-canvas" aria-label="Ziyaretci adresinin QR kodu" role="img"></canvas>
+            <p class="qr__hint">Telefonun kamerasiyla okut.</p>
+          </div>
+        </div>
+      </section>
+
+      <noscript>PeerPages JavaScript gerektirir.</noscript>
+    </main>
+  </body>
+</html>

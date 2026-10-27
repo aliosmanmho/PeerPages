@@ -4,10 +4,11 @@
 
 | Arac | Surum | Not |
 |---|---|---|
-| Go | 1.22+ (gelistirme: 1.27) | ajan |
+| Go | 1.27+ (agent/go.mod'daki `go` yonergesi) | ajan |
 | Node.js | 20+ (gelistirme: 22.12) | web |
 | make | opsiyonel | Windows'ta yoksa `scripts/*.ps1` kullan |
 | golangci-lint | opsiyonel | yoksa `gofmt` + `go vet` calisir, CI'da zorunlu |
+| goreleaser | opsiyonel | yalnizca release derlemesi icin: `go install github.com/goreleaser/goreleaser/v2@latest` |
 
 Ilk kurulum:
 
@@ -29,8 +30,10 @@ cd ../web && npx playwright install chromium   # yalnizca e2e icin
 | Pages derlemesi | `make build PEERPAGES_BASE=/PeerPages/` | `node scripts/build.mjs /PeerPages/` | `.\scripts\build.ps1 -Base "/PeerPages/"` |
 | Lint / format kontrolu | `make lint` | `npm run lint` | `.\scripts\lint.ps1` |
 | Bicimlendir | — | `npm run format` | — |
-| E2E (Faz 1 kabul) | `make e2e` | `npm run e2e` | `.\scripts\e2e.ps1` |
+| E2E (tum fazlar) | `make e2e` | `npm run e2e` | `.\scripts\e2e.ps1` |
 | Test verisi uret | `make testdata` | — | `cd agent; go run ./internal/testsite/gen` |
+| Release anlik derleme | `make release-snapshot` | — | `scripts/release-snapshot.ps1` |
+| Release yapilandirmasi | `make release-check` | — | `goreleaser check` |
 
 ## `base` (GitHub Pages alt yolu)
 
@@ -119,12 +122,12 @@ go run . serve -t http://localhost:3000 -t admin=http://localhost:4000 --manual 
 # Kendi relay listen
 go run . serve --target http://localhost:3000 --relay wss://nos.lol
 
-# Coklu hedef (URL ile secim Faz 3'te)
-go run . serve -t http://localhost:3000 -t admin=http://localhost:4000
-
 # Teshis: relay sagligi + NAT tipi
 go run . doctor
 go run . doctor --json
+
+# Surum ve derleme bilgisi
+go run . version
 
 # Kimlik
 go run . key                   # peer-id ve ziyaretci URL'si
@@ -144,3 +147,23 @@ Loglar varsayilan olarak URL path'lerini maskeler (`/api/items` → `/*3/*5`);
 Ajan **yalnizca** `--target` ile verilen hostlara istek atar. Istek yolundan
 host turetmek `internal/target` icinde kasten imkansiz kilindi ve testlerle
 korunuyor (ilke 1).
+
+## Release (Faz 4)
+
+Surum bilgisi `-ldflags -X` ile `main.buildVersion/buildCommit/buildDate`'e
+enjekte edilir; verilmezse `runtime/debug.ReadBuildInfo` kullanilir
+(`internal/version`). Yani `go install ...@latest` ile kurulan binary de
+dogru surumu basar.
+
+```sh
+goreleaser check                       # yapilandirma gecerli mi
+goreleaser release --snapshot --clean  # dist/ altinda 6 arsiv, YAYIN YAPMAZ
+```
+
+Gercek release: `v*` bicimli bir etiket push edilince
+`.github/workflows/release.yml` kosar ve goreleaser release'i **taslak**
+olarak acar (notlar elle gozden gecirilir). Scoop/Homebrew taslaklari
+`.goreleaser.yaml` icinde ama `skip_upload: true` ile kapali: tap depolari
+henuz yok ve proje adi Faz 7'de degisebilir.
+
+Son kullanici kurulumu: `docs/INSTALL.md`.

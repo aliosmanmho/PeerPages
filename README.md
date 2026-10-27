@@ -144,13 +144,29 @@ Signaling'i **kopyala-yapıştır** ile yap (sunucu yok, Nostr yok): ajan `offer
 **Kabul:** Tek ajan iki projeyi yayınlıyor; ekranda anlamlı durum bilgisi var.
 **Durum:** karşılandı — `web/e2e/faz3.spec.ts` (6 test) bunu otomatik doğruluyor.
 
-### Faz 4 — Dağıtım ve dayanıklılık (1 gün)
-- Otomatik yeniden bağlanma (ICE restart, relay düşmesi, uyku/uyanma).
-- goreleaser: Windows/macOS/Linux binary'leri, `go install github.com/<kullanıcı>/peerpages/agent@latest`, Scoop/Homebrew tap taslağı.
-- `peerpages serve` dışında `peerpages key`, `peerpages doctor` (relay erişimi, STUN, NAT tipi raporu).
-- Windows'ta servis olarak çalışma notu (NSSM/Task Scheduler) — sadece dokümantasyon.
+### Faz 4 — Dağıtım ve dayanıklılık (1 gün) — **tamamlandı**
+- Otomatik yeniden bağlanma (relay düşmesi, uyku/uyanma).
+  - Ziyaretçi tarafı geri sayımla (1→2→4→8→15→30 sn) **sıfırdan yeni oturum** kurar:
+    yeni `sid`, yeni geçici keypair, yeni offer. **ICE restart yapılmıyor** — gerekçe §8.
+  - `online` ve `visibilitychange` geri sayımı sıfırlar (uyanma yolu). Canlılık denetimi:
+    üst üste iki cevapsız ping kopma sayılır.
+  - Ajan tarafı: ICE `Disconnected` artık 10 saniyelik tolerans penceresiyle karşılanıyor,
+    boşta kalma denetimi monotonik saatle çalışıyor ve kendi gecikmesinden uyanmayı tanıyor,
+    signaling aboneliği denetlenip yenileniyor, `relay 3/4` alanı durum satırında.
+  - Service Worker kopma boşluğunda isteği hemen 503'lemiyor: alt kaynaklar 10 sn,
+    gezinmeler 3 sn bekliyor; tam istek sırasında kopan GET/HEAD bir kez tekrar deneniyor.
+- goreleaser: Windows/macOS/Linux × amd64/arm64, `go install github.com/aliosmanmho/PeerPages/agent@latest`,
+  Scoop/Homebrew tap **taslağı** (tap depoları yok, yükleme kapalı). Release **taslak** açılır.
+  `peerpages version` sürüm/commit/tarih/platform basar; `go install` ile kurulan binary de
+  (ldflags olmadan) sürümünü bilir.
+- `peerpages key` ve `peerpages doctor` Faz 2'de geldi; `docs/INSTALL.md` son kullanıcı kurulumu.
+- Windows'ta servis olarak çalışma notu (NSSM/Task Scheduler) — `docs/INSTALL.md`, sadece dokümantasyon.
 
 **Kabul:** Laptop uyuyup uyanınca tünel kendini toparlıyor; release workflow üç platform binary'si üretiyor.
+**Durum:** yeniden bağlanma karşılandı — `web/e2e/faz4.spec.ts` (4 test) ajanın yeniden başlamasını,
+relay düşüp dönmesini ve kopma boşluğunu otomatik doğruluyor; **gerçek uyku/uyanma elle denenmeli**
+(`docs/MANUAL-TEST.md`). Binary tarafı yerelde doğrulandı (6 arşiv + checksums); **workflow GitHub'da
+koşturulmadı**, çünkü hiç push/etiket yok (§8).
 
 ### Faz 5 — TURN fallback (yarım gün)
 - `--turn <url> --turn-user --turn-pass` ile kullanıcı kendi TURN'ünü verebilir.
@@ -286,6 +302,52 @@ Signaling'i **kopyala-yapıştır** ile yap (sunucu yok, Nostr yok): ajan `offer
   relay'ler aynı adresten gelen hızlı tekrar bağlantıları reddediyor. Tek relayle (nos.lol)
   7/7 yeşil. Kodumuzdan değil; Faz 4'te yeniden bağlanma çalışması bunu da iyileştirebilir.
 
+- **(Faz 4'te karar verildi — README'den SAPMA) Yeniden bağlanma ICE restart ile değil, sıfırdan oturumla.**
+  Faz 4 maddesi "ICE restart" diyordu; danışıldı ve değiştirildi. İki sebep: (a) ajan
+  answerer-only ve oturum tek seferlik (`remoteSet` tek yönlü mandal), yani aynı oturuma ikinci
+  bir offer kabul etmek için iki tarafta yeniden pazarlık ve yeni signaling kuralları gerekiyordu;
+  (b) Faz 3'te eklenen 30 saniyelik boşta kalma denetimi, uzun kopmalarda ajan tarafındaki oturumu
+  zaten kapatıyor — yani ICE restart'ın kurtarabileceği pencere 30 saniyeden kısa kopmalar.
+  Her deneme yeni `sid` ve yeni geçici keypair ile sıfırdan kuruyor. Bedeli: kopma anında devam
+  eden istekler kayboluyor (SW idempotent olanları bir kez tekrar deniyor).
+
+- **(Faz 4'te bulundu ve KAPANDI) Uyanmadan sonra boşta kalma denetimi oturumları öldürüyordu.**
+  `lastSeen` unix nano olarak saklanıp `time.Unix(...)` ile geri okunuyordu; böyle kurulan bir
+  `time.Time` **monotonik okumayı taşımaz**, yani karşılaştırma duvar saatine dönüyordu. Askıya
+  alma süresi olduğu gibi "sessizlik" sayılıyor ve uyanmadan sonraki ilk tik tüm oturumları
+  `ErrIdle` ile kapatıyordu — ziyaretçi hâlâ orada olsa bile, tek bir ping denemesi yapmadan.
+  Saat geriye giderse süre negatif oluyor ve denetim sessizce devre dışı kalıyordu.
+  Artık süre monotonik ölçülüyor; ayrıca denetim **kendi gecikmesine** bakıyor: iki tik arası
+  beklenenin 3 katından fazlaysa bu bir uyanmadır, sessizlik sayacı sıfırlanır ve oturum bir tur
+  daha ping'le sınanır. Monotonik saatin askıya almayı sayıp saymaması platforma göre değişir
+  (Linux `CLOCK_MONOTONIC` saymaz, Windows sayar) — bu yüzden iki koruma birlikte duruyor.
+
+- **(Faz 4'te bulundu ve KAPANDI) ICE `Disconnected` temiz kapanış sayılıyordu.**
+  Durum geçicidir ve pion sık sık kendi kendine geri döner; kodun kendi yorumu da bunu söylüyordu
+  ama işleyici oturumu anında kapatıyor, üstelik `closeWith(nil)` ile ziyaretçinin `bye`'ından
+  ayırt edilemez biçimde raporluyordu. Artık 10 saniyelik tolerans var ve neden
+  (`bosta` / `baglanti-koptu` / `temiz`) log'da görünüyor.
+
+- **(Faz 4'te bulundu ve KAPANDI) SW'nin bekleme penceresi kopma anındaki isteği kaçırıyordu.**
+  İlk uygulama yalnızca "tünel sahibi sekme yok" durumunda bekliyordu. Tünel tam istek sırasında
+  koparsa istek yine dispatch ediliyor, sayfada hata alıyor ve ziyaretçi **502** görüyordu — yani
+  pencere o yolda hiç işlemiyordu. E2E testi bunu yakaladı. Artık sayfa, cevap başlığı hiç
+  gitmediyse ve tünel kapandıysa hatayı "tekrar denenebilir" işaretliyor; SW yeniden bağlanmayı
+  bekleyip **bir kez** tekrar deniyor — yalnızca GET/HEAD için, çünkü POST'un hedefe ulaşıp
+  ulaşmadığı SW'den bilinemez.
+
+- **(Faz 4, AÇIK) Release workflow'u GitHub Actions'ta çalıştırılmadı.**
+  Hiç push yapılmadı ve hiç etiket atılmadı (senin kuralın). Yerelde doğrulanan: `goreleaser check`
+  temiz, `goreleaser release --snapshot --clean` altı arşiv + `checksums.txt` üretti, çıkan Windows
+  binary'si doğru sürümü bastı. Doğrulanmayan: `.github/workflows/release.yml`'in gerçekten koşması,
+  taslak release'in açılması ve varlıkların yüklenmesi. İlk `v*` etiketinde görülecek.
+
+- **(Faz 4, AÇIK) Ajan süreci çökerse kimse kaldırmıyor.**
+  Ajan relay düşmesinden ve uyku/uyanmadan toparlanıyor ama bir panikten sonra süreci yeniden
+  başlatacak bir denetleyici yok; README bunu bilinçli olarak "sadece dokümantasyon" diye
+  işaretlemişti. `docs/INSTALL.md` Task Scheduler (yeniden başlatma politikasıyla) ve NSSM
+  yollarını anlatıyor.
+
 - Nostr relay'lerinin ephemeral event'leri bazı relay'ler düşürebilir → `doctor` ile relay sağlığı; liste güncel tutulur.
 - GitHub Pages kullanım şartları: statik vitrin için uygun; projeyi ticari proxy gibi sunma, README'de "demo/paylaşım aracı" de.
 - Ajan Go; .NET ajanı istenirse `agent-dotnet/` olarak ayrı faz.
@@ -297,7 +359,7 @@ Signaling'i **kopyala-yapıştır** ile yap (sunucu yok, Nostr yok): ajan `offer
 | Web | Vite + TypeScript, framework yok | Preact (UI büyürse) |
 | SW | Elle yazılmış `sw.ts` | — |
 | Nostr (web) | `nostr-tools` | — |
-| Ajan | Go 1.22+, `pion/webrtc`, `go-nostr`, `cobra` | .NET + SIPSorcery |
+| Ajan | Go 1.27+, `pion/webrtc`, `go-nostr`, `cobra` | .NET + SIPSorcery |
 | Release | goreleaser, GitHub Actions | — |
 | Test | Vitest, Playwright, `go test` | — |
 

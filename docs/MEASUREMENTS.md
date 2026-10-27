@@ -249,3 +249,83 @@ cd web && MSYS_NO_PATHCONV=1 node scripts/build.mjs /PeerPages/
 # relay'ler hizli tekrar baglantilari reddediyor)
 cd web && PEERPAGES_E2E_RELAYS="wss://nos.lol" npx playwright test nostr.spec.ts
 ```
+
+---
+
+## Faz 4 — 2026-10-27 (dağıtım ve dayanıklılık)
+
+### Yeniden bağlanma süresi
+
+Ajan öldürülüp **aynı anahtarla** yeniden başlatıldı; ziyaretçi sekmesinde
+hiçbir şeye tıklanmadı (`web/e2e/faz4.spec.ts`).
+
+| Ne | Süre |
+|---|---|
+| Ajan yeniden başlayınca tünelin geri gelmesi | **6.3 sn** (iki koşumda 6.26 / 6.33 sn) |
+| İlk geri sayım adımı | 1 sn |
+| Ajanın "hazır" demesi (sahte relay) | ~0.3 sn |
+
+6.3 saniyenin büyük kısmı geri sayımın ikinci adımı: ilk deneme ajan daha
+dinlemeye başlamadan yapılıyor ve boşa gidiyor (ephemeral event saklanmaz),
+ikinci deneme tutuyor. Gerçek relay'lerde bu süre relay gecikmesi kadar
+uzar (Faz 2 ölçümü: URL'den tünele ~1 sn).
+
+### Kopma boşluğunda istek
+
+Tünel tam istek sırasında koparken ziyaretçi sekmesinden `GET /api/items`:
+**200** döndü (önceki davranış: 502). Service Worker yeniden bağlanmayı
+bekleyip isteği bir kez tekrar deniyor; bekleme üst sınırı alt kaynaklar
+için 10 sn, gezinmeler için 3 sn.
+
+### Üç platform binary'si (goreleaser, yerel anlık derleme)
+
+| Platform | Arşiv |
+|---|---|
+| linux/amd64 | 7.1 MB |
+| linux/arm64 | 6.5 MB |
+| darwin/amd64 | 7.3 MB |
+| darwin/arm64 | 6.8 MB |
+| windows/amd64 | 7.3 MB |
+| windows/arm64 | 6.5 MB |
+
+Altı arşiv + `checksums.txt`. Derleme süresi (altı hedef, soğuk önbellek):
+**1 dk 32 sn**; sıcak önbellekle 11 sn. `-trimpath`, `CGO_ENABLED=0`,
+`-s -w`.
+
+### Bundle boyutu
+
+| | gzip |
+|---|---|
+| Faz 3 | 39.7 KB |
+| Faz 4 (+ yeniden bağlanma denetleyicisi) | **40.7 KB** |
+
++1.0 KB: `src/reconnect.ts` ve durum ekranındaki yeni satırlar.
+
+### Veri yolu değişmedi
+
+Ping RTT medyan 0.30 ms, küçük GET medyan 1.50 ms / p95 2.50 ms,
+5 MB indirme 260 ms — Faz 1–3 aralıklarının içinde. Yeni denetimlerin
+(canlılık ping'i, relay sağlık yoklaması) ölçülebilir etkisi yok.
+
+### Henüz ölçülmeyenler (dürüstçe)
+
+- **Gerçek uyku/uyanma.** Laptop kapağı kapatılıp açılmadı; otomatik testler
+  ajanı yeniden başlatarak aynı sonucu üretiyor ama aynı şey değil.
+  Yöntem: `docs/MANUAL-TEST.md` → "Uyku/uyanma (Faz 4)".
+- **Release workflow'unun GitHub Actions'ta koşması.** Hiç push yapılmadı,
+  hiç etiket atılmadı. Yerelde `goreleaser check` + `--snapshot` doğrulandı;
+  workflow'un kendisi **çalıştırılmadı**.
+- **Uzun süreli relay dayanıklılığı.** Saatler boyunca açık kalan bir ajanın
+  relay bağlantılarını kaç kez kaybettiği ölçülmedi.
+- **Firefox ve Safari.** Hâlâ ölçülmedi (README §7 elle matris).
+
+### Ölçümü yeniden üretme
+
+```bash
+# Faz 4 e2e (yeniden baglanma, relay dusmesi, SW bekleme penceresi)
+cd web && npx playwright test faz4.spec.ts 2>&1 | grep OLCUM
+
+# Uc platform binary'si (yayin YAPMAZ)
+goreleaser check && goreleaser release --snapshot --clean
+ls -la dist/
+```

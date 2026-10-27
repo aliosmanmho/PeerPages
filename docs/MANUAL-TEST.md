@@ -180,9 +180,11 @@ istek logları akar (yollar maskelidir: `/*3/*5`; açmak için `--verbose`).
 
 Beklenen: bağlantı ekranına düşer (`/PeerPages/connect/`). Service Worker
 tünel bulamayınca gezinmeyi oraya yönlendirir; alt kaynak istekleri `503`
-döner. Ajan terminalinde `---PEERPAGES-TUNNEL-CLOSED---` görünür ve süreç
-çıkar — yeni bir oturum için ajanı yeniden başlatman gerekir (otomatik
-yeniden bağlanma Faz 4).
+döner.
+
+Nostr yolunda ajan **çalışmaya devam eder**: yeni bir ziyaretçi URL'yi açınca
+yeniden bağlanır, ajanı yeniden başlatman gerekmez. Elle yolda (`--manual`)
+ajan terminalinde `---PEERPAGES-TUNNEL-CLOSED---` görünür ve süreç çıkar.
 
 ---
 
@@ -349,6 +351,73 @@ bağlantı kurulamaz ve **TURN gerekir (Faz 5)**. Bu durumda tarayıcıda
 "Veri kanallari acilmadi" hatası görürsün — bu bir yazılım hatası değil, ağ
 topolojisinin sonucu.
 
+## Uyku/uyanma (Faz 4)
+
+**Kabul kriterinin asıl denemesi bu.** Otomatik test ajanı yeniden başlatarak
+aynı sonucu üretiyor ama gerçek askıya alma aynı şey değil: saatler,
+WebSocket'ler ve işletim sistemi hepsi işin içinde.
+
+1. Ajanı başlat, ziyaretçi URL'sini aç, tünelin açıldığını gör.
+2. Ziyaretçi sekmesinde siteyi gez (birkaç istek olsun).
+3. **Laptop'ı uyut** (kapağı kapat ya da `Win+X → Kapat → Uyku`). En az
+   **2 dakika** bekle: 30 saniyelik boşta kalma sınırını da, geri sayımın
+   üst sınırını da aşmış olalım.
+4. Uyandır ve ajan terminaline bak.
+
+Beklenen:
+
+- Ajan **ölmemiş** olmalı. `[durum]` satırı akmaya devam eder.
+- Ajan logunda `denetim gecikti, surec askiya alinmis olabilir` görebilirsin —
+  bu doğru davranış: oturum saat zıpladığı için değil, ping'e cevap gelmediği
+  için kapatılır.
+- `relay 3/4` gibi bir alan görürsün; uyandıktan sonra düşen relay'ler
+  birkaç saniye içinde geri gelmeli (log: `relay baglantilari degisti`).
+- Bağlantı ekranında "Baglanti koptu — yeniden baglaniliyor" yazısı
+  görünür ve **kendiliğinden** "Tunel acik"a döner. Hiçbir şeye tıklama.
+- `#metrics` içinde **Yeniden baglanma: 1** (ya da daha fazla) satırı
+  belirir; istek ve bayt sayaçları **sıfırlanmaz**.
+- Ziyaretçi sekmesini yenile: site yine çalışıyor olmalı.
+
+Olmazsa: ekrandaki hata metnini ve ajan logunun son 20 satırını not al.
+En olası sebep ajan tarafı değil relay tarafıdır (`doctor` çalıştır).
+
+## Relay düşmesi (Faz 4)
+
+Ajan tek bir relay'e bağımlı olmamalı ve relay dönünce toparlamalı.
+
+1. Ajanı **kendi** relay'inle başlat (düşürebileceğin bir relay gerekiyor):
+
+   ```sh
+   # 1. terminal: sahte relay sabit portta
+   cd agent && go run . fakerelay --port 7447
+
+   # 2. terminal
+   cd agent && go run . serve --target http://localhost:3000 --relay ws://localhost:7447
+   ```
+
+2. Ziyaretçi URL'sini `?relay=ws://localhost:7447` ekleyerek aç, tünelin
+   açıldığını gör.
+3. Sahte relay'i **öldür** (1. terminalde Ctrl+C).
+
+   Beklenen: ajan **çıkmaz**. `[durum]` satırında `relay 0/1` görünür ve
+   logda `hicbir relay'e baglanti yok: ziyaretciler su an sana ulasamaz`
+   uyarısı belirir. Açık tünel çalışmaya devam eder — WebRTC relay'e bağlı
+   değil, signaling bitmişti.
+4. Sahte relay'i **aynı portta** yeniden başlat.
+
+   Beklenen: `relay 1/1`, logda `tum relay'ler bagli`. Şimdi yeni bir
+   ziyaretçi sekmesi açabilmelisin: abonelik yenilenmiş olmalı.
+
+## Kurulumun doğrulanması (Faz 4)
+
+```sh
+peerpages version
+```
+
+Beklenen: sürüm, commit, tarih, platform ve Go sürümü. Kaynaktan
+`go build` ile derlediysen sürüm `dev (<commit>)` görünür; release
+binary'sinde `v0.1.0` gibi bir etiket olur. Ayrıntı: `docs/INSTALL.md`.
+
 ## Sorun giderme
 
 | Belirti | Sebep / çözüm |
@@ -363,6 +432,8 @@ topolojisinin sonucu.
 | "hicbir relay'e baglanilamadi" | Ağ WebSocket'i engelliyor olabilir. `--relay` ile kendi relay'ini ver. |
 | peer-id hatası | URL'nin `#` sonrasını eksiksiz kopyalamadın. npub 63 karakter. |
 | Site sekmesi bağlantı ekranına düşüyor | Tünel sahibi sekme kapalı. `/connect/` sekmesinin açık olduğundan emin ol. |
-| Alt kaynaklar 503 | Aynı sebep: tünel yok. |
+| Alt kaynaklar 503 | Aynı sebep: tünel yok. Bağlantı ekranı "yeniden baglaniliyor" diyorsa birkaç saniye bekle: SW kopma boşluğunda isteği bir süre bekletir (alt kaynak 10 sn, gezinme 3 sn), sonra 503'e döner. |
+| "yeniden baglaniliyor" bitmiyor | Ajan gerçekten kapalı ya da relay'lere ulaşılamıyor. Ajan terminaline bak: `relay 0/N` mi? |
+| Uyandıktan sonra tünel geri gelmiyor | Sekme arka plandaysa geri sayım yavaşlar; sekmeye geç (odaklanma geri sayımı sıfırlar) ya da "Simdi dene"ye bas. |
 | Kök mutlak yollar (`/style.css`) 404 | Alt yolda (`/PeerPages/`) yayınlanan sitelerin yapısal sınırı: o yol Service Worker'ın kapsamı dışına düşer. Custom domain ya da `kullanici.github.io/` kökünde sorun kalmaz (README §8). |
 | 5 MB indirme çok yavaş | Tarayıcı ve ajan aynı makinedeyse 100 ms civarı olmalı. Farklı ağlardaysan bağlantı hızına bağlı. |

@@ -248,3 +248,86 @@ Faz 3 kabul kriteri (tek ajan iki projeyi yayinliyor, ekranda anlamli durum
 bilgisi var) otomatik testlerle karsilandi. QR'in telefonla gercekten
 okundugu ve iki cihaz/iki ag dogrulamasi kullanici tarafinda:
 `docs/MANUAL-TEST.md`.
+
+### Faz 4 - Dagitim ve dayaniklilik
+
+Kopan baglanti artik kendini topluyor ve ajan kurulabilir hale geldi.
+
+#### Dayaniklilik (ajan)
+
+- Bosta kalma denetimi MONOTONIK saatle calisiyor. Onceki hali `lastSeen`'i
+  unix nano olarak saklayip `time.Unix` ile geri okuyordu; boyle kurulan bir
+  `time.Time` monotonik okumayi tasimaz, yani karsilastirma duvar saatiydi.
+  Askiya alma suresi oldugu gibi "sessizlik" sayiliyor ve uyanmadan sonraki
+  ILK TIK tum oturumlari kapatiyordu.
+- Denetim kendi gecikmesine de bakiyor: iki tik arasi beklenenin 3 katindan
+  fazlaysa bu bir uyanmadir, sessizlik sayaci sifirlanir ve oturum bir tur
+  daha ping'le sinanir. Kapatma karari her zaman cevapsiz kalan bir ping'e
+  dayaniyor.
+- ICE `Disconnected` artik terminal degil: 10 saniyelik tolerans
+  (`DisconnectGrace`); geri donerse oturum yasar, donmezse `ErrDisconnected`.
+  Daha once aninda kapatiliyor ve TEMIZ kapanis gibi raporlaniyordu.
+- Kapanis nedeni log'da: `bosta` / `baglanti-koptu` / `temiz`.
+- `internal/nostr`: relay basina saglik (`Health`, `HealthyCount`).
+- `Acceptor.Run` denetimli dongu: abonelik kapandiginda, hicbir relay bagli
+  olmadiginda (3 yoklama) ya da surec askiya alinmis gorundugunde yeniden
+  abone olur; her donemde filtre `since` tazelenir. Geri sayim 1→60 sn.
+  Onceden abonelik kapandiginda Run hata donuyor ve ajan `exit 1` ile
+  oluyordu.
+- Durum satirinda `relay 3/4` alani.
+
+#### Dayaniklilik (web)
+
+- Yeni `src/reconnect.ts`: geri sayimli denetleyici (1-2-4-8-15-30 sn).
+  Her deneme SIFIRDAN oturum kurar (yeni sid + yeni gecici keypair) — ajan
+  answerer-only ve oturum tek seferlik oldugu icin ICE restart yerine bu yol
+  secildi (README §8 sapma notu).
+- `online` ve `visibilitychange` geri sayimi sifirlar (uyanma yolu).
+- Canlilik denetimi: ust uste iki cevapsiz ping kopma sayilir. WebRTC durum
+  makinesi her kopmayi bildirmiyor.
+- Kopmada elle signaling paneli ACILMIYOR; ekran geri sayimi gosteriyor,
+  sayaclar korunuyor, `#metrics`'te yeniden baglanma sayisi var.
+- SW kopma boslugunda istegi bekletiyor: alt kaynaklar 10 sn, gezinmeler
+  3 sn. Tam istek sirasinda kopan GET/HEAD bir kez tekrar deneniyor
+  (yalnizca cevap basligi hic gitmediyse: hedeften gelen hatalar tekrar
+  denenmez).
+
+#### Dagitim
+
+- `internal/version`: ldflags (-X) + `runtime/debug.ReadBuildInfo` yedegi.
+  `go install ...@latest` ile kurulan binary de surumunu biliyor.
+- Yeni `peerpages version` komutu (surum, commit, tarih, platform, Go).
+- `.goreleaser.yaml`: linux/darwin/windows x amd64/arm64, CGO kapali,
+  `-trimpath`, tar.gz (Windows'ta zip), `checksums.txt`. Release TASLAK
+  acilir. Scoop/Homebrew taslak ama yukleme kapali (tap depolari yok).
+- `.github/workflows/release.yml`: `v*` etiketinde goreleaser.
+- `ci.yml`: ubuntu/macos/windows derleme matrisi.
+- `docs/INSTALL.md`: binary indirme, `go install`, kaynaktan derleme,
+  dogrulama, Windows'ta servis (Task Scheduler / NSSM — yalnizca belge).
+- `Makefile`: `release-snapshot`, `release-check`; `lint-agent`'in sessiz
+  gofmt hatasi duzeltildi (dosya listelese bile 0 donuyordu).
+- `go mod tidy`: pion, go-nostr ve coder/websocket dogrudan bagimlilik.
+
+#### Yolda bulunan hata
+
+SW bekleme penceresinin ilk hali yalnizca "tunel sahibi sekme yok"
+durumunda devreye giriyordu. Tunel tam istek sirasinda koparsa istek yine
+dispatch ediliyor, sayfada hata aliyor ve ziyaretci **502** goruyordu — yani
+pencere o yolda hic islemiyordu. Yeni e2e testi yakaladi.
+
+#### Testler
+
+285 TS birim testi (+9), 16 Go paketi, 26 Playwright testi (+4: yeniden
+baglanma, kopma ekrani, relay dusmesi, SW bekleme penceresi).
+
+OLCUM: ajan yeniden basladiktan sonra tunel 6.3 sn'de geri geldi; alti
+platform arsivi 6.5-7.3 MB; bundle 39.7 → 40.7 KB gzip.
+
+#### Kabul durumu
+
+Yeniden baglanma kriteri otomatik testlerle karsilandi (ajanin yeniden
+baslamasi, relay dusup donmesi, kopma boslugu). GERCEK uyku/uyanma elle
+denenmeli: `docs/MANUAL-TEST.md` → "Uyku/uyanma (Faz 4)".
+Release workflow'u YERELDE dogrulandi (`goreleaser check` + `--snapshot`:
+6 arsiv + checksums); GitHub Actions'ta kosturulmadi, cunku hic push ya da
+etiket yok (README §8).

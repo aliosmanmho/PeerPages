@@ -67,6 +67,17 @@ Tek taraflı protokol değişikliği kabul edilmez.
 Faz boyunca: `faz-<N>: kısa açıklama`. Küçük ve tek konulu commit'ler.
 Her faz bitiminde `CHANGELOG.md` güncellenir.
 
+## Sürüm ve etiket (Faz 4)
+
+- Etiket biçimi `v<major>.<minor>.<patch>` (ör. `v0.1.0`). Etiket push
+  edilince `.github/workflows/release.yml` koşar ve goreleaser release'i
+  **taslak** olarak açar — notlar elle gözden geçirilip yayınlanır.
+- Sürüm bilgisi `-ldflags -X` ile enjekte edilir; `go install` ile kurulan
+  binary'de `runtime/debug` yedeği devreye girer (`agent/internal/version`).
+- Changelog faz bazlı kalır: proje `0.x` boyunca sürümleri fazlara
+  bağlıyor, ayrı bir `[x.y.z]` bölümü tutmuyor.
+- Yerel deneme yayın yapmaz: `goreleaser release --snapshot --clean`.
+
 ## Test
 
 - Birim: `vitest` (web), `go test` (agent).

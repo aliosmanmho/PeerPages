@@ -19,13 +19,30 @@ const READY = "---PEERPAGES-READY---";
 
 export interface FakeRelay {
   url: string;
+  /** Dinlenen port; ayni adreste yeniden baslatmak icin (Faz 4). */
+  port: number;
   stop: () => void;
 }
 
+export interface FakeRelayOptions {
+  /**
+   * Sabit port. Faz 4'un "relay dusup geri geliyor" testi icin gerekli:
+   * 0 ile baslatilan relay yeniden baslatildiginda baska bir adres alir
+   * ve ajan eski adresi arar.
+   */
+  readonly port?: number;
+  readonly extraArgs?: readonly string[];
+}
+
 /** Sahte Nostr relay'ini baslatir ve ws:// adresini dondurur. */
-export async function startFakeRelay(extraArgs: string[] = []): Promise<FakeRelay> {
+export async function startFakeRelay(
+  opts: readonly string[] | FakeRelayOptions = {},
+): Promise<FakeRelay> {
+  const o: FakeRelayOptions = Array.isArray(opts)
+    ? { extraArgs: opts }
+    : (opts as FakeRelayOptions);
   const bin = ensureAgentBinary();
-  const proc = spawn(bin, ["fakerelay", "--port", "0", ...extraArgs], {
+  const proc = spawn(bin, ["fakerelay", "--port", String(o.port ?? 0), ...(o.extraArgs ?? [])], {
     cwd: AGENT_DIR,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -46,8 +63,14 @@ export async function startFakeRelay(extraArgs: string[] = []): Promise<FakeRela
     throw new Error(`sahte relay adresi okunamadi: ${line}`);
   }
 
+  const port = Number(new URL(url).port);
+  if (!Number.isFinite(port) || port === 0) {
+    throw new Error(`sahte relay portu okunamadi: ${url}`);
+  }
+
   return {
     url,
+    port,
     stop: () => {
       proc.kill();
     },
@@ -68,6 +91,14 @@ export interface NostrAgent {
   urls: Record<string, string>;
   output: () => string[];
   stop: () => void;
+  /**
+   * Ajani oldurup AYNI anahtarla yeniden baslatir (Faz 4).
+   *
+   * Anahtar ayni oldugu icin peer-id de ayni kalir: ziyaretcinin URL'si
+   * gecerliligini korur ve sayfanin kendi kendine yeniden baglanmasi
+   * olculebilir.
+   */
+  restart: () => Promise<void>;
   process: ChildProcess;
 }
 
@@ -105,13 +136,16 @@ export async function startNostrAgent(opts: NostrAgentOptions): Promise<NostrAge
   }
   args.push(...(opts.extraArgs ?? []));
 
-  const proc = spawn(bin, args, { cwd: AGENT_DIR, stdio: ["ignore", "pipe", "pipe"] });
+  let watcher = new LineWatcher();
+  const attach = (p: ChildProcess) => {
+    p.stdout?.setEncoding("utf8");
+    p.stdout?.on("data", (c: string) => watcher.feed(c));
+    p.stderr?.setEncoding("utf8");
+    p.stderr?.on("data", (c: string) => watcher.feed(c));
+  };
 
-  const watcher = new LineWatcher();
-  proc.stdout.setEncoding("utf8");
-  proc.stdout.on("data", (c: string) => watcher.feed(c));
-  proc.stderr.setEncoding("utf8");
-  proc.stderr.on("data", (c: string) => watcher.feed(c));
+  let proc = spawn(bin, args, { cwd: AGENT_DIR, stdio: ["ignore", "pipe", "pipe"] });
+  attach(proc);
 
   await watcher.waitFor((l) => l.includes(READY), 40_000, "ajanin hazir isaretcisi");
 
@@ -142,11 +176,22 @@ export async function startNostrAgent(opts: NostrAgentOptions): Promise<NostrAge
   }
   const urlLine = urls.default ?? urlLines[0] ?? "";
 
-  return {
+  const handle: NostrAgent = {
     npub,
     visitorURL: urlLine,
     urls,
     output: () => watcher.all(),
+    restart: async () => {
+      const dead = new Promise<void>((resolve) => proc.once("exit", () => resolve()));
+      proc.kill();
+      await dead;
+
+      watcher = new LineWatcher();
+      proc = spawn(bin, args, { cwd: AGENT_DIR, stdio: ["ignore", "pipe", "pipe"] });
+      attach(proc);
+      await watcher.waitFor((l) => l.includes(READY), 40_000, "yeniden baslayan ajan");
+      handle.process = proc;
+    },
     stop: () => {
       proc.kill();
       try {
@@ -157,4 +202,5 @@ export async function startNostrAgent(opts: NostrAgentOptions): Promise<NostrAge
     },
     process: proc,
   };
+  return handle;
 }

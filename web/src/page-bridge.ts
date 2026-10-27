@@ -87,13 +87,16 @@ async function serveRequest(
   };
 
   if (!tunnel?.isOpen) {
-    send({ type: "error", message: "tunel acik degil" });
+    // Istek hedefe hic gitmedi: SW yeniden baglanmayi bekleyip tekrar
+    // deneyebilir.
+    send({ type: "error", message: "tunel acik degil", retryable: true });
     port.close();
     hooks.onRequestError?.({ path: msg.path, message: "tunel acik degil" });
     return;
   }
 
   let bytes = 0;
+  let headSent = false;
   try {
     const res = await tunnel.request({
       method: msg.method,
@@ -102,6 +105,7 @@ async function serveRequest(
       body: msg.body ? new Uint8Array(msg.body) : null,
     });
 
+    headSent = true;
     send({ type: "res", status: res.status, headers: { ...res.headers } });
 
     const reader = res.body.getReader();
@@ -123,7 +127,12 @@ async function serveRequest(
     hooks.onRequestDone?.({ path: msg.path, status: res.status, bytes });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    send({ type: "error", message });
+    // Cevap basligi hic gitmediyse VE tunel artik kapaliysa, istek tunel
+    // koptugu icin dustu: SW yeniden baglanmayi bekleyip tekrar
+    // deneyebilir. Hedeften gelen hatalar (500 vb.) basligi gonderdigi
+    // icin bu yola girmez.
+    const retryable = !headSent && !tunnel.isOpen;
+    send({ type: "error", message, retryable });
     port.close();
     hooks.onRequestError?.({ path: msg.path, message });
   }

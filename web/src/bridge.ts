@@ -81,6 +81,14 @@ export interface BridgeResponseEnd {
 export interface BridgeResponseError {
   readonly type: "error";
   readonly message: string;
+  /**
+   * Hata "tunel su an yok" demek: istek hedefe HIC gitmedi (Faz 4).
+   *
+   * SW bunu gorunce — ve istek idempotent ise — yeniden baglanmayi kisa
+   * sure bekleyip BIR KEZ tekrar dener. Ayrim onemli: hedeften gelen bir
+   * hata tekrar denenmemeli.
+   */
+  readonly retryable?: boolean;
 }
 
 export type BridgeResponse =

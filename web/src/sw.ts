@@ -192,8 +192,44 @@ async function handle(request: Request, url: URL): Promise<Response> {
     }
   }
 
-  return forward(client, request, url, body);
+  let response = await forward(client, request, url, body);
+
+  // Tunel tam bu istek sirasinda koptuysa sayfa "retryable" hata doner:
+  // istek hedefe hic gitmemistir. Yeniden baglanmayi kisa sure bekleyip
+  // BIR KEZ tekrar deniyoruz — yalnizca idempotent isteklerde, cunku
+  // POST'un hedefe ulasip ulasmadigini buradan bilemeyiz.
+  if (response === RETRY_TUNNEL) {
+    const idempotent = request.method === "GET" || request.method === "HEAD";
+    if (idempotent) {
+      await waitForTunnel(
+        request.mode === "navigate" ? RECONNECT_WAIT_NAVIGATE_MS : RECONNECT_WAIT_MS,
+      );
+      const retryClient = await findTunnelClient();
+      if (retryClient) {
+        response = await forward(retryClient, request, url, body);
+      }
+    }
+  }
+
+  if (response === RETRY_TUNNEL) {
+    return new Response("peerpages: tunel acik degil\n", {
+      status: 502,
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+        "cache-control": "no-store",
+      },
+    });
+  }
+  return response;
 }
+
+/**
+ * forward'in "tunel yoktu, istek gitmedi" cevabi.
+ *
+ * Response yerine ayri bir deger: cagiran taraf bunu tekrar deneyip
+ * deneyemeyecegine karar verir.
+ */
+const RETRY_TUNNEL = Symbol("retry-tunnel");
 
 /** Istek govdesini sinirli boyutta tamponlar. */
 async function readLimitedBody(request: Request): Promise<ArrayBuffer | null> {
@@ -216,8 +252,8 @@ function forward(
   request: Request,
   url: URL,
   body: ArrayBuffer | null,
-): Promise<Response> {
-  return new Promise<Response>((resolve, reject) => {
+): Promise<Response | typeof RETRY_TUNNEL> {
+  return new Promise<Response | typeof RETRY_TUNNEL>((resolve, reject) => {
     const channel = new MessageChannel();
     let settled = false;
     let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
@@ -256,10 +292,14 @@ function forward(
       channel.port1.close();
     };
 
-    const fail = (message: string) => {
+    const fail = (message: string, retryable = false) => {
       if (!settled) {
         settled = true;
         channel.port1.close();
+        if (retryable) {
+          resolve(RETRY_TUNNEL);
+          return;
+        }
         resolve(
           new Response(`peerpages: ${message}\n`, {
             status: 502,
@@ -298,7 +338,7 @@ function forward(
           finish();
           break;
         case "error":
-          fail(msg.message);
+          fail(msg.message, msg.retryable === true);
           break;
       }
     };

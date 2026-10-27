@@ -190,6 +190,7 @@ Gercek release: `v*` bicimli bir etiket push edilince
 `.github/workflows/release.yml` kosar ve goreleaser release'i **taslak**
 olarak acar (notlar elle gozden gecirilir). Scoop/Homebrew taslaklari
 `.goreleaser.yaml` icinde ama `skip_upload: true` ile kapali: tap depolari
-henuz yok ve proje adi Faz 7'de degisebilir.
+henuz yok. Proje adi Faz 7'de kesinlesti, yani modul yolu ve binary adi
+artik sabit.
 
 Son kullanici kurulumu: `docs/INSTALL.md`.

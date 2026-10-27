@@ -70,11 +70,12 @@ release:
   draft: true
   prerelease: auto
 
-# Scoop ve Homebrew TASLAK (README Faz 4: "tap taslagi").
+# Scoop ve Homebrew TASLAK (BRIEF Faz 4: "tap taslagi").
 #
-# Tap depolari henuz yok ve isim Faz 7'de degisebilir; bu yuzden yukleme
-# KAPALI. Acmak icin: depolari olustur, skip_upload'u kaldir ve release
-# workflow'una tap deposuna yazma izni olan bir token ekle.
+# Proje adi Faz 7'de KESINLESTI (peerpages). Yukleme hala kapali, cunku tap
+# depolari (aliosmanmho/homebrew-tap, aliosmanmho/scoop-bucket) henuz yok.
+# Acmak icin: depolari olustur, skip_upload'u kaldir ve release workflow'una
+# tap deposuna yazma izni olan bir token ekle.
 homebrew_casks:
   - name: peerpages
     ids: [peerpages]

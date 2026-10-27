@@ -44,8 +44,8 @@ Binary `$(go env GOPATH)/bin` altına kurulur; bu dizinin PATH'inde olduğundan
 emin ol. Bu yolla kurulan binary de sürümünü bilir (`runtime/debug` üzerinden),
 yani `peerpages version` doğru etiketi basar.
 
-> **Not:** Modül yolu `…/PeerPages/agent`. Projenin son adı Faz 7'de
-> kesinleşecek; isim değişirse bu yol da değişir.
+> **Not:** Modül yolu `…/PeerPages/agent` ve Faz 7'de **kesinleşti**:
+> proje adı `peerpages` olarak kalıyor, yani bu yol değişmeyecek.
 
 ## 3. Scoop / Homebrew (henüz yayınlanmadı)
 

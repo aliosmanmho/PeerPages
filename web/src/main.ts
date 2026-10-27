@@ -100,6 +100,7 @@ const el = {
   copyOfferBtn: document.getElementById("btn-copy-offer") as HTMLButtonElement | null,
   answerInput: document.getElementById("answer-input") as HTMLTextAreaElement | null,
   acceptAnswerBtn: document.getElementById("btn-accept-answer") as HTMLButtonElement | null,
+  panelIntro: document.getElementById("panel-intro"),
   panelManual: document.getElementById("panel-manual"),
   panelNostr: document.getElementById("panel-nostr"),
   nostrPeer: document.getElementById("nostr-peer"),
@@ -372,6 +373,7 @@ function renderReconnectState(state: SupervisorState, info: SupervisorInfo): voi
 }
 
 function showConnected(): void {
+  if (el.panelIntro) el.panelIntro.hidden = true;
   if (el.panelManual) el.panelManual.hidden = true;
   if (el.panelConnected) el.panelConnected.hidden = false;
   // Yerel sitenin koku scope kokunde; bu sayfa connect/ altinda duruyor.
@@ -711,6 +713,15 @@ async function openNostrSession(): Promise<void> {
 
 async function main(): Promise<void> {
   wireUI();
+
+  // URL'de peer-id yoksa tanitim blogunu HEMEN ac: bu ekrana gelen kisi
+  // genelde README'den ya da bir lansman baglantisindan geliyor ve once
+  // "bu nedir" sorusunun cevabini ariyor. SW kurulumundan ONCE, cunku SW
+  // kurulamazsa da (eski tarayici, kisitli ortam) o cevaba ihtiyaci var.
+  if (location.hash.trim().length <= 1 && el.panelIntro) {
+    el.panelIntro.hidden = false;
+  }
+
   const reg = await registerServiceWorker();
   if (!reg) return;
 
@@ -731,9 +742,13 @@ async function main(): Promise<void> {
     return;
   }
 
-  // peer-id yok: elle signaling yolu.
+  // peer-id yok: once "bu nedir", sonra elle signaling yolu.
+  //
+  // Bu ekrana gelen kisi genelde README'den ya da bir lansman baglantisindan
+  // geliyor, yani ajani kurmus olmayabilir; dogrudan "offer uret" demek
+  // onu bos yere ileri seviye bir akisa sokuyordu.
   status.step("signal", "active");
-  status.say("URL'de peer-id yok — elle signaling yolu. Offer uret.");
+  status.say("No peer-id in the URL — see below.");
   if (el.panelNostr) el.panelNostr.hidden = true;
 }
 

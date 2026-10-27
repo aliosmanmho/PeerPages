@@ -73,6 +73,9 @@ async function openTunnelPage(context: import("@playwright/test").BrowserContext
   );
   // URL'de peer-id olmadigi icin elle signaling paneli acik olmali.
   await expect(page.locator("#panel-manual")).toBeVisible();
+  // ...ve tanitim blogu ONUN USTUNDE: bu ekrana README'den gelen biri once
+  // ne oldugunu gormeli (Faz 7).
+  await expect(page.locator("#panel-intro")).toBeVisible();
 
   // SAYFA offer uretir (Faz 2 rol degisimi).
   await page.locator("#btn-make-offer").click();
@@ -90,6 +93,9 @@ async function openTunnelPage(context: import("@playwright/test").BrowserContext
   await page.waitForFunction(() => window.__peerpages?.hasTunnel() === true, null, {
     timeout: 30_000,
   });
+  // Tunel acilinca tanitim ve elle akis kalkar: ekranda yalnizca durum olur.
+  await expect(page.locator("#panel-intro")).toBeHidden();
+  await expect(page.locator("#panel-manual")).toBeHidden();
 
   return page;
 }

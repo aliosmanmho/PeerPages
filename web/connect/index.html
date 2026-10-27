@@ -34,6 +34,42 @@
         </div>
       </section>
 
+      <!--
+        URL'de peer-id yokken gorunur (src/main.ts). Bu ekrana gelen kisi
+        buyuk ihtimalle README'den ya da bir lansman baglantisindan geliyor:
+        once ne oldugunu, sonra ne yapacagini gormeli. Elle signaling akisi
+        ALTTA kaliyor, cunku o ileri seviye bir yol.
+
+        Dili INGILIZCE: arayuzun geri kalani Turkce ama bu blogun kitlesi
+        tam olarak Ingilizce README'den gelen yabanci ziyaretci.
+      -->
+      <section class="panel intro" id="panel-intro" hidden>
+        <h2 class="panel__title">What is this?</h2>
+        <p class="intro__lead">
+          <strong>PeerPages</strong> lets you share a web server running on your
+          own machine — <code>localhost:3000</code> — with anyone, over this
+          GitHub Pages address. No proxy server, no account, nothing for the
+          visitor to install.
+        </p>
+        <p class="panel__hint">
+          <strong>Someone sent you a link?</strong> It needs a peer-id: the
+          address must end with <code>#npub1…</code>. Ask them to resend the
+          full URL their agent printed.
+        </p>
+        <p class="panel__hint">
+          <strong>Want to share your own localhost?</strong> Install the agent
+          and run it — it prints a ready-to-share link back to this page:
+        </p>
+        <pre class="intro__code"><code>go install github.com/aliosmanmho/PeerPages/agent@latest
+peerpages serve --target http://localhost:3000</code></pre>
+        <p class="panel__hint">
+          How it works, the security model and the honest limits:
+          <a class="intro__link" href="https://github.com/aliosmanmho/PeerPages"
+            >github.com/aliosmanmho/PeerPages</a
+          >
+        </p>
+      </section>
+
       <section class="panel" id="panel-manual">
         <h2 class="panel__title">1. Offer uret ve ajana yapistir</h2>
         <p class="panel__hint">

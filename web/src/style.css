@@ -207,6 +207,30 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
+/* Tanitim blogu: peer-id'siz gelen ziyaretci icin (connect/index.html). */
+.intro__lead {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+}
+
+.intro__code {
+  margin: 0 0 0.75rem;
+  padding: 0.625rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+
+.intro__code code {
+  white-space: pre;
+}
+
+.intro__link {
+  color: inherit;
+}
+
 .share {
   margin-top: 1rem;
   padding-top: 0.75rem;

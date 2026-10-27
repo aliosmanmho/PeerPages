@@ -116,6 +116,9 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
 
       // Elle signaling paneli gorunmemeli: bu yolda gerekli degil.
       await expect(tunnelPage.locator("#panel-manual")).toBeHidden();
+      // Tanitim blogu da gorunmemeli: URL'de peer-id VAR, yani ziyaretci
+      // ne yapacagini zaten biliyor (Faz 7).
+      await expect(tunnelPage.locator("#panel-intro")).toBeHidden();
 
       // Site gercekten tunelden geliyor mu?
       const visitor = await context.newPage();

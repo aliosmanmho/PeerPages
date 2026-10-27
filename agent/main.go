@@ -1,20 +1,28 @@
 // peerpages — localhost'u sunucusuz yayinlayan ajan.
 //
-// Faz 1'de signaling elle yapilir: offer stdout'a basilir, answer stdin'den
-// okunur. Nostr signaling Faz 2'de gelir.
+// Signaling varsayilan olarak Nostr relay'leri uzerinden yapilir; `--manual`
+// ile offer/answer kopyala-yapistir ile tasinabilir.
 package main
 
 import (
 	"os"
 
 	"github.com/aliosmanmho/PeerPages/agent/internal/cli"
+	"github.com/aliosmanmho/PeerPages/agent/internal/version"
 )
 
-// Derleme sirasinda -ldflags ile doldurulur (goreleaser, Faz 4).
-var version = "dev"
+// Derleme sirasinda -ldflags -X ile doldurulur (goreleaser).
+//
+// Bos kalirlarsa surum bilgisi runtime/debug.ReadBuildInfo'dan okunur:
+// `go install ...@latest` ile kurulan binary de dogru surumu basar.
+var (
+	buildVersion = "dev"
+	buildCommit  = ""
+	buildDate    = ""
+)
 
 func main() {
-	if err := cli.Execute(version); err != nil {
+	if err := cli.Execute(version.Resolve(buildVersion, buildCommit, buildDate)); err != nil {
 		os.Exit(1)
 	}
 }

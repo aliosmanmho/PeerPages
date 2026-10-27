@@ -145,3 +145,25 @@ func extractNpub(t *testing.T, out string) string {
 	t.Fatalf("ciktida peer-id bulunamadi:\n%s", out)
 	return ""
 }
+
+// `peerpages version` surum, platform ve Go surumunu basmali: bir hata
+// raporunda "hangi binary" sorusunun cevabi --version'in tek satiriyla
+// verilemiyor.
+func TestVersionCmd(t *testing.T) {
+	root := NewRootCmd("v9.9.9")
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"version"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("version komutu hata verdi: %v", err)
+	}
+
+	got := out.String()
+	for _, want := range []string{"peerpages v9.9.9", "platform:", "go      :"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("cikti %q icermiyor:\n%s", want, got)
+		}
+	}
+}

@@ -1,0 +1,101 @@
+name: Pages
+
+# App shell'i GitHub Pages'e dagitir (Faz 7).
+#
+# Neden ayri workflow ve neden testleri tekrarlamiyor: ci.yml zaten lint +
+# birim test + e2e kosuyor. Dagitimi e2e'ye baglamak (Chromium indirip ~4
+# dakika) yayini yavaslatir ve dagitimin KENDI hatasini e2e gurultusunun
+# arkasina saklar. Kirmizi bir commit'in yayina gitmesini istemiyorsan
+# branch protection kullan; bu workflow'un isi tek sey yapmak.
+#
+# `web/dist` repoda TUTULMAZ (.gitignore): cikti burada uretilir.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "protocol/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Dagitimlar siraya girer ve YARIDA KESILMEZ: yarim yayinlanmis bir site,
+# iptal edilmis bir derlemeden kotudur.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: derle ve yayinla
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # Iki depo degiskeni (Settings -> Variables):
+      #   PAGES_CNAME  custom domain (or. demo.ornek.com). Doluysa site
+      #                alan adinin KOKUNDE yayinlanir, yani base "/" olur ve
+      #                CNAME dosyasi yazilir.
+      #   PAGES_BASE   proje sayfasi alt yolu; verilmezse "/PeerPages/".
+      #
+      # Kok dagitimin teknik kazanci: yerel sitenin KOK-MUTLAK yollari
+      # (/style.css) Service Worker kapsami icinde kalir (BRIEF §8'deki
+      # yapisal sinir kalkar).
+      - name: Base yolunu sec
+        id: base
+        env:
+          PAGES_CNAME: ${{ vars.PAGES_CNAME }}
+          PAGES_BASE: ${{ vars.PAGES_BASE }}
+        run: |
+          if [ -n "$PAGES_CNAME" ]; then
+            echo "value=/" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${PAGES_BASE:-/PeerPages/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bagimliliklar
+        working-directory: web
+        run: npm ci
+
+      - name: Derle (app shell + sw.js + ws-shim.js)
+        working-directory: web
+        run: node scripts/build.mjs "${{ steps.base.outputs.value }}"
+
+      # Beklenen cikti dosyalari: sessizce eksik bir dagitim, yayinda
+      # "SW kurulamadi" olarak gorunurdu.
+      - name: Cikti kontrolu
+        working-directory: web
+        run: |
+          test -f dist/index.html
+          test -f dist/connect/index.html
+          test -f dist/sw.js
+          test -f dist/ws-shim.js
+
+      - name: CNAME (custom domain verildiyse)
+        if: vars.PAGES_CNAME != ''
+        run: echo "${{ vars.PAGES_CNAME }}" > web/dist/CNAME
+
+      # enablement: true -> Pages depo ayarlarindan elle acilmak zorunda
+      # degil, ilk kosumda kendisi aciyor.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

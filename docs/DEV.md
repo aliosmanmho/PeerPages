@@ -56,6 +56,38 @@ asilir.
 > Script boyle bir donusumu tespit ederse anlasilir bir hata verir.
 > PowerShell'de (`scripts\build.ps1`) boyle bir sorun yok.
 
+## Pages dagitimi (Faz 7)
+
+App shell'i yayinlayan workflow: `.github/workflows/pages.yml`. `main`'e
+`web/**` ya da `protocol/**` altinda bir degisiklik gidince kosar; elle
+tetiklemek icin Actions sekmesinden "Pages" -> "Run workflow".
+
+Iki depo degiskeni (Settings -> Secrets and variables -> Actions ->
+Variables):
+
+| Degisken | Varsayilan | Ne yapar |
+|---|---|---|
+| `PAGES_BASE` | `/PeerPages/` | Proje sayfasi alt yolu; derleme base'i |
+| `PAGES_CNAME` | bos | Doluysa base `/` olur ve `dist/CNAME` yazilir |
+
+Custom domain baglamak:
+
+1. DNS'te kaydi olustur (alt alan adi icin `CNAME` -> `<kullanici>.github.io`;
+   apex icin GitHub'in A/AAAA adresleri).
+2. `PAGES_CNAME` degiskenine alan adini yaz (or. `demo.ornek.com`).
+3. Workflow'u tekrar kostur. Site artik alan adinin KOKUNDE.
+4. Ajanin bastigi adresi de guncelle: `--app-url https://demo.ornek.com/`
+   (varsayilan `internal/cli/key.go` icindeki `DefaultAppURL`).
+
+Kok dagitimin teknik kazanci sadece estetik degil: yerel sitenin **kok-mutlak**
+yollari (`/style.css`) Service Worker kapsami icinde kalir. Alt yolda bu
+yollar kapsam disina duser ve SW onlari yakalayamaz (BRIEF §8'deki yapisal
+sinir).
+
+Workflow testleri TEKRARLAMAZ; `ci.yml` zaten lint + birim test + e2e
+kosuyor. Dagitimi e2e'ye baglamak yayini yavaslatir ve dagitimin kendi
+hatasini gurultunun arkasina saklar.
+
 ## URL yerlesimi
 
 | Yol | Ne |
@@ -69,16 +101,20 @@ Gerekcesi BRIEF bolum 8'de ("App shell ile yerel sitenin koku ayni URL'yi
 istiyor"). SW kapsamini **calisma zamaninda** `registration.scope`'tan
 turetiyor (`src/sw.ts`), derleme zamani bir sabitten degil.
 
-## Web derlemesi neden iki adim
+## Web derlemesi neden uc adim
 
-`npm run build` (yani `node scripts/build.mjs`) sirayla iki Vite derlemesi
+`npm run build` (yani `node scripts/build.mjs`) sirayla uc Vite derlemesi
 calistirir:
 
 1. `vite build` — iki HTML girdisi (`index.html` onyukleyici,
    `connect/index.html` baglanti ekrani) ve hash'li `assets/`.
 2. `vite build --config vite.sw.config.ts` — Service Worker, `dist/sw.js`.
+3. `vite build --config vite.shim.config.ts` — WebSocket shim,
+   `dist/ws-shim.js` (Faz 6). Modul DEGIL, klasik IIFE: ziyaretcinin
+   sayfasina enjekte ediliyor ve sayfanin kendi script'lerinden once
+   kosmasi gerekiyor.
 
-Service Worker ayri derlenir cunku:
+Service Worker (ve shim) ayri derlenir cunku:
 
 - dosya adi **hash'siz ve sabit** olmali (`register(base + "sw.js")`),
 - scope kokunde tek dosya olmali (ek chunk = ek istek),
@@ -86,7 +122,8 @@ Service Worker ayri derlenir cunku:
 
 `vite-plugin-pwa` bilerek kullanilmiyor (BRIEF karari).
 
-İkinci derleme `emptyOutDir: false` ile calisir; bu yuzden **sira onemli**.
+Sonraki derlemeler `emptyOutDir: false` ile calisir; bu yuzden **sira
+onemli**: app shell en basta gelmeli.
 
 ## TypeScript yapilandirmasi
 

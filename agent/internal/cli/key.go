@@ -11,8 +11,13 @@ import (
 
 // DefaultAppURL ziyaretci URL'sini basarken kullanilan varsayilan adres.
 //
-// Faz 7'de gercek dagitim adresi belirlenecek; simdilik sablon.
-const DefaultAppURL = "https://<kullanici>.github.io/PeerPages/"
+// Faz 7'de GERCEK dagitim adresi: app shell bu adreste yayinda
+// (.github/workflows/pages.yml). Onceki sablon deger ("<kullanici>")
+// bayraksiz calisan ajanin CALISMAYAN bir URL basmasina yol aciyordu --
+// "yabanci biri 3 dakikada paylasabiliyor" kriterinin en kritik tek satiri.
+//
+// Kendi kopyasini yayinlayan ya da custom domain kullanan --app-url verir.
+const DefaultAppURL = "https://aliosmanmho.github.io/PeerPages/"
 
 func newKeyCmd() *cobra.Command {
 	var (

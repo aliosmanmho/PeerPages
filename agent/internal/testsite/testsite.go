@@ -12,7 +12,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -102,7 +101,8 @@ func BigFileSHA256() string {
 // Ekler:
 //   - `/api/items` -> `api/items.json` (uzantisiz API yolu)
 //   - `/yonlendir` -> 302, Location mutlak URL (Location yeniden yazimi testi)
-//   - `/sse` -> text/event-stream (Faz 6 hazirligi, streaming testi)
+//   - `/sse` -> text/event-stream (`?n=`, `?delay=`, `?keepalive=`)
+//   - `/ws`  -> WebSocket yankisi (`?close=`, `?proto=`)
 func Handler(root string) http.Handler {
 	fileServer := http.FileServer(http.Dir(root))
 	mux := http.NewServeMux()
@@ -123,26 +123,8 @@ func Handler(root string) http.Handler {
 		w.WriteHeader(http.StatusFound)
 	})
 
-	mux.HandleFunc("/sse", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("content-type", "text/event-stream")
-		w.Header().Set("cache-control", "no-store")
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			http.Error(w, "flush desteklenmiyor", http.StatusInternalServerError)
-			return
-		}
-		for i := 0; i < 3; i++ {
-			if _, err := io.WriteString(w, fmt.Sprintf("data: olay-%d\n\n", i)); err != nil {
-				return
-			}
-			flusher.Flush()
-			select {
-			case <-r.Context().Done():
-				return
-			default:
-			}
-		}
-	})
+	mux.HandleFunc("/sse", sseHandler)
+	mux.HandleFunc("/ws", wsHandler)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// big.bin'i tarayici indirme olarak isaretle.

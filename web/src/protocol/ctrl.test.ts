@@ -21,7 +21,18 @@ describe("parseCtrl + canonicalCtrl — gecerli vektorler", () => {
 
   it("tum mesaj tiplerini kapsiyor", () => {
     const seen = new Set(V.ctrl.valid.map((v) => (parseCtrl(v.text) as CtrlMsg).t));
-    expect([...seen].sort()).toEqual(["abort", "end", "hello", "ping", "pong", "req", "res"]);
+    expect([...seen].sort()).toEqual([
+      "abort",
+      "end",
+      "hello",
+      "ping",
+      "pong",
+      "req",
+      "res",
+      "ws-close",
+      "ws-ok",
+      "ws-open",
+    ]);
   });
 });
 

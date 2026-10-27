@@ -57,6 +57,20 @@ export interface CtrlInvalidVector {
   readonly error: string;
 }
 
+export interface WsValidVector {
+  readonly name: string;
+  readonly binary: boolean;
+  readonly fin: boolean;
+  readonly payloadHex: string;
+  readonly outHex: string;
+}
+
+export interface WsDecodeInvalidVector {
+  readonly name: string;
+  readonly hex: string;
+  readonly error: string;
+}
+
 export interface TestVectors {
   readonly version: number;
   readonly note: string;
@@ -65,7 +79,11 @@ export interface TestVectors {
     readonly maxPayload: number;
     readonly maxFrame: number;
   };
-  readonly errors: { readonly framing: readonly string[]; readonly ctrl: readonly string[] };
+  readonly errors: {
+    readonly framing: readonly string[];
+    readonly ctrl: readonly string[];
+    readonly ws: readonly string[];
+  };
   readonly frames: {
     readonly valid: readonly ValidFrameVector[];
     readonly generated: readonly GeneratedFrameVector[];
@@ -75,6 +93,11 @@ export interface TestVectors {
   readonly ctrl: {
     readonly valid: readonly CtrlValidVector[];
     readonly invalid: readonly CtrlInvalidVector[];
+  };
+  readonly wsFrames: {
+    readonly limits: { readonly headerBytes: number; readonly maxPayload: number };
+    readonly valid: readonly WsValidVector[];
+    readonly decodeInvalid: readonly WsDecodeInvalidVector[];
   };
 }
 

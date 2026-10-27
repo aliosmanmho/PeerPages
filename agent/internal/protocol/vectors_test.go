@@ -64,6 +64,20 @@ type ctrlInvalidVector struct {
 	Error string `json:"error"`
 }
 
+type wsValidVector struct {
+	Name       string `json:"name"`
+	Binary     bool   `json:"binary"`
+	Fin        bool   `json:"fin"`
+	PayloadHex string `json:"payloadHex"`
+	OutHex     string `json:"outHex"`
+}
+
+type wsDecodeInvalidVector struct {
+	Name  string `json:"name"`
+	Hex   string `json:"hex"`
+	Error string `json:"error"`
+}
+
 type testVectors struct {
 	Version int    `json:"version"`
 	Note    string `json:"note"`
@@ -75,6 +89,7 @@ type testVectors struct {
 	Errors struct {
 		Framing []string `json:"framing"`
 		Ctrl    []string `json:"ctrl"`
+		WS      []string `json:"ws"`
 	} `json:"errors"`
 	Frames struct {
 		Valid         []validFrameVector     `json:"valid"`
@@ -86,6 +101,14 @@ type testVectors struct {
 		Valid   []ctrlValidVector   `json:"valid"`
 		Invalid []ctrlInvalidVector `json:"invalid"`
 	} `json:"ctrl"`
+	WSFrames struct {
+		Limits struct {
+			HeaderBytes int `json:"headerBytes"`
+			MaxPayload  int `json:"maxPayload"`
+		} `json:"limits"`
+		Valid         []wsValidVector         `json:"valid"`
+		DecodeInvalid []wsDecodeInvalidVector `json:"decodeInvalid"`
+	} `json:"wsFrames"`
 }
 
 func loadVectors(t *testing.T) *testVectors {

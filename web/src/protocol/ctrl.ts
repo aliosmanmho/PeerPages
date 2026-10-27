@@ -75,10 +75,68 @@ export interface HelloMsg {
   readonly auth: AuthMode;
 }
 
-export type CtrlMsg = ReqMsg | ResMsg | EndMsg | AbortMsg | PingMsg | PongMsg | HelloMsg;
+/**
+ * WebSocket acma istegi (Faz 6) — ziyaretciden ajana.
+ *
+ * Yuk `data` kanalindan gider (`wsframe.ts`); bu mesaj yalnizca el sikismadir.
+ * `id`, HTTP istekleriyle AYNI id uzayindan gelir.
+ */
+export interface WsOpenMsg {
+  readonly t: "ws-open";
+  readonly id: number;
+  readonly path: string;
+  /** Istenen alt protokoller; bos olabilir. */
+  readonly protos: readonly string[];
+}
+
+/** Ajanin kabul ettigi WebSocket baglantisi. */
+export interface WsOkMsg {
+  readonly t: "ws-ok";
+  readonly id: number;
+  /** Sunucunun sectigi alt protokol; yoksa bos string. */
+  readonly proto: string;
+}
+
+/**
+ * WebSocket oturumunun kapandigini bildirir (iki yonde de).
+ *
+ * HTTP'nin end/abort ikilisi ws icin kullanilmaz: kod ve sebep dogrudan
+ * ziyaretcinin `onclose`'una gecer.
+ */
+export interface WsCloseMsg {
+  readonly t: "ws-close";
+  readonly id: number;
+  readonly code: number;
+  readonly reason: string;
+}
+
+export type CtrlMsg =
+  | ReqMsg
+  | ResMsg
+  | EndMsg
+  | AbortMsg
+  | PingMsg
+  | PongMsg
+  | HelloMsg
+  | WsOpenMsg
+  | WsOkMsg
+  | WsCloseMsg;
 
 const MAX_UINT32 = 0xffffffff;
 const METHOD_RE = /^[A-Z]+$/;
+
+/** Alt protokol adi: RFC 6455 token'i (bos olamaz). Go tarafiyla ayni. */
+const WS_PROTO_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+/**
+ * WebSocket kapanis kodu sinirlari — Go tarafiyla AYNI.
+ *
+ * 1005/1006 araligin icinde: WebSocket protokolu bunlari telde yasaklar ama
+ * bir kopru olarak anormal kapanisi ziyaretciye bildirmemiz gerekiyor.
+ */
+export const WS_CLOSE_MIN = 1000;
+export const WS_CLOSE_MAX = 4999;
+export const WS_CLOSE_REASON_MAX = 123;
 
 type Raw = Record<string, unknown>;
 
@@ -253,6 +311,57 @@ export function parseCtrl(text: string): CtrlMsg {
       }
       return { t: "hello", v, targets, auth };
     }
+    case "ws-open": {
+      const id = uint32Field(o, "id", t);
+      const path = validatePath(stringField(o, "path", t), t);
+      const protosRaw = reqField(o, "protos", t);
+      if (!Array.isArray(protosRaw)) {
+        throw new CtrlError("bad-field", "ws-open.protos string dizisi olmali");
+      }
+      const protos: string[] = [];
+      for (const item of protosRaw) {
+        if (typeof item !== "string" || !WS_PROTO_RE.test(item)) {
+          throw new CtrlError(
+            "bad-field",
+            `ws-open.protos elemanlari token olmali: ${JSON.stringify(item)}`,
+          );
+        }
+        protos.push(item);
+      }
+      return { t: "ws-open", id, path, protos };
+    }
+    case "ws-ok": {
+      const id = uint32Field(o, "id", t);
+      // Bos string gecerli: sunucu alt protokol secmemis olabilir.
+      const proto = stringField(o, "proto", t);
+      if (proto !== "" && !WS_PROTO_RE.test(proto)) {
+        throw new CtrlError("bad-field", `ws-ok.proto token olmali: ${JSON.stringify(proto)}`);
+      }
+      return { t: "ws-ok", id, proto };
+    }
+    case "ws-close": {
+      const id = uint32Field(o, "id", t);
+      const code = reqField(o, "code", t);
+      if (typeof code !== "number" || !Number.isInteger(code)) {
+        throw new CtrlError("bad-field", `ws-close.code tamsayi olmali, verilen: ${String(code)}`);
+      }
+      if (code < WS_CLOSE_MIN || code > WS_CLOSE_MAX) {
+        throw new CtrlError(
+          "bad-field",
+          `ws-close.code ${WS_CLOSE_MIN}…${WS_CLOSE_MAX} olmali, verilen: ${code}`,
+        );
+      }
+      // Bos string gecerli: WebSocket kapanis sebebi opsiyoneldir.
+      const reason = stringField(o, "reason", t);
+      const bytes = new TextEncoder().encode(reason).length;
+      if (bytes > WS_CLOSE_REASON_MAX) {
+        throw new CtrlError(
+          "bad-field",
+          `ws-close.reason en fazla ${WS_CLOSE_REASON_MAX} bayt olmali, verilen: ${bytes}`,
+        );
+      }
+      return { t: "ws-close", id, code, reason };
+    }
     default:
       throw new CtrlError("unknown-type", JSON.stringify(t));
   }
@@ -293,5 +402,15 @@ export function canonicalCtrl(msg: CtrlMsg): string {
       return `{"t":"hello","v":${msg.v},"targets":[${msg.targets
         .map((x) => JSON.stringify(x))
         .join(",")}],"auth":${JSON.stringify(msg.auth)}}`;
+    case "ws-open":
+      return `{"t":"ws-open","id":${msg.id},"path":${JSON.stringify(msg.path)},"protos":[${msg.protos
+        .map((x) => JSON.stringify(x))
+        .join(",")}]}`;
+    case "ws-ok":
+      return `{"t":"ws-ok","id":${msg.id},"proto":${JSON.stringify(msg.proto)}}`;
+    case "ws-close":
+      return `{"t":"ws-close","id":${msg.id},"code":${msg.code},"reason":${JSON.stringify(
+        msg.reason,
+      )}}`;
   }
 }

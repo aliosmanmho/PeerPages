@@ -16,6 +16,11 @@
       "unknown-type",
       "missing-field",
       "bad-field"
+    ],
+    "ws": [
+      "ws-empty-frame",
+      "ws-bad-flags",
+      "ws-payload-too-large"
     ]
   },
   "frames": {
@@ -235,6 +240,41 @@
         "name": "hello-coklu-hedef-auth",
         "text": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\",\"admin\"],\"auth\":\"required\"}",
         "canonical": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\",\"admin\"],\"auth\":\"required\"}"
+      },
+      {
+        "name": "ws-open-protosuz",
+        "text": "{\"t\":\"ws-open\",\"id\":5,\"path\":\"/socket\",\"protos\":[]}",
+        "canonical": "{\"t\":\"ws-open\",\"id\":5,\"path\":\"/socket\",\"protos\":[]}"
+      },
+      {
+        "name": "ws-open-protolu-sorgulu",
+        "text": "{\"t\":\"ws-open\",\"id\":4294967295,\"path\":\"/?token=abc\",\"protos\":[\"vite-hmr\",\"json\"]}",
+        "canonical": "{\"t\":\"ws-open\",\"id\":4294967295,\"path\":\"/?token=abc\",\"protos\":[\"vite-hmr\",\"json\"]}"
+      },
+      {
+        "name": "ws-ok-protosuz",
+        "text": "{\"t\":\"ws-ok\",\"id\":5,\"proto\":\"\"}",
+        "canonical": "{\"t\":\"ws-ok\",\"id\":5,\"proto\":\"\"}"
+      },
+      {
+        "name": "ws-ok-protolu",
+        "text": "{\"t\":\"ws-ok\",\"id\":6,\"proto\":\"vite-hmr\"}",
+        "canonical": "{\"t\":\"ws-ok\",\"id\":6,\"proto\":\"vite-hmr\"}"
+      },
+      {
+        "name": "ws-close-normal-sebepsiz",
+        "text": "{\"t\":\"ws-close\",\"id\":5,\"code\":1000,\"reason\":\"\"}",
+        "canonical": "{\"t\":\"ws-close\",\"id\":5,\"code\":1000,\"reason\":\"\"}"
+      },
+      {
+        "name": "ws-close-sebepli",
+        "text": "{\"t\":\"ws-close\",\"id\":7,\"code\":1009,\"reason\":\"mesaj cok buyuk\"}",
+        "canonical": "{\"t\":\"ws-close\",\"id\":7,\"code\":1009,\"reason\":\"mesaj cok buyuk\"}"
+      },
+      {
+        "name": "ws-close-uygulama-kodu",
+        "text": "{\"t\":\"ws-close\",\"id\":8,\"code\":4999,\"reason\":\"uygulamaya ait\"}",
+        "canonical": "{\"t\":\"ws-close\",\"id\":8,\"code\":4999,\"reason\":\"uygulamaya ait\"}"
       }
     ],
     "invalid": [
@@ -477,6 +517,158 @@
         "name": "hello-v-metin",
         "text": "{\"t\":\"hello\",\"v\":\"1\",\"targets\":[\"default\"],\"auth\":\"none\"}",
         "error": "bad-field"
+      },
+      {
+        "name": "ws-open-protos-yok",
+        "text": "{\"t\":\"ws-open\",\"id\":1,\"path\":\"/\"}",
+        "error": "missing-field"
+      },
+      {
+        "name": "ws-open-path-yok",
+        "text": "{\"t\":\"ws-open\",\"id\":1,\"protos\":[]}",
+        "error": "missing-field"
+      },
+      {
+        "name": "ws-open-protos-dizi-degil",
+        "text": "{\"t\":\"ws-open\",\"id\":1,\"path\":\"/\",\"protos\":\"json\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "ws-open-protos-bos-eleman",
+        "text": "{\"t\":\"ws-open\",\"id\":1,\"path\":\"/\",\"protos\":[\"\"]}",
+        "error": "bad-field"
+      },
+      {
+        "name": "ws-open-protos-bosluklu",
+        "text": "{\"t\":\"ws-open\",\"id\":1,\"path\":\"/\",\"protos\":[\"a b\"]}",
+        "error": "bad-field"
+      },
+      {
+        "name": "ws-open-path-goreli",
+        "text": "{\"t\":\"ws-open\",\"id\":1,\"path\":\"socket\",\"protos\":[]}",
+        "error": "bad-field"
+      },
+      {
+        "name": "ws-open-path-protokol-goreli",
+        "text": "{\"t\":\"ws-open\",\"id\":1,\"path\":\"//evil.example\",\"protos\":[]}",
+        "error": "bad-field"
+      },
+      {
+        "name": "ws-ok-proto-yok",
+        "text": "{\"t\":\"ws-ok\",\"id\":1}",
+        "error": "missing-field"
+      },
+      {
+        "name": "ws-ok-proto-gecersiz-token",
+        "text": "{\"t\":\"ws-ok\",\"id\":1,\"proto\":\"a b\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "ws-close-code-yok",
+        "text": "{\"t\":\"ws-close\",\"id\":1,\"reason\":\"\"}",
+        "error": "missing-field"
+      },
+      {
+        "name": "ws-close-reason-yok",
+        "text": "{\"t\":\"ws-close\",\"id\":1,\"code\":1000}",
+        "error": "missing-field"
+      },
+      {
+        "name": "ws-close-code-kucuk",
+        "text": "{\"t\":\"ws-close\",\"id\":1,\"code\":999,\"reason\":\"\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "ws-close-code-buyuk",
+        "text": "{\"t\":\"ws-close\",\"id\":1,\"code\":5000,\"reason\":\"\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "ws-close-code-metin",
+        "text": "{\"t\":\"ws-close\",\"id\":1,\"code\":\"1000\",\"reason\":\"\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "ws-close-reason-uzun",
+        "text": "{\"t\":\"ws-close\",\"id\":1,\"code\":1000,\"reason\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+        "error": "bad-field"
+      },
+      {
+        "name": "ws-bilinmeyen-tip",
+        "text": "{\"t\":\"ws-frame\",\"id\":1}",
+        "error": "unknown-type"
+      }
+    ]
+  },
+  "wsFrames": {
+    "limits": {
+      "headerBytes": 1,
+      "maxPayload": 16383
+    },
+    "valid": [
+      {
+        "name": "metin-tek-parca",
+        "binary": false,
+        "fin": true,
+        "payloadHex": "68656c6c6f",
+        "outHex": "0268656c6c6f"
+      },
+      {
+        "name": "metin-ara-parca",
+        "binary": false,
+        "fin": false,
+        "payloadHex": "6162",
+        "outHex": "006162"
+      },
+      {
+        "name": "ikili-tek-parca",
+        "binary": true,
+        "fin": true,
+        "payloadHex": "00ff10",
+        "outHex": "0300ff10"
+      },
+      {
+        "name": "ikili-ara-parca",
+        "binary": true,
+        "fin": false,
+        "payloadHex": "deadbeef",
+        "outHex": "01deadbeef"
+      },
+      {
+        "name": "bos-metin-mesaji",
+        "binary": false,
+        "fin": true,
+        "payloadHex": "",
+        "outHex": "02"
+      },
+      {
+        "name": "bos-ikili-mesaji",
+        "binary": true,
+        "fin": true,
+        "payloadHex": "",
+        "outHex": "03"
+      }
+    ],
+    "decodeInvalid": [
+      {
+        "name": "bos-payload",
+        "hex": "",
+        "error": "ws-empty-frame"
+      },
+      {
+        "name": "tanimsiz-bit-0x04",
+        "hex": "04",
+        "error": "ws-bad-flags"
+      },
+      {
+        "name": "tanimsiz-bit-0x80",
+        "hex": "8268",
+        "error": "ws-bad-flags"
+      },
+      {
+        "name": "tum-bitler",
+        "hex": "ff",
+        "error": "ws-bad-flags"
       }
     ]
   }

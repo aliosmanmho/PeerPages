@@ -95,6 +95,36 @@ type Ping struct{}
 // Pong Ping cevabi.
 type Pong struct{}
 
+// WSOpen ziyaretciden gelen WebSocket acma istegi (Faz 6).
+//
+// Yuk `data` kanalindan gider (wsframe.go); bu mesaj yalnizca el sikismadir.
+// ID, HTTP istekleriyle AYNI id uzayindan gelir, yani cakisma yapisal olarak
+// imkansiz.
+type WSOpen struct {
+	ID uint32
+	// Path ws yolu; hedef host ASLA buradan turetilmez (README ilke 1).
+	Path string
+	// Protos istenen alt protokoller; bos olabilir.
+	Protos []string
+}
+
+// WSOk ajanin kabul ettigi WebSocket baglantisi.
+type WSOk struct {
+	ID uint32
+	// Proto sunucunun sectigi alt protokol; yoksa bos string.
+	Proto string
+}
+
+// WSClose WebSocket oturumunun kapandigini bildirir (iki yonde de).
+//
+// HTTP'nin end/abort ikilisi ws icin kullanilmaz: kapanisin kodu ve sebebi
+// ziyaretcinin onclose'una dogrudan gecer.
+type WSClose struct {
+	ID     uint32
+	Code   int
+	Reason string
+}
+
 // Hello baglanti kurulunca ajandan ziyaretciye gider.
 type Hello struct {
 	V       int
@@ -102,13 +132,16 @@ type Hello struct {
 	Auth    AuthMode
 }
 
-func (Req) Type() string   { return "req" }
-func (Res) Type() string   { return "res" }
-func (End) Type() string   { return "end" }
-func (Abort) Type() string { return "abort" }
-func (Ping) Type() string  { return "ping" }
-func (Pong) Type() string  { return "pong" }
-func (Hello) Type() string { return "hello" }
+func (Req) Type() string     { return "req" }
+func (Res) Type() string     { return "res" }
+func (End) Type() string     { return "end" }
+func (Abort) Type() string   { return "abort" }
+func (Ping) Type() string    { return "ping" }
+func (Pong) Type() string    { return "pong" }
+func (Hello) Type() string   { return "hello" }
+func (WSOpen) Type() string  { return "ws-open" }
+func (WSOk) Type() string    { return "ws-ok" }
+func (WSClose) Type() string { return "ws-close" }
 
 // Canonical kanonik serilestirme — anahtar sirasi tipe gore sabit, bosluk yok,
 // headers kucuk harf ve sozluk sirali.
@@ -179,6 +212,48 @@ func (m Hello) Canonical() string {
 	}
 	b.WriteString(`],"auth":`)
 	writeJSONString(&b, string(m.Auth))
+	b.WriteString("}")
+	return b.String()
+}
+
+// Canonical kanonik serilestirme.
+func (m WSOpen) Canonical() string {
+	var b strings.Builder
+	b.WriteString(`{"t":"ws-open","id":`)
+	b.WriteString(strconv.FormatUint(uint64(m.ID), 10))
+	b.WriteString(`,"path":`)
+	writeJSONString(&b, m.Path)
+	b.WriteString(`,"protos":[`)
+	for i, p := range m.Protos {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		writeJSONString(&b, p)
+	}
+	b.WriteString("]}")
+	return b.String()
+}
+
+// Canonical kanonik serilestirme.
+func (m WSOk) Canonical() string {
+	var b strings.Builder
+	b.WriteString(`{"t":"ws-ok","id":`)
+	b.WriteString(strconv.FormatUint(uint64(m.ID), 10))
+	b.WriteString(`,"proto":`)
+	writeJSONString(&b, m.Proto)
+	b.WriteString("}")
+	return b.String()
+}
+
+// Canonical kanonik serilestirme.
+func (m WSClose) Canonical() string {
+	var b strings.Builder
+	b.WriteString(`{"t":"ws-close","id":`)
+	b.WriteString(strconv.FormatUint(uint64(m.ID), 10))
+	b.WriteString(`,"code":`)
+	b.WriteString(strconv.Itoa(m.Code))
+	b.WriteString(`,"reason":`)
+	writeJSONString(&b, m.Reason)
 	b.WriteString("}")
 	return b.String()
 }
@@ -256,6 +331,38 @@ func writeJSONString(b *strings.Builder, s string) {
 
 var methodRe = regexp.MustCompile(`^[A-Z]+$`)
 
+// wsProtoRe alt protokol adi: RFC 6455 token'i (bos olamaz).
+var wsProtoRe = regexp.MustCompile("^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$")
+
+// WebSocket kapanis kodu sinirlari ve kullandigimiz kodlar.
+//
+// 1005/1006 araligin icinde: WebSocket protokolu bunlari TELDE yasaklar ama
+// bir kopru olarak anormal kapanisi ziyaretciye bildirmemiz gerekiyor
+// (tarayici da onclose'ta bu kodlari uretir).
+const (
+	// WSCloseMin en kucuk gecerli kapanis kodu.
+	WSCloseMin = 1000
+	// WSCloseMax en buyuk gecerli kapanis kodu (4000-4999 uygulamaya ait).
+	WSCloseMax = 4999
+	// WSCloseReasonMax kapanis sebebinin en buyuk boyu (WebSocket siniri).
+	WSCloseReasonMax = 123
+
+	// WSCloseNormal normal kapanis.
+	WSCloseNormal = 1000
+	// WSCloseGoingAway taraf gidiyor (oturum kapandi).
+	WSCloseGoingAway = 1001
+	// WSCloseProtocol protokol hatasi (bozuk bayrak, tutarsiz parca).
+	WSCloseProtocol = 1002
+	// WSClosePolicy politika: yol reddedildi ya da kopru kapali.
+	WSClosePolicy = 1008
+	// WSCloseTooBig mesaj --max-ws-message sinirini asti.
+	WSCloseTooBig = 1009
+	// WSCloseInternal yerel sunucuya baglanilamadi ya da beklenmeyen hata.
+	WSCloseInternal = 1011
+	// WSCloseTryAgainLater akis butcesi dolu (--max-streams).
+	WSCloseTryAgainLater = 1013
+)
+
 // ParseCtrl ctrl kanalindan gelen metni ayristirip dogrular.
 //
 // Hata sirasi protocol/README.md'de tanimli: bad-json -> missing-field (t yok)
@@ -306,6 +413,12 @@ func ParseCtrl(text string) (Msg, error) {
 		return Pong{}, nil
 	case "hello":
 		return parseHello(o, t)
+	case "ws-open":
+		return parseWSOpen(o, t)
+	case "ws-ok":
+		return parseWSOk(o, t)
+	case "ws-close":
+		return parseWSClose(o, t)
 	default:
 		return nil, &CtrlError{CodeUnknownType, strconv.Quote(t)}
 	}
@@ -436,6 +549,87 @@ func parseHello(o map[string]json.RawMessage, t string) (Msg, error) {
 		return nil, &CtrlError{CodeBadField, `hello.auth "none" ya da "required" olmali: ` + auth}
 	}
 	return Hello{V: v, Targets: targets, Auth: AuthMode(auth)}, nil
+}
+
+func parseWSOpen(o map[string]json.RawMessage, t string) (Msg, error) {
+	id, err := uint32Field(o, "id", t)
+	if err != nil {
+		return nil, err
+	}
+	path, err := stringField(o, "path", t)
+	if err != nil {
+		return nil, err
+	}
+	if cerr := validatePath(path, t); cerr != nil {
+		return nil, cerr
+	}
+	rawProtos, ok := o["protos"]
+	if !ok {
+		return nil, &CtrlError{CodeMissingField, t + ".protos yok"}
+	}
+	var protos []string
+	if uerr := json.Unmarshal(rawProtos, &protos); uerr != nil {
+		return nil, &CtrlError{CodeBadField, "ws-open.protos string dizisi olmali"}
+	}
+	for _, p := range protos {
+		if !wsProtoRe.MatchString(p) {
+			return nil, &CtrlError{
+				CodeBadField,
+				"ws-open.protos elemanlari token olmali: " + strconv.Quote(p),
+			}
+		}
+	}
+	return WSOpen{ID: id, Path: path, Protos: protos}, nil
+}
+
+func parseWSOk(o map[string]json.RawMessage, t string) (Msg, error) {
+	id, err := uint32Field(o, "id", t)
+	if err != nil {
+		return nil, err
+	}
+	// Bos string gecerli: sunucu alt protokol secmemis olabilir.
+	proto, err := stringField(o, "proto", t)
+	if err != nil {
+		return nil, err
+	}
+	if proto != "" && !wsProtoRe.MatchString(proto) {
+		return nil, &CtrlError{CodeBadField, "ws-ok.proto token olmali: " + strconv.Quote(proto)}
+	}
+	return WSOk{ID: id, Proto: proto}, nil
+}
+
+func parseWSClose(o map[string]json.RawMessage, t string) (Msg, error) {
+	id, err := uint32Field(o, "id", t)
+	if err != nil {
+		return nil, err
+	}
+	raw, ok := o["code"]
+	if !ok {
+		return nil, &CtrlError{CodeMissingField, t + ".code yok"}
+	}
+	code, cerr := intFromRaw(raw, t+".code")
+	if cerr != nil {
+		return nil, cerr
+	}
+	if code < WSCloseMin || code > WSCloseMax {
+		return nil, &CtrlError{
+			CodeBadField,
+			fmt.Sprintf("ws-close.code %d…%d olmali, verilen: %d", WSCloseMin, WSCloseMax, code),
+		}
+	}
+	// Bos string gecerli: WebSocket kapanis sebebi opsiyoneldir.
+	reason, err := stringField(o, "reason", t)
+	if err != nil {
+		return nil, err
+	}
+	if len(reason) > WSCloseReasonMax {
+		return nil, &CtrlError{
+			CodeBadField,
+			fmt.Sprintf("ws-close.reason en fazla %d bayt olmali, verilen: %d",
+				WSCloseReasonMax, len(reason)),
+		}
+	}
+	return WSClose{ID: id, Code: code, Reason: reason}, nil
 }
 
 // validatePath istek yolunun ilk katman dogrulamasi. Belirleyici katman

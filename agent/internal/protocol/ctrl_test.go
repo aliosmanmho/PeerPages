@@ -53,7 +53,10 @@ func TestCtrlValidVectorsCoverAllTypes(t *testing.T) {
 		got = append(got, k)
 	}
 	sort.Strings(got)
-	want := []string{"abort", "end", "hello", "ping", "pong", "req", "res"}
+	want := []string{
+		"abort", "end", "hello", "ping", "pong", "req", "res",
+		"ws-close", "ws-ok", "ws-open",
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("tum tipler kapsanmali:\n  geldi:    %v\n  beklenen: %v", got, want)
 	}

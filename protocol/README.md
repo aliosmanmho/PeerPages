@@ -38,7 +38,7 @@ ile alır.
 
 | Alan | Tip | Anlam |
 |---|---|---|
-| `id` | uint32, big-endian | isteğin kimliği; `ctrl` `req`/`res` ile aynı |
+| `id` | uint32, big-endian | isteğin ya da ws oturumunun kimliği; `ctrl` `req`/`res`/`ws-open` ile aynı |
 | `seq` | uint32, big-endian | bu yöndeki gövde parçasının sırası, **0'dan** başlar |
 | `payload` | 0–16384 bayt | gövde parçası |
 
@@ -49,7 +49,9 @@ ile alır.
   değil, `ctrl` kanalındaki `end` mesajı söyler.
 - Aynı framing **her iki yön** için kullanılır: istek gövdesi ve cevap gövdesi.
   `id` istek başına tekil olduğu için ve her taraf yalnızca karşı yönden veri
-  aldığı için karışma olmaz.
+  aldığı için karışma olmaz. WebSocket oturumları **aynı id uzayını** paylaşır
+  (id'leri ziyaretçi dağıtır), yani çakışma yapısal olarak imkânsızdır; bir
+  id'nin ws mi HTTP mi olduğunu `ws-open` belirler.
 - `seq` alıcıda sıra doğrulaması içindir. Kanal `ordered` olduğundan normalde
   artarak gelir; **beklenmeyen `seq` protokol hatasıdır** ve istek `abort`
   edilir (sessizce yeniden sıralanmaz).
@@ -64,6 +66,50 @@ doğrulama yapar.
 | `short-frame` | çerçeve 8 bayttan kısa (başlık tamamlanmıyor) |
 | `payload-too-large` | payload 16384 bayttan büyük (kodlama ya da çözme) |
 
+## WebSocket yükü: çerçeve alt biçimi (Faz 6)
+
+WebSocket köprüsü **yeni bir kanal ya da yeni bir framing kullanmaz**: yük
+yukarıdaki `data` çerçevesiyle gider. Tek fark, bir **ws id'sine** ait
+çerçevenin payload'ının kendi içinde bir bayrak baytı taşımasıdır:
+
+```
+[1B bayrak][parça ≤ 16383 bayt]
+
+bayrak: bit0 (0x01) = 1 ikili / 0 metin mesajı
+        bit1 (0x02) = 1 bu, ws mesajının SON parçası
+        diğer bitler 0 olmalı
+```
+
+Kurallar:
+
+- Bir ws mesajı bir ya da daha çok çerçeveye bölünür; mesaj sınırını
+  **yalnızca bit1** belirler. `ctrl` tarafında mesaj başına bir bildirim
+  **yoktur** (`end`'in ws karşılığı yok).
+- `seq` oturum boyunca artmaya devam eder, **mesaj başına sıfırlanmaz**;
+  böylece mevcut sıra denetimi (beklenmeyen `seq` → protokol hatası) ws'te de
+  aynen geçerli.
+- Payload **en az 1 bayt** olmalıdır (bayrak). Boş ws mesajı = yalnızca bayrak
+  baytı taşıyan tek çerçeve.
+- Bir mesajın **tüm** parçalarında bit0 aynı olmak zorunda.
+- `data` ile `ctrl` arasında sıra garantisi olmadığı için ilk çerçeveler
+  `ws-open`'dan **önce** varabilir; alıcı bunları kısa süreli tamponda tutar
+  (istek gövdeleri için var olan mekanizmanın aynısı).
+
+Bu biçimin gerekçesi: backpressure, 16 KiB parçalama ve `seq` denetimi
+bedavaya gelir; ikili veri base64 şişmesi yemez; ve toplu ws trafiği `ctrl`
+kanalını (`ping`, `abort`) tıkamaz.
+
+### Hata kodları (ws çerçevesi)
+
+| Kod | Ne zaman |
+|---|---|
+| `ws-empty-frame` | ws çerçevesinin payload'ı boş (bayrak baytı yok) |
+| `ws-bad-flags` | bayrak baytında tanımsız bit var |
+| `ws-payload-too-large` | parça 16383 baytı aşıyor (kodlama) |
+
+İlk ikisi telde görüldüğünde oturum `ws-close` ile kapatılır
+(`code: 1002`, protokol hatası).
+
 ## `ctrl` mesajları
 
 UTF-8 JSON nesneleri. Zorunlu alan `t` (tip).
@@ -77,6 +123,11 @@ UTF-8 JSON nesneleri. Zorunlu alan `t` (tip).
 { "t": "ping" }
 { "t": "pong" }
 { "t": "hello", "v": 1, "targets": ["default", "admin"], "auth": "none" }
+
+// WebSocket köprüsü (Faz 6) — yük `data` kanalından gider, bunlar el sıkışmadır
+{ "t": "ws-open",  "id": 5, "path": "/socket", "protos": ["vite-hmr"] }
+{ "t": "ws-ok",    "id": 5, "proto": "vite-hmr" }
+{ "t": "ws-close", "id": 5, "code": 1000, "reason": "" }
 ```
 
 ### Alan kuralları
@@ -95,6 +146,10 @@ UTF-8 JSON nesneleri. Zorunlu alan `t` (tip).
 | `auth` | string | `"none"` ya da `"required"` |
 | `frames` | tamsayı | `end`: bu yönde gönderilen gövde çerçevesi sayısı (`0 … 4294967295`) |
 | `len` | tamsayı | `end`: gövdenin toplam bayt sayısı (`>= 0`) |
+| `protos` | string dizisi | `ws-open`: istenen alt protokoller; **boş dizi geçerli**, elemanlar RFC 6455 token'ı |
+| `proto` | string | `ws-ok`: sunucunun seçtiği alt protokol; **boş string geçerli** (seçilmedi) |
+| `code` | tamsayı | `ws-close`: `1000 … 4999` |
+| `reason` (`ws-close`) | string | **boş geçerli**, en fazla 123 bayt (WebSocket sınırı) |
 
 `frames` ve `len` tutarlı olmalıdır: biri 0 ise diğeri de 0 olmalı.
 
@@ -129,6 +184,9 @@ bir biçim tanımlıdır:
    | `abort` | `t, id, reason` |
    | `ping` / `pong` | `t` |
    | `hello` | `t, v, targets, auth` |
+   | `ws-open` | `t, id, path, protos` |
+   | `ws-ok` | `t, id, proto` |
+   | `ws-close` | `t, id, code, reason` |
 
 3. `headers` anahtarları küçük harf ve **sözlük sırasında**.
 4. Opsiyonel alan yok: `hasBody` her zaman yazılır (`false` olsa bile),
@@ -176,6 +234,27 @@ ziyaretçi                                              ajan
 >    `abort` (`reason: "body-length-mismatch"`).
 >
 > `README.md` §8'deki açık soru bu kararla kapandı.
+
+### WebSocket akışı (Faz 6)
+
+```
+ziyaretçi                                              ajan
+    │─── ctrl: ws-open (id=5, /socket, protos) ────────►│
+    │                                                   │  → ws://localhost:3000/socket
+    │◄── ctrl: ws-ok   (id=5, proto) ────────────────────│
+    │─── data: [id=5][seq=0][0x02 "merhaba"] ──────────►│  metin, FIN
+    │◄── data: [id=5][seq=0][0x00 "ilk yarı"] ───────────│  metin, FIN DEĞİL
+    │◄── data: [id=5][seq=1][0x02 "ikinci yarı"] ────────│  metin, FIN
+    │─── ctrl: ws-close (id=5, 1000, "") ──────────────►│
+```
+
+- `ws-ok` gelmeden gönderilen çerçeveler geçerlidir (iki kanal arasında sıra
+  yok); ajan `ws-open`'ı görene kadar onları tamponlar.
+- `ws-close` **iki yönden de** gelebilir ve oturumu tek hamlede bitirir; kod ve
+  sebep karşı tarafın `onclose`'una doğrudan geçer. Ajanın kullandığı kodlar:
+  1002 protokol hatası, 1008 politika (yol reddedildi / köprü kapalı), 1009
+  mesaj çok büyük, 1011 yerel sunucuya bağlanılamadı, 1013 akış bütçesi dolu.
+- `abort`/`end` ws id'leri için **kullanılmaz**.
 
 - `abort` her iki yönden gelebilir; alan taraf o `id` için akışı durdurur ve
   kaynakları bırakır.

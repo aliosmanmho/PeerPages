@@ -21,6 +21,10 @@ declare global {
       makeOffer: () => Promise<void>;
       offer: () => string;
       acceptAnswer: (pasted: string) => Promise<void>;
+      /** Kac kez yeniden baglanildi (Faz 4). */
+      reconnects: () => number;
+      /** Denetleyicinin durumu: connected | reconnecting | idle. */
+      connState: () => string;
     };
   }
 }

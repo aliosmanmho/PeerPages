@@ -4,6 +4,7 @@ import { type ConnectResult, connectToAgent } from "./nostr/connect";
 import { PeerIDError, type PeerTarget, parseHash, shortenNpub } from "./nostr/peerid";
 import { RelayListError, relaysFromSearch } from "./nostr/relays";
 import { announceTunnelGone, announceTunnelReady, installBridge } from "./page-bridge";
+import { Supervisor, type SupervisorInfo, type SupervisorState } from "./reconnect";
 import { decodeSDP, encodeSDP } from "./signal";
 import { Tunnel } from "./tunnel";
 import { encode, type QRCode } from "./ui/qr";
@@ -50,6 +51,29 @@ let latencyTimer: number | null = null;
 /** Hiz hesabi icin son ornek (tunnel.stats zaman damgasi tutmuyor). */
 let lastSample: { at: number; bytesIn: number; bytesOut: number } | null = null;
 let rateBps = 0;
+
+/**
+ * Yeniden baglanma denetleyicisi (Faz 4); yalnizca Nostr yolunda var.
+ *
+ * Elle signaling yolunda otomatik yeniden baglanma mumkun degil: offer'i
+ * kullanici tasiyor.
+ */
+let supervisor: Supervisor | null = null;
+/** Yeniden baglanirken kullanilacak hedef ve relay listesi. */
+let reconnectTarget: PeerTarget | null = null;
+let reconnectRelays: string[] | null = null;
+/** Kendi kapatma islemimiz sirasinda durum olaylarini yok saymak icin. */
+let tearingDown = false;
+
+/**
+ * Ust uste bu kadar basarisiz ping'den sonra tunel kopmus sayilir.
+ *
+ * Neden gerekli: WebRTC durum makinesi her kopmayi bildirmiyor — kanallar
+ * "open" gorunurken karsi taraf gitmis olabilir. Ping zaten 5 saniyede bir
+ * atiliyor, yani bu ucuz bir canlilik denetimi.
+ */
+const PING_FAILURES_LOST = 2;
+let pingFailures = 0;
 
 const el = {
   offerOutput: document.getElementById("offer-output") as HTMLTextAreaElement | null,
@@ -251,26 +275,74 @@ function waitForIceGathering(pc: RTCPeerConnection): Promise<void> {
   });
 }
 
+/** Acik tuneli, oturumu ve zamanlayicilari birakir. */
+function teardownTunnel(reason: string): void {
+  tearingDown = true;
+  try {
+    stopLatencyProbe();
+    pingFailures = 0;
+    if (tunnel) {
+      tunnel.close();
+      tunnel = null;
+      announceTunnelGone();
+    }
+    if (peer) {
+      peer.close();
+      peer = null;
+    }
+    if (nostrSession) {
+      nostrSession.close(reason);
+      nostrSession = null;
+    }
+  } finally {
+    tearingDown = false;
+  }
+}
+
+/**
+ * Tunel koptu.
+ *
+ * Nostr yolunda denetleyici devralir: SIFIRDAN yeni bir oturum kurulur
+ * (ajan answerer-only oldugu icin baska yolu yok). Elle signaling yolunda
+ * otomatik yeniden baglanma mumkun degil, eski davranis korunuyor.
+ */
 function onTunnelLost(state: string): void {
-  stopLatencyProbe();
-  if (tunnel) {
-    tunnel.close();
-    tunnel = null;
-    announceTunnelGone();
+  if (tearingDown) return;
+  teardownTunnel(`connection-${state}`);
+
+  if (supervisor) {
+    status.step("tunnel", "active");
+    supervisor.markLost(state);
+    return;
   }
-  if (peer) {
-    peer.close();
-    peer = null;
-  }
-  if (nostrSession) {
-    nostrSession.close(`connection-${state}`);
-    nostrSession = null;
-  }
+
   status.step("tunnel", "error");
   status.say(`Tunel kapandi (${state}). Yeniden offer uretebilirsin.`, "error");
   if (el.panelConnected) el.panelConnected.hidden = true;
   if (el.panelManual) el.panelManual.hidden = false;
   if (el.makeOfferBtn) el.makeOfferBtn.disabled = false;
+}
+
+/** Denetleyicinin durum degisimlerini ekrana yazar. */
+function renderReconnectState(state: SupervisorState, info: SupervisorInfo): void {
+  if (el.retryBtn) {
+    el.retryBtn.textContent = "Simdi dene";
+    el.retryBtn.disabled = state !== "reconnecting";
+  }
+  if (state !== "reconnecting") {
+    renderMetrics();
+    return;
+  }
+
+  // Panel acik kalir: sayaclar ve adres gorunur olsun, ziyaretci neyin
+  // devam ettigini bilsin.
+  const neden = info.reason ? ` (${info.reason})` : "";
+  const msg =
+    info.waitMs > 0
+      ? `Baglanti koptu${neden} — ${Math.round(info.waitMs / 1000)} sn icinde yeniden deneniyor…`
+      : `Baglanti koptu${neden} — yeniden baglaniliyor (${info.attempt}. deneme)…`;
+  status.say(msg, "error");
+  renderMetrics();
 }
 
 function showConnected(): void {
@@ -310,9 +382,16 @@ async function measurePing(): Promise<void> {
     const rtt = await tunnel.ping();
     latencies.push(rtt);
     if (latencies.length > LATENCY_HISTORY) latencies.shift();
+    pingFailures = 0;
   } catch {
-    // Tunel kapanmis ya da pong gecikmis olabilir; bir sonraki tikte
-    // yeniden denenir.
+    // Tek bir basarisizlik yeterli degil: pong gecikmis olabilir. Ust uste
+    // gelirse karsi taraf gitmis demektir — kanallar hala "open" gorunse
+    // bile.
+    pingFailures += 1;
+    if (pingFailures >= PING_FAILURES_LOST) {
+      onTunnelLost("ping-yok");
+      return;
+    }
   }
   renderMetrics();
 }
@@ -361,6 +440,14 @@ function renderMetrics(): void {
     ["Hedefler", tunnel?.hello?.targets.join(", ") ?? "—"],
     ["Aktif hedef", activeTarget ?? "default"],
   ];
+
+  // Yeniden baglanma yalnizca olduysa gosterilir: sifir satiri gurultudur.
+  if (supervisor && supervisor.reconnects > 0) {
+    rows.push(["Yeniden baglanma", String(supervisor.reconnects)]);
+  }
+  if (supervisor?.currentState === "reconnecting") {
+    rows.push(["Durum", "baglanti koptu, yeniden deneniyor"]);
+  }
 
   el.metrics.textContent = "";
   for (const [label, value] of rows) {
@@ -417,6 +504,11 @@ function wireUI(): void {
   });
 
   el.retryBtn?.addEventListener("click", () => {
+    // Denetleyici zaten kuruluysa geri sayimi atlayip hemen dener.
+    if (supervisor) {
+      supervisor.retryNow();
+      return;
+    }
     const hash = location.hash;
     try {
       const target = parseHash(hash);
@@ -430,6 +522,8 @@ function wireUI(): void {
   // sizdirmasin, bir sonraki istek bosa beklemesin.
   window.addEventListener("pagehide", () => {
     stopLatencyProbe();
+    // Sayfa gidiyor: yeniden baglanmaya calismanin anlami yok.
+    supervisor?.stop();
     if (tunnel) announceTunnelGone();
     if (nostrSession) {
       nostrSession.close("visitor-left");
@@ -461,61 +555,96 @@ async function connectViaNostr(target: PeerTarget): Promise<void> {
   }
   if (el.retryBtn) el.retryBtn.disabled = true;
 
+  reconnectTarget = target;
+  reconnectRelays = relayOverride;
+  if (!supervisor) {
+    supervisor = new Supervisor({
+      connect: () => openNostrSession(),
+      onState: renderReconnectState,
+    });
+    supervisor.start();
+  }
+
+  try {
+    await openNostrSession();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    status.step("tunnel", "error");
+    status.say(msg, "error");
+    // Ajan henuz ayakta olmayabilir: denetleyici denemeye devam eder,
+    // ziyaretcinin elle yenilemesi gerekmez.
+    supervisor.markLost(msg);
+  }
+}
+
+/**
+ * Tek bir Nostr oturumu acar.
+ *
+ * Her cagri SIFIRDAN kurar: yeni sid, yeni gecici keypair, yeni offer.
+ * Ajan answerer-only ve oturum tek seferlik oldugu icin (ICE restart
+ * yerine bu yol secildi, README §8) yeniden baglanma da budur.
+ */
+async function openNostrSession(): Promise<void> {
+  const target = reconnectTarget;
+  if (!target) throw new Error("hedef yok");
+  const relayOverride = reconnectRelays;
+
   status.step("signal", "active");
   status.say("Relay'lere baglaniliyor…");
 
-  try {
-    const session = await connectToAgent({
-      target,
-      // README bolum 4: relay listesi kullanici tarafindan degistirilebilir
-      // (?relay=wss://...). Verilmezse varsayilan liste.
-      ...(relayOverride ? { relays: relayOverride } : {}),
-      hooks: {
-        onStage: (stage, detail) => {
-          switch (stage) {
-            case "relay":
-              status.say(`Relay'lere baglaniliyor (${detail ?? ""})…`);
-              break;
-            case "offer":
-              status.say("Baglanti teklifi yayinlaniyor…");
-              break;
-            case "answer":
-              status.step("signal", "done");
-              status.step("ice", "active");
-              status.say("Ajanin yaniti bekleniyor…");
-              break;
-            case "ice":
-              status.say("Dogrudan baglanti kuruluyor (ICE)…");
-              break;
-            case "open":
-              status.step("ice", "done");
-              break;
-          }
-          if (el.nostrDetail && detail) el.nostrDetail.textContent = detail;
-        },
+  const session = await connectToAgent({
+    target,
+    // README bolum 4: relay listesi kullanici tarafindan degistirilebilir
+    // (?relay=wss://...). Verilmezse varsayilan liste.
+    ...(relayOverride ? { relays: relayOverride } : {}),
+    hooks: {
+      onStage: (stage, detail) => {
+        switch (stage) {
+          case "relay":
+            status.say(`Relay'lere baglaniliyor (${detail ?? ""})…`);
+            break;
+          case "offer":
+            status.say("Baglanti teklifi yayinlaniyor…");
+            break;
+          case "answer":
+            status.step("signal", "done");
+            status.step("ice", "active");
+            status.say("Ajanin yaniti bekleniyor…");
+            break;
+          case "ice":
+            status.say("Dogrudan baglanti kuruluyor (ICE)…");
+            break;
+          case "open":
+            status.step("ice", "done");
+            break;
+        }
+        if (el.nostrDetail && detail) el.nostrDetail.textContent = detail;
       },
-    });
+    },
+  });
 
-    nostrSession = session;
-    status.step("tunnel", "active");
+  nostrSession = session;
+  status.step("tunnel", "active");
 
-    session.pc.addEventListener("connectionstatechange", () => {
-      const st = session.pc.connectionState;
-      if (st === "failed" || st === "closed" || st === "disconnected") {
-        onTunnelLost(st);
-      }
-    });
+  session.pc.addEventListener("connectionstatechange", () => {
+    const st = session.pc.connectionState;
+    if (st === "failed" || st === "closed" || st === "disconnected") {
+      onTunnelLost(st);
+    }
+  });
 
-    tunnel = new Tunnel(session.ctrl, session.data);
-    announceTunnelReady();
-    status.step("tunnel", "done");
-    status.say("Tunel acik. Bu sekmeyi kapatma.", "ok");
-    showConnected();
-  } catch (err) {
-    status.step("tunnel", "error");
-    status.say(err instanceof Error ? err.message : String(err), "error");
-    if (el.retryBtn) el.retryBtn.disabled = false;
-  }
+  // Yeni tunel: gecikme gecmisi eski oturuma ait, sifirlanir. Istek ve
+  // bayt sayaclari KORUNUR — ziyaretci acisindan ayni oturum devam ediyor.
+  latencies.length = 0;
+  lastSample = null;
+  pingFailures = 0;
+
+  tunnel = new Tunnel(session.ctrl, session.data);
+  announceTunnelReady();
+  status.step("tunnel", "done");
+  status.say("Tunel acik. Bu sekmeyi kapatma.", "ok");
+  showConnected();
+  supervisor?.markConnected();
 }
 
 async function main(): Promise<void> {
@@ -559,6 +688,8 @@ declare global {
       makeOffer: () => Promise<void>;
       offer: () => string;
       acceptAnswer: (pasted: string) => Promise<void>;
+      reconnects: () => number;
+      connState: () => string;
     };
   }
 }
@@ -566,6 +697,8 @@ declare global {
 window.__peerpages = {
   hasTunnel: () => tunnel?.isOpen === true,
   stats: () => ({ ...counters, tunnel: tunnel?.stats ?? null }),
+  reconnects: () => supervisor?.reconnects ?? 0,
+  connState: () => supervisor?.currentState ?? "idle",
   ping: async () => (tunnel ? tunnel.ping() : Promise.reject(new Error("tunel yok"))),
   makeOffer: () => makeOffer(),
   offer: () => el.offerOutput?.value ?? "",

@@ -33,7 +33,7 @@ func TestKeyCreatesAndShows(t *testing.T) {
 	if !strings.Contains(out, "https://ornek.github.io/PeerPages/#npub1") {
 		t.Errorf("ziyaretci URL'si basilmaliydi:\n%s", out)
 	}
-	if !strings.Contains(out, "kisa gosterim") {
+	if !strings.Contains(out, "short form") {
 		t.Errorf("kisa gosterim basilmaliydi:\n%s", out)
 	}
 	// Gizli anahtar istenmediyse EKRANA GELMEMELI.
@@ -65,7 +65,7 @@ func TestKeyIsStableAcrossRuns(t *testing.T) {
 	if npub1 != npub2 {
 		t.Errorf("peer-id degisti:\n  %s\n  %s", npub1, npub2)
 	}
-	if strings.Contains(second, "olusturuldu") {
+	if strings.Contains(second, "was created") {
 		t.Errorf("ikinci cagri var olani okumaliydi:\n%s", second)
 	}
 }
@@ -80,7 +80,7 @@ func TestKeyRevealSecret(t *testing.T) {
 	if !strings.Contains(out, "nsec1") {
 		t.Errorf("--reveal-secret ile gizli anahtar basilmaliydi:\n%s", out)
 	}
-	if !strings.Contains(out, "paylasma") {
+	if !strings.Contains(out, "share it with nobody") {
 		t.Errorf("uyari metni olmaliydi:\n%s", out)
 	}
 }
@@ -119,7 +119,7 @@ func TestKeyNewCreatesWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hata: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "yeni anahtar olusturuldu") {
+	if !strings.Contains(out, "a new key was created") {
 		t.Errorf("olusturma mesaji beklenirdi:\n%s", out)
 	}
 }

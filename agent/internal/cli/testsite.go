@@ -11,14 +11,16 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/testsite"
 )
 
-// ListenMarker testsite komutunun dinlemeye basladigini bildiren satir.
-// Playwright e2e testi gercek portu bu satirdan okur.
+// ListenMarker is the line that reports the testsite command has started
+// listening. The Playwright e2e test reads the real port from this line.
 const ListenMarker = "---PEERPAGES-TESTSITE-LISTENING---"
 
-// newTestSiteCmd Faz 1 test sitesini servis eden yardimci komut.
+// newTestSiteCmd is the helper command that serves the phase 1 test
+// site.
 //
-// Gizli: kullaniciya yonelik bir ozellik degil, yalnizca testlerin tunelin
-// karsisina koyacak gercek bir yerel sunucuya ihtiyaci oldugu icin var.
+// Hidden: it is not a user-facing feature, it exists only because the
+// tests need a real local server to put on the other side of the
+// tunnel.
 func newTestSiteCmd() *cobra.Command {
 	var (
 		dir  string
@@ -27,18 +29,19 @@ func newTestSiteCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:    "testsite",
-		Short:  "Faz 1 test sitesini servis eder (yalnizca testler icin)",
+		Short:  "Serves the phase 1 test site (for tests only)",
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			// 5 MB'lik big.bin repoda tutulmuyor: gerekirse uret.
+			// The 5 MB big.bin is not kept in the repo: generate it if
+			// needed.
 			if _, _, err := testsite.GenerateBig(dir); err != nil {
-				return fmt.Errorf("test verisi uretilemedi: %w", err)
+				return fmt.Errorf("the test data could not be generated: %w", err)
 			}
 
 			ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 			if err != nil {
-				return fmt.Errorf("dinlenemedi: %w", err)
+				return fmt.Errorf("could not listen: %w", err)
 			}
 
 			out := cmd.OutOrStdout()
@@ -60,7 +63,7 @@ func newTestSiteCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&dir, "dir", "testdata/site", "servis edilecek dizin")
-	cmd.Flags().IntVar(&port, "port", 0, "dinlenecek port (0 = bos bir port sec)")
+	cmd.Flags().StringVar(&dir, "dir", "testdata/site", "the directory to serve")
+	cmd.Flags().IntVar(&port, "port", 0, "the port to listen on (0 = pick a free one)")
 	return cmd
 }

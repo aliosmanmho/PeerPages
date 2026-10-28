@@ -17,7 +17,7 @@ export const AGENT_DIR = resolve(here, "..", "..", "..", "agent");
 
 // Ajanin stdout'a bastigi isaretciler (agent/internal/cli/manual.go,
 // agent/internal/cli/testsite.go ile birebir ayni olmali).
-const OFFER_PROMPT = "---PEERPAGES-OFFER-BEKLENIYOR---";
+const OFFER_PROMPT = "---PEERPAGES-OFFER-WAITING---";
 const ANSWER_BEGIN = "---PEERPAGES-ANSWER-BEGIN---";
 const ANSWER_END = "---PEERPAGES-ANSWER-END---";
 const TUNNEL_OPEN = "---PEERPAGES-TUNNEL-OPEN---";

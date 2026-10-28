@@ -1,7 +1,7 @@
-// peerpages — localhost'u sunucusuz yayinlayan ajan.
+// peerpages is the agent that shares your localhost with no server.
 //
-// Signaling varsayilan olarak Nostr relay'leri uzerinden yapilir; `--manual`
-// ile offer/answer kopyala-yapistir ile tasinabilir.
+// By default signaling goes over Nostr relays; with `--manual` the offer
+// and answer can be carried by copy-paste.
 package main
 
 import (
@@ -11,10 +11,11 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/version"
 )
 
-// Derleme sirasinda -ldflags -X ile doldurulur (goreleaser).
+// Filled in at build time with -ldflags -X (goreleaser).
 //
-// Bos kalirlarsa surum bilgisi runtime/debug.ReadBuildInfo'dan okunur:
-// `go install ...@latest` ile kurulan binary de dogru surumu basar.
+// If they stay empty the version information is read from
+// runtime/debug.ReadBuildInfo, so a binary installed with
+// `go install ...@latest` prints the right version too.
 var (
 	buildVersion = "dev"
 	buildCommit  = ""

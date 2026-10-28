@@ -184,7 +184,7 @@ func TestServeFlagsValidation(t *testing.T) {
 		if cfg.wsDialerFactory() != nil {
 			t.Error("kopru kapaliyken dialer fabrikasi nil olmali")
 		}
-		if !strings.Contains(cfg.wsNote(), "kapali") {
+		if !strings.Contains(cfg.wsNote(), "off") {
 			t.Errorf("banner notu: %q", cfg.wsNote())
 		}
 	})
@@ -203,7 +203,7 @@ func TestServeFlagsValidation(t *testing.T) {
 		if _, err := factory(cfg.ManualTarget); err != nil {
 			t.Errorf("dialer kurulamadi: %v", err)
 		}
-		if !strings.Contains(cfg.wsNote(), "acik") {
+		if !strings.Contains(cfg.wsNote(), "on,") {
 			t.Errorf("banner notu: %q", cfg.wsNote())
 		}
 	})

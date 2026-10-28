@@ -8,15 +8,15 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/nostr/fakerelay"
 )
 
-// FakeRelayMarker sahte relay'in dinlemeye basladigini bildirir.
-// Playwright e2e testi gercek adresi bu satirdan okur.
+// FakeRelayMarker reports that the fake relay has started listening.
+// The Playwright e2e test reads the real address from this line.
 const FakeRelayMarker = "---PEERPAGES-FAKERELAY-LISTENING---"
 
-// newFakeRelayCmd testler icin surec ici Nostr relay'i calistirir.
+// newFakeRelayCmd runs the in-process Nostr relay for tests.
 //
-// Gizli: kullaniciya yonelik bir ozellik degil. Nostr e2e testinin gercek
-// internet relay'lerine bagimli olmamasi icin var; gercek relay'ler
-// `peerpages doctor` ile ayrica olculuyor.
+// Hidden: it is not a user-facing feature. It exists so the Nostr e2e test
+// does not depend on real relays out on the internet; the real ones are
+// measured separately with `peerpages doctor`.
 func newFakeRelayCmd() *cobra.Command {
 	var (
 		port          int
@@ -27,7 +27,7 @@ func newFakeRelayCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:    "fakerelay",
-		Short:  "Testler icin kucuk bir Nostr relay'i calistirir",
+		Short:  "Runs a small Nostr relay for tests",
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -49,10 +49,10 @@ func newFakeRelayCmd() *cobra.Command {
 	}
 
 	fl := cmd.Flags()
-	fl.IntVar(&port, "port", 0, "dinlenecek port (0 = bos bir port sec)")
+	fl.IntVar(&port, "port", 0, "the port to listen on (0 = pick a free one)")
 	fl.BoolVar(&dropEphemeral, "drop-ephemeral", false,
-		"ephemeral event'leri kabul et ama abonelere iletme")
-	fl.BoolVar(&rejectAll, "reject-all", false, "her yayini reddet")
-	fl.BoolVar(&requireAuth, "require-auth", false, "NIP-42 auth isteyen relay gibi davran")
+		"accept ephemeral events but do not forward them to subscribers")
+	fl.BoolVar(&rejectAll, "reject-all", false, "refuse every publish")
+	fl.BoolVar(&requireAuth, "require-auth", false, "behave like a relay that wants NIP-42 auth")
 	return cmd
 }

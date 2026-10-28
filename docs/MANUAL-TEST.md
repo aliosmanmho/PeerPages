@@ -210,7 +210,7 @@ go run . serve --manual --target http://localhost:3000
 Ziyaretci sayfasini ac (baglanti ekrani), "Offer uret" butonuna bas ve
 uretilen offer'i asagiya yapistirip Enter'a bas.
 
----PEERPAGES-OFFER-BEKLENIYOR---
+---PEERPAGES-OFFER-WAITING---
 ```
 
 Ajan şimdi senden offer bekliyor. Terminali açık bırak.

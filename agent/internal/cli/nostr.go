@@ -18,20 +18,22 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
 
-// ReadyMarker ajanin signaling'i dinlemeye basladigini bildirir.
+// ReadyMarker reports that the agent has started listening for
+// signaling.
 //
-// Makine de okur: e2e testi bu satiri bekleyip ziyaretci sayfasini aciyor
-// (web/e2e/fixtures/agent.ts).
+// A machine reads it too: the e2e test waits for this line before opening
+// the visitor page (web/e2e/fixtures/agent.ts).
 const ReadyMarker = "---PEERPAGES-READY---"
 
-// relayConnectTimeout relay'lere onceden baglanmak icin taninan sure.
+// relayConnectTimeout is the time allowed for connecting to the relays
+// ahead of time.
 const relayConnectTimeout = 20 * time.Second
 
-// visitorTargetLines her hedef icin "ad, yerel adres, ziyaretci URL'si"
-// bloklarini uretir.
+// visitorTargetLines builds the "name, local address, visitor URL" block
+// for every target.
 //
-// Coklu hedefte tek bir URL yetmez: ziyaretcinin hangi projeyi acacagi
-// URL'nin kendisinde yaziyor (`#npub1…/admin`).
+// With several targets one URL is not enough: which project the visitor
+// opens is written in the URL itself (`#npub1.../admin`).
 func visitorTargetLines(id identity.Identity, cfg *ServeConfig) (string, error) {
 	var b strings.Builder
 	names := cfg.Targets.Names()
@@ -57,27 +59,27 @@ func visitorTargetLines(id identity.Identity, cfg *ServeConfig) (string, error) 
 	return b.String(), nil
 }
 
-// runNostr Nostr signaling ile calisir: ziyaretci yalnizca URL'yi acar.
+// runNostr runs with Nostr signaling: the visitor only opens the URL.
 func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
 	log := cfg.Logger
 
 	id, created, err := identity.LoadOrCreate(cfg.KeyPath)
 	if err != nil {
-		return fmt.Errorf("ajan kimligi okunamadi: %w", err)
+		return fmt.Errorf("the agent identity could not be read: %w", err)
 	}
 	npub, err := id.Npub()
 	if err != nil {
 		return err
 	}
 	if created {
-		log.Info("ajan kimligi olusturuldu", slog.String("dosya", cfg.KeyPath))
+		log.Info("agent identity created", slog.String("file", cfg.KeyPath))
 	}
 
 	pool, err := nostr.NewPool(ctx, nostr.Config{URLs: cfg.Relays, Logger: log})
 	if err != nil {
 		return err
 	}
-	defer pool.Close("ajan kapaniyor")
+	defer pool.Close("the agent is shutting down")
 
 	var sealer *signaling.Sealer
 	if cfg.Secret != "" {
@@ -88,8 +90,9 @@ func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
 
 	counters := stats.New(cfg.Targets.Names())
 
-	// Hedef artik oturum basina: ziyaretci URL'de soyler, offer'da gelir.
-	// Dogrulamasi connect katmaninda; buraya yalnizca gecerli adlar duser.
+	// The target is per session now: the visitor states it in the URL and
+	// it arrives in the offer. It is validated in the connect layer; only
+	// valid names reach here.
 	newProxy := func(targetName string) (tunnel.Proxy, error) {
 		return proxy.New(proxy.Config{
 			Targets:      cfg.Targets,
@@ -127,19 +130,20 @@ func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
 		return err
 	}
 
-	// SIRA ONEMLI: once relay'lere baglan, sonra abone ol, EN SON "hazir" de.
-	// Ephemeral event'ler saklanmadigi icin, dinlemeye baslamadan gelen bir
-	// offer geri donusu olmadan kaybolur. (Gercek relay'lerle yapilan e2e
-	// kosumunda ilk baglanti tam bu yuzden basarisiz oluyordu.)
+	// THE ORDER MATTERS: connect to the relays first, then subscribe, and
+	// only THEN say "ready". Because ephemeral events are not stored, an
+	// offer that arrives before we listen is lost with no way back. (In
+	// the e2e run against real relays the first connection failed for
+	// exactly this reason.)
 	connectCtx, cancelConnect := context.WithTimeout(ctx, relayConnectTimeout)
 	defer cancelConnect()
 
 	connReport, err := pool.Connect(connectCtx)
 	if err != nil {
-		return fmt.Errorf("relay'lere baglanilamadi: %w", err)
+		return fmt.Errorf("the relays could not be reached: %w", err)
 	}
 	for relayURL, reason := range connReport.Failed {
-		log.Warn("relay'e baglanilamadi",
+		log.Warn("a relay could not be reached",
 			slog.String("relay", relayURL), slog.String("err", reason))
 	}
 
@@ -155,18 +159,18 @@ func runNostr(ctx context.Context, cfg *ServeConfig, stdout io.Writer) error {
 	}
 
 	fmt.Fprintf(stdout, `
-PeerPages ajani hazir.
+The PeerPages agent is ready.
 
   peer-id : %s
-  relay   : %d/%d bagli (durum satiri canli gosterir)
-  sir     : %s
+  relays  : %d/%d connected (the status line shows this live)
+  secret  : %s
   ice     : %s
   ws      : %s
 
-Yayinlanan hedefler ve ziyaretcinin acmasi gereken adresler:
+The published targets and the addresses the visitor should open:
 
 %s
-Bu sekmeyi/terminali acik tut: tunel ajan calistigi surece ayakta.
+Keep this tab or terminal open: the tunnel is up as long as the agent runs.
 %s
 `,
 		identity.ShortenNpub(npub),
@@ -179,35 +183,37 @@ Bu sekmeyi/terminali acik tut: tunel ajan calistigi surece ayakta.
 		ReadyMarker,
 	)
 
-	// Sayac satirini ayri goroutine'de bas; ajan kapanirken dursun.
+	// Print the counter line on its own goroutine; it stops when the agent
+	// shuts down.
 	statusCtx, stopStatus := context.WithCancel(ctx)
 	defer stopStatus()
 	go printStatusLines(statusCtx, stdout, acceptor, counters)
 
-	// Relay'ler dususe de akis devam etsin: Run abonelligi kendisi
-	// yeniliyor (Faz 4) ve yalnizca ctx bitince doner.
+	// Keep going even if the relays go down: Run renews the subscription
+	// itself (phase 4) and only returns once ctx ends.
 	runErr := <-errCh
 	stopStatus()
 
 	total := counters.Total()
-	log.Info("ajan kapandi",
-		slog.Int("acik_oturum", acceptor.SessionCount()),
-		slog.Uint64("istek", total.Requests),
-		slog.Uint64("basari", total.Success),
-		slog.Uint64("hata", total.Errors),
-		slog.Uint64("gelen_bayt", total.BytesIn),
-		slog.Uint64("giden_bayt", total.BytesOut))
+	log.Info("agent shut down",
+		slog.Int("open_sessions", acceptor.SessionCount()),
+		slog.Uint64("requests", total.Requests),
+		slog.Uint64("success", total.Success),
+		slog.Uint64("errors", total.Errors),
+		slog.Uint64("bytes_in", total.BytesIn),
+		slog.Uint64("bytes_out", total.BytesOut))
 	return runErr
 }
 
-// statusInterval canli durum satirinin tazelenme araligi.
+// statusInterval is how often the live status line refreshes.
 const statusInterval = 5 * time.Second
 
-// printStatusLines oturum ve istek sayaclarini stdout'a basar.
+// printStatusLines prints the session and request counters to stdout.
 //
-// Yalnizca DEGISTIGINDE basar: bos bir ajanin terminalini doldurmak
-// istemiyoruz. Loglar stderr'e gittigi icin bu satirlarla karismaz, ve
-// ReadyMarker'dan sonra geldigi icin makine okuyan e2e fixture'i etkilemez.
+// It prints only WHEN SOMETHING CHANGES: we do not want to fill the
+// terminal of an idle agent. The logs go to stderr so they do not mix
+// with these lines, and because they come after the ReadyMarker they do
+// not affect the machine-read e2e fixture.
 func printStatusLines(
 	ctx context.Context, out io.Writer, acceptor *connect.Acceptor, counters *stats.Registry,
 ) {
@@ -223,11 +229,11 @@ func printStatusLines(
 		}
 
 		t := counters.Total()
-		// Relay alani onemli: tum relay'ler dusunce ajan calismaya devam
-		// eder ama ziyaretciler ulasamaz. Bu bilgi hicbir yerde
-		// gorunmuyordu.
+		// The relay field matters: when every relay goes down the agent
+		// keeps running but no visitor can reach it. That information was
+		// nowhere to be seen.
 		healthy, total := acceptor.RelayStatus()
-		line := fmt.Sprintf("[durum] relay %d/%d | oturum %d | istek %d (basari %d, hata %d) | gelen %s | giden %s",
+		line := fmt.Sprintf("[status] relays %d/%d | sessions %d | requests %d (success %d, errors %d) | in %s | out %s",
 			healthy, total,
 			acceptor.SessionCount(), t.Requests, t.Success, t.Errors,
 			size.Format(int64(t.BytesIn)), size.Format(int64(t.BytesOut)))
@@ -241,7 +247,7 @@ func printStatusLines(
 
 func secretNote(secret string) string {
 	if secret == "" {
-		return "yok (peer-id'yi bilen herkes baglanabilir)"
+		return "none (anyone who knows the peer-id can connect)"
 	}
-	return fmt.Sprintf("var (%d karakter) — URL'de tasiniyor", len(secret))
+	return fmt.Sprintf("set (%d characters) — carried in the URL", len(secret))
 }

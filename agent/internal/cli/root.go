@@ -1,4 +1,4 @@
-// Package cli peerpages ajaninin komut satiri arayuzu.
+// Package cli is the command line interface of the peerpages agent.
 package cli
 
 import (
@@ -10,37 +10,39 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/version"
 )
 
-const rootLong = `peerpages — localhost'undaki siteyi sunucusuz yayinla.
+const rootLong = `peerpages — share the site on your localhost with no server.
 
-Ajan yerel bir hedefe (ornegin http://localhost:3000) reverse proxy yapar ve
-trafigi WebRTC data channel uzerinden ziyaretcinin tarayicisina tasir. Arada
-relay ya da proxy sunucusu yoktur; trafik uctan uca DTLS ile sifrelidir.
+The agent reverse proxies to a local target (for example
+http://localhost:3000) and carries the traffic to the visitor's browser
+over a WebRTC data channel. There is no relay or proxy server in between;
+the traffic is end-to-end encrypted with DTLS.
 
-Signaling varsayilan olarak herkese acik Nostr relay'leri uzerinden yapilir:
-ziyaretci yalnizca URL'yi acar. --manual ile offer/answer kopyala-yapistir
-ile tasinir (relay gerekmez).`
+By default signaling goes over public Nostr relays: the visitor only opens
+the URL. With --manual the offer and answer are carried by copy-paste (no
+relay needed).`
 
-// NewRootCmd kok komutu kurar.
+// NewRootCmd builds the root command.
 //
-// Yalnizca surum metni verildiginde kullanilir (testler); derleme bilgisi
-// olan yol NewRootCmdWith.
+// Used when only the version string is available (tests); the path with
+// full build information is NewRootCmdWith.
 func NewRootCmd(ver string) *cobra.Command {
 	return NewRootCmdWith(version.Resolve(ver, "", ""))
 }
 
-// NewRootCmdWith kok komutu tam surum bilgisiyle kurar.
+// NewRootCmdWith builds the root command with full version
+// information.
 func NewRootCmdWith(info version.Info) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "peerpages",
-		Short:         "localhost'u sunucusuz yayinla",
+		Short:         "share your localhost with no server",
 		Long:          rootLong,
 		Version:       info.Short(),
 		SilenceUsage:  true,
 		SilenceErrors: false,
 	}
-	// Version bayragini kisayolsuz tanimla: `-v` alt komutlarda verbose icin
-	// kullaniliyor, ikisi karismasin.
-	root.Flags().Bool("version", false, "peerpages surumunu yazdir")
+	// Define the version flag with no shorthand: `-v` is used for verbose
+	// in the subcommands and the two must not be confused.
+	root.Flags().Bool("version", false, "print the peerpages version")
 	root.AddCommand(newServeCmd())
 	root.AddCommand(newKeyCmd())
 	root.AddCommand(newDoctorCmd())
@@ -51,14 +53,14 @@ func NewRootCmdWith(info version.Info) *cobra.Command {
 	return root
 }
 
-// newVersionCmd surum, commit, tarih ve platformu basar.
+// newVersionCmd prints the version, commit, date and platform.
 //
-// Neden ayri komut: hata raporunda "hangi binary" sorusunun cevabi tek
-// satirla verilemiyor. --version yalnizca surumu basmaya devam ediyor.
+// Why a separate command: in a bug report the question "which binary" has
+// no one-line answer. --version goes on printing the version alone.
 func newVersionCmd(info version.Info) *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "surum ve derleme bilgisini yazdir",
+		Short: "print the version and build information",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, err := fmt.Fprint(cmd.OutOrStdout(), info.Details())
@@ -67,7 +69,7 @@ func newVersionCmd(info version.Info) *cobra.Command {
 	}
 }
 
-// Execute kok komutu calistirir.
+// Execute runs the root command.
 func Execute(info version.Info) error {
 	return NewRootCmdWith(info).ExecuteContext(context.Background())
 }

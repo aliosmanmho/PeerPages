@@ -8,17 +8,19 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/ice/faketurn"
 )
 
-// FakeTurnMarker sahte TURN sunucusunun dinlemeye basladigini bildirir.
-// Playwright e2e testi gercek adresi bu satirdan okur.
+// FakeTurnMarker reports that the fake TURN server has started
+// listening. The Playwright e2e test reads the real address from this
+// line.
 const FakeTurnMarker = "---PEERPAGES-FAKETURN-LISTENING---"
 
-// newFakeTurnCmd testler icin surec ici TURN sunucusu calistirir.
+// newFakeTurnCmd runs the in-process TURN server for tests.
 //
-// Gizli: kullaniciya yonelik bir ozellik degil. Faz 5'in kabul kriteri
-// "simetrik NAT'ta TURN ile baglaniyor" — simetrik NAT'i tek makinede taklit
-// edemiyoruz, ama ajani --ice-relay-only ile yalnizca relay adayi toplamaya
-// zorlayip buraya baglayinca dogrudan yol IMKANSIZ oluyor. O zaman tunelin
-// acilmasi, trafigin TURN'den gectiginin kanitidir.
+// Hidden: it is not a user-facing feature. The phase 5 acceptance
+// criterion is "it connects over TURN on symmetric NAT" — we cannot
+// imitate symmetric NAT on a single machine, but forcing the agent to
+// gather relay candidates only with --ice-relay-only and pointing it here
+// makes the direct path IMPOSSIBLE. Then the tunnel opening is proof that
+// the traffic went over TURN.
 func newFakeTurnCmd() *cobra.Command {
 	var (
 		port int
@@ -28,7 +30,7 @@ func newFakeTurnCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:    "faketurn",
-		Short:  "Testler icin kucuk bir TURN sunucusu calistirir",
+		Short:  "Runs a small TURN server for tests",
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -46,8 +48,8 @@ func newFakeTurnCmd() *cobra.Command {
 	}
 
 	fl := cmd.Flags()
-	fl.IntVar(&port, "port", 0, "dinlenecek port (0 = bos bir port sec)")
-	fl.StringVar(&user, "user", "peerpages", "kabul edilen kullanici adi")
-	fl.StringVar(&pass, "pass", "test-sifre", "kabul edilen sifre")
+	fl.IntVar(&port, "port", 0, "the port to listen on (0 = pick a free one)")
+	fl.StringVar(&user, "user", "peerpages", "the accepted user name")
+	fl.StringVar(&pass, "pass", "test-sifre", "the accepted password")
 	return cmd
 }

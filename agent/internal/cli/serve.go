@@ -24,7 +24,8 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/wsbridge"
 )
 
-// Varsayilan limitler — BRIEF guvenlik ilkesi 4 (ziyaretci guvenilmez).
+// The default limits — BRIEF security principle 4 (the visitor is
+// untrusted).
 const (
 	defaultMaxBody       = "50MB"
 	defaultMaxConcurrent = 64
@@ -33,44 +34,48 @@ const (
 	defaultMaxWSMessage  = "1MB"
 )
 
-// envTURNPass TURN sifresi icin ortam degiskeni.
+// envTURNPass is the environment variable for the TURN password.
 //
-// Neden bayrak tek yol degil: komut satiri argumanlari `ps` ciktisinda ve
-// Gorev Yoneticisi'nde baska kullanicilara gorunur.
+// Why a flag is not the only way: command line arguments are visible to
+// other users in `ps` output and in Task Manager.
 const envTURNPass = "PEERPAGES_TURN_PASS"
 
-// envCloudflareToken Cloudflare TURN API jetonu icin ortam degiskeni.
+// envCloudflareToken is the environment variable for the Cloudflare TURN
+// API token.
 //
-// Birincil yol BU: jeton uzun omurlu bir sirdir ve komut satirinda
-// durmamali.
+// THIS is the primary way: the token is a long-lived secret and should not
+// sit on a command line.
 const envCloudflareToken = "PEERPAGES_CF_TURN_TOKEN"
 
-// ServeConfig serve komutunun dogrulanmis yapilandirmasi.
+// ServeConfig is the validated configuration of the serve command.
 type ServeConfig struct {
 	Targets       *target.Set
 	MaxBody       int64
 	MaxConcurrent int
 	MaxSessions   int
-	// MaxStreams oturum basina uzun yasayan akis (ws + SSE) tavani.
+	// MaxStreams is the long-lived stream (ws + SSE) limit per session.
 	MaxStreams int
-	// MaxWSMessage bir ws mesajinin tavani.
+	// MaxWSMessage is the limit for a ws message.
 	MaxWSMessage int64
-	// InjectWSShim WebSocket koprusunu acar ve HTML cevaplarina shim
-	// isaretini ekler (Faz 6, varsayilan kapali: HTML'e mudahale ediyoruz).
+	// InjectWSShim turns the WebSocket bridge on and adds the shim hint to
+	// HTML responses (phase 6, off by default: it interferes with the
+	// HTML).
 	InjectWSShim bool
-	// Manual true ise signaling elle (kopyala-yapistir) yapilir; false ise
-	// Nostr relay'leri uzerinden (varsayilan).
+	// Manual set to true does signaling by hand (copy-paste); false goes
+	// over Nostr relays (the default).
 	Manual bool
-	// ManualTarget --manual yolunda kullanilacak hedef adi. Elle signaling'de
-	// ziyaretcinin URL'si yok, dolayisiyla hedefi bayrak soyler.
+	// ManualTarget is the target name used on the --manual path. With
+	// manual signaling there is no visitor URL, so a flag states the
+	// target.
 	ManualTarget string
-	// ICE dogrulanmis STUN/TURN yapilandirmasi.
+	// ICE is the validated STUN/TURN configuration.
 	ICE ice.Config
-	// Cloudflare doldurulmussa TURN kimlik bilgisi API'den cekilir.
+	// When Cloudflare is filled in, the TURN credentials are fetched from
+	// the API.
 	Cloudflare ice.CloudflareOptions
 
-	// iceProvider calisma zamaninda gecerli ICE listesini verir; runServe
-	// dolduruyor.
+	// iceProvider provides the ICE list valid at runtime; runServe fills
+	// it in.
 	iceProvider *ice.Provider
 	Relays      []string
 	Secret      string
@@ -109,19 +114,20 @@ func newServeCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Yerel hedefi tunel uzerinden yayinla",
-		Long: `Yerel hedefi WebRTC data channel uzerinden yayinlar.
+		Short: "Share a local target over the tunnel",
+		Long: `Shares a local target over a WebRTC data channel.
 
-Varsayilan olarak signaling herkese acik Nostr relay'leri uzerinden yapilir:
-ziyaretci yalnizca URL'yi acar. --manual ile offer/answer elle tasinir
-(signaling sunucusu da Nostr da yok).
+By default signaling goes over public Nostr relays: the visitor only opens
+the URL. With --manual the offer and answer are carried by hand (neither a
+signaling server nor Nostr).
 
-Hedefler yalnizca bu komutta verilir; ajan baska hicbir hosta istek atmaz
-(istek yolundan host turetmek mumkun degil).
+The targets are given in this command and nowhere else; the agent makes no
+request to any other host (deriving a host from the request path is not
+possible).
 
-Ornekler:
+Examples:
   peerpages serve --target http://localhost:3000
-  peerpages serve -t http://localhost:3000 --secret kedi-balik-7
+  peerpages serve -t http://localhost:3000 --secret cat-fish-7
   peerpages serve -t http://localhost:3000 --manual
   peerpages serve -t http://localhost:3000 --relay wss://nos.lol`,
 		Args: cobra.NoArgs,
@@ -136,46 +142,46 @@ Ornekler:
 
 	fl := cmd.Flags()
 	fl.StringArrayVarP(&f.targets, "target", "t", nil,
-		"yayinlanacak yerel hedef: `url` ya da `ad=url` (tekrarlanabilir, zorunlu)")
+		"the local target to share: `url` or `name=url` (repeatable, required)")
 	fl.StringVar(&f.maxBody, "max-body", defaultMaxBody,
-		"ziyaretciden kabul edilecek en buyuk istek govdesi")
+		"the largest request body accepted from the visitor")
 	fl.IntVar(&f.maxConcurrent, "max-concurrent", defaultMaxConcurrent,
-		"ayni anda islenecek en fazla istek sayisi")
+		"the most requests handled at once")
 	fl.IntVar(&f.maxSessions, "max-sessions", defaultMaxSessions,
-		"ayni anda kabul edilecek en fazla ziyaretci")
+		"the most visitors accepted at once")
 	fl.IntVar(&f.maxStreams, "max-streams", defaultMaxStreams,
-		"ayni anda acik uzun yasayan akis sayisi (WebSocket oturumu ya da SSE cevabi)")
+		"how many long-lived streams may be open at once (a WebSocket session or an SSE response)")
 	fl.StringVar(&f.maxWSMessage, "max-ws-message", defaultMaxWSMessage,
-		"bir WebSocket mesajinin en buyuk boyu (iki yonde de)")
+		"the largest size of a WebSocket message (in both directions)")
 	fl.BoolVar(&f.injectWSShim, "inject-ws-shim", false,
-		"WebSocket koprusunu ac: HTML cevaplarina shim enjekte edilir (HTML'e mudahale)")
+		"turn the WebSocket bridge on: a shim is injected into HTML responses (it touches the HTML)")
 	fl.BoolVar(&f.manual, "manual", false,
-		"elle signaling: sayfanin urettigi offer yapistirilir, ajan answer basar")
+		"manual signaling: you paste the offer the page produced and the agent prints the answer")
 	fl.StringVar(&f.manualTarget, "manual-target", "",
-		"--manual yolunda yayinlanacak hedefin adi (varsayilan: default)")
+		"the name of the target to share on the --manual path (default: default)")
 	fl.StringArrayVar(&f.relays, "relay", nil,
-		"Nostr relay adresi (tekrarlanabilir; verilmezse varsayilan liste)")
+		"a Nostr relay address (repeatable; the default list when omitted)")
 	fl.StringVar(&f.secret, "secret", "",
-		"paylasilan sir: URL '#npub:secret' olur, sirsiz teklifler reddedilir")
+		"a shared secret: the URL becomes '#npub:secret' and unsealed offers are refused")
 	fl.StringVar(&f.keyPath, "key", "",
-		"ajan anahtar dosyasi (varsayilan: ~/.peerpages/key)")
+		"the agent key file (default: ~/.peerpages/key)")
 	fl.StringVar(&f.appURL, "app-url", DefaultAppURL,
-		"app shell'in yayinlandigi adres (ziyaretci URL'sini basmak icin)")
+		"the address the app shell is published at (used to print the visitor URL)")
 	fl.StringArrayVar(&f.stun, "stun", ice.DefaultSTUN,
-		"ICE icin STUN sunucusu (tekrarlanabilir)")
+		"a STUN server for ICE (repeatable)")
 	fl.StringArrayVar(&f.turn, "turn", nil,
-		"TURN sunucusu (turn:/turns:, tekrarlanabilir); simetrik NAT'ta gerekir")
-	fl.StringVar(&f.turnUser, "turn-user", "", "TURN kullanici adi")
+		"a TURN server (turn:/turns:, repeatable); needed on symmetric NAT")
+	fl.StringVar(&f.turnUser, "turn-user", "", "the TURN user name")
 	fl.StringVar(&f.turnPass, "turn-pass", "",
-		"TURN sifresi ("+envTURNPass+" ortam degiskeni de kullanilabilir)")
+		"the TURN password (the "+envTURNPass+" environment variable works too)")
 	fl.StringVar(&f.cfKeyID, "turn-cloudflare-key-id", "",
-		"Cloudflare Realtime TURN anahtar kimligi (kimlik bilgisi API'den cekilir)")
+		"the Cloudflare Realtime TURN key id (the credentials are fetched from the API)")
 	fl.StringVar(&f.cfToken, "turn-cloudflare-token", "",
-		"Cloudflare API jetonu ("+envCloudflareToken+" ortam degiskeni onerilir)")
+		"the Cloudflare API token (the "+envCloudflareToken+" environment variable is preferred)")
 	fl.BoolVar(&f.iceRelayOnly, "ice-relay-only", false,
-		"yalnizca TURN relay adayi topla (teshis: dogrudan yolu imkansiz kilar)")
+		"gather TURN relay candidates only (diagnostics: it makes the direct path impossible)")
 	fl.BoolVarP(&f.verbose, "verbose", "v", false,
-		"ayrintili log; URL path'leri MASKELENMEZ")
+		"verbose logging; URL paths are NOT MASKED")
 
 	_ = cmd.MarkFlagRequired("target")
 	return cmd
@@ -193,30 +199,30 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 	}
 
 	if f.maxConcurrent < 1 {
-		return nil, fmt.Errorf("--max-concurrent en az 1 olmali, verilen: %d", f.maxConcurrent)
+		return nil, fmt.Errorf("--max-concurrent must be at least 1, got: %d", f.maxConcurrent)
 	}
 
 	if f.maxSessions < 1 {
-		return nil, fmt.Errorf("--max-sessions en az 1 olmali, verilen: %d", f.maxSessions)
+		return nil, fmt.Errorf("--max-sessions must be at least 1, got: %d", f.maxSessions)
 	}
 
 	if f.maxStreams < 1 {
-		return nil, fmt.Errorf("--max-streams en az 1 olmali, verilen: %d", f.maxStreams)
+		return nil, fmt.Errorf("--max-streams must be at least 1, got: %d", f.maxStreams)
 	}
 
 	maxWSMessage, err := size.Parse(f.maxWSMessage)
 	if err != nil {
 		return nil, fmt.Errorf("--max-ws-message: %w", err)
 	}
-	// Bir ws mesaji en az bir cerceveye sigmali; daha kucuk bir tavan her
-	// mesaji reddederdi.
+	// A ws message has to fit in at least one frame; a smaller limit would
+	// refuse every message.
 	if maxWSMessage < protocol.MaxWSPayload {
-		return nil, fmt.Errorf("--max-ws-message en az %d bayt olmali, verilen: %d",
+		return nil, fmt.Errorf("--max-ws-message must be at least %d bytes, got: %d",
 			protocol.MaxWSPayload, maxWSMessage)
 	}
 
 	if len(f.stun) == 0 && len(f.turn) == 0 {
-		return nil, fmt.Errorf("--stun bos olamaz")
+		return nil, fmt.Errorf("--stun must not be empty")
 	}
 
 	turnPass := f.turnPass
@@ -231,10 +237,10 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 	switch {
 	case cf.KeyID != "" && cf.Token == "":
 		return nil, fmt.Errorf(
-			"--turn-cloudflare-key-id verildi ama jeton yok (--turn-cloudflare-token ya da %s)",
+			"--turn-cloudflare-key-id was given but there is no token (--turn-cloudflare-token or %s)",
 			envCloudflareToken)
 	case cf.KeyID == "" && cf.Token != "":
-		return nil, fmt.Errorf("cloudflare jetonu verildi ama --turn-cloudflare-key-id yok")
+		return nil, fmt.Errorf("a cloudflare token was given but --turn-cloudflare-key-id is missing")
 	}
 
 	iceCfg := ice.Config{
@@ -244,9 +250,9 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 		Pass:      turnPass,
 		RelayOnly: f.iceRelayOnly,
 	}
-	// Cloudflare kullaniliyorsa TURN adresi ve kimlik bilgisi calisma
-	// zamaninda gelir; dogrulama bunu bilmeli, yoksa "relay-only icin turn
-	// gerekiyor" ya da "turn-user yok" diye bosa duser.
+	// With Cloudflare in use the TURN address and credentials arrive at
+	// runtime; the validation has to know that, or it fires for nothing
+	// with "relay-only needs turn" or "no turn-user".
 	if cf.KeyID != "" {
 		iceCfg.RuntimeTURN = true
 	}
@@ -267,8 +273,9 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 		relays = normalized
 	}
 
-	// Elle yolda hedefi bayrak secer; adin gercekten var oldugunu burada
-	// dogruluyoruz ki hata tunel kurulduktan sonra degil, baslangicta cikisin.
+	// On the manual path a flag picks the target; we check here that the
+	// name really exists, so the error comes out at startup rather than
+	// after the tunnel is up.
 	manualTarget := f.manualTarget
 	if manualTarget == "" {
 		manualTarget = target.DefaultName
@@ -276,7 +283,7 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 			manualTarget = targets.Names()[0]
 		}
 	} else if !targets.Has(manualTarget) {
-		return nil, fmt.Errorf("--manual-target %q: boyle bir hedef yok (tanimli: %v)",
+		return nil, fmt.Errorf("--manual-target %q: there is no such target (defined: %v)",
 			manualTarget, targets.Names())
 	}
 
@@ -310,12 +317,12 @@ func (f *serveFlags) toConfig(logTo io.Writer) (*ServeConfig, error) {
 	}, nil
 }
 
-// newWSDialer hedef basina WebSocket koprusu uretir.
+// newWSDialer builds the WebSocket bridge per target.
 //
-// Kopru ve shim TEK bayrakla aciliyor (--inject-ws-shim): shim olmadan hicbir
-// tarayici sayfasi ws-open yollamaz, kopru olmadan shim ise ise yaramaz.
-// Bayrak verilmediyse nil doner ve ws-open istekleri ws-close 1008 ile
-// reddedilir.
+// The bridge and the shim are turned on by ONE flag
+// (--inject-ws-shim): without the shim no browser page sends a ws-open,
+// and without the bridge the shim is useless. With the flag omitted it
+// returns nil and ws-open requests are refused with ws-close 1008.
 func (c *ServeConfig) newWSDialer(targetName string) (tunnel.WSDialer, error) {
 	return wsbridge.New(wsbridge.Config{
 		Targets:    c.Targets,
@@ -326,7 +333,8 @@ func (c *ServeConfig) newWSDialer(targetName string) (tunnel.WSDialer, error) {
 	})
 }
 
-// wsDialerFactory kopru kapaliysa nil doner (connect.Config bunu bekliyor).
+// wsDialerFactory returns nil when the bridge is off (which is what
+// connect.Config expects).
 func (c *ServeConfig) wsDialerFactory() connect.WSDialerFactory {
 	if !c.InjectWSShim {
 		return nil
@@ -334,16 +342,16 @@ func (c *ServeConfig) wsDialerFactory() connect.WSDialerFactory {
 	return c.newWSDialer
 }
 
-// wsNote banner icin kopru durumu.
+// wsNote is the bridge state for the banner.
 func (c *ServeConfig) wsNote() string {
 	if !c.InjectWSShim {
-		return "kapali (--inject-ws-shim ile acilir)"
+		return "off (--inject-ws-shim turns it on)"
 	}
-	return fmt.Sprintf("acik, shim enjekte ediliyor, mesaj tavani %s",
+	return fmt.Sprintf("on, injecting the shim, message limit %s",
 		size.Format(c.MaxWSMessage))
 }
 
-// AuthMode hello mesajinda bildirilecek auth degeri.
+// AuthMode is the auth value announced in the hello message.
 func (c *ServeConfig) AuthMode() protocol.AuthMode {
 	if c.Secret != "" {
 		return protocol.AuthRequired
@@ -353,7 +361,7 @@ func (c *ServeConfig) AuthMode() protocol.AuthMode {
 
 func runServe(cmd *cobra.Command, cfg *ServeConfig) error {
 	log := cfg.Logger
-	log.Info("ajan baslatiliyor",
+	log.Info("starting the agent",
 		slog.Any("targets", cfg.Targets.Names()),
 		slog.String("max_body", size.Format(cfg.MaxBody)),
 		slog.Int("max_concurrent", cfg.MaxConcurrent),
@@ -363,16 +371,17 @@ func runServe(cmd *cobra.Command, cfg *ServeConfig) error {
 		slog.Bool("manual_signaling", cfg.Manual),
 	)
 	if cfg.Verbose {
-		log.Warn("verbose acik: URL path'leri loglarda maskelenmiyor")
+		log.Warn("verbose is on: URL paths are not masked in the logs")
 	}
 
-	// Ctrl+C / SIGTERM ile temiz kapanis.
+	// A clean shutdown on Ctrl+C / SIGTERM.
 	ctx, stop := osignal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// ICE saglayicisi: Cloudflare verilmisse kimlik bilgisini SIMDI ceker
-	// (basarisizsa ajan baslamaz — kullanici TURN istediyse sessizce
-	// TURN'suz devam etmek yanlis olur) ve arka planda yeniler.
+	// The ICE provider: if Cloudflare was given it fetches the credentials
+	// NOW (and the agent does not start if that fails — carrying on
+	// without TURN silently would be wrong when the user asked for it) and
+	// refreshes them in the background.
 	ice, err := newICEProvider(ctx, cfg)
 	if err != nil {
 		return err
@@ -386,8 +395,8 @@ func runServe(cmd *cobra.Command, cfg *ServeConfig) error {
 	return runNostr(ctx, cfg, cmd.OutOrStdout())
 }
 
-// newICEProvider yapilandirmaya gore statik ya da Cloudflare saglayicisi
-// dondurur.
+// newICEProvider returns the static or the Cloudflare provider,
+// depending on the configuration.
 func newICEProvider(ctx context.Context, cfg *ServeConfig) (*ice.Provider, error) {
 	if cfg.Cloudflare.KeyID == "" {
 		return ice.NewProvider(cfg.ICE, cfg.Logger), nil
@@ -395,11 +404,11 @@ func newICEProvider(ctx context.Context, cfg *ServeConfig) (*ice.Provider, error
 	return ice.NewCloudflareProvider(ctx, cfg.ICE, cfg.Cloudflare, cfg.Logger)
 }
 
-// iceServers oturum basina gecerli ICE listesini dondurur
-// (connect.ICEFactory imzasi).
+// iceServers returns the ICE list valid for a session (the
+// connect.ICEFactory signature).
 //
-// Saglayici yoksa (testler ServeConfig'i elle kuruyor) statik yapilandirma
-// kullanilir.
+// With no provider (the tests build ServeConfig by hand) the static
+// configuration is used.
 func (c *ServeConfig) iceServers() ([]webrtc.ICEServer, webrtc.ICETransportPolicy) {
 	if c.iceProvider == nil {
 		return c.ICE.Servers(), c.ICE.Policy()
@@ -407,7 +416,8 @@ func (c *ServeConfig) iceServers() ([]webrtc.ICEServer, webrtc.ICETransportPolic
 	return c.iceProvider.Servers()
 }
 
-// iceDescribe log ve banner icin ozet; kimlik bilgisi yazilmaz.
+// iceDescribe is the summary for the log and the banner; no credential
+// is written out.
 func (c *ServeConfig) iceDescribe() string {
 	if c.iceProvider == nil {
 		return c.ICE.Describe()

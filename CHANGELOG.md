@@ -1,554 +1,712 @@
 # Changelog
 
-Bu dosyanın formatı [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/)
-temel alır. Proje henüz sürümlenmiyor; girdiler faz bazlı tutulur.
+The format of this file is based on
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The project is not
+versioned yet; entries are kept per phase.
 
 ## [Unreleased]
 
-### Faz 0 — İskelet
+### Phase 8 - An English project plus a multilingual page
 
-- Monorepo iskeleti: `web/`, `agent/`, `protocol/`, `docs/`, `scripts/`,
+The repository is English from end to end, and the web page speaks both
+English and Turkish with English as the default. The protocol did not change:
+not one wire string, flag name or environment variable moved.
+
+#### Four decisions
+
+1. **The documents are English only**, with no Turkish copy kept — one source
+   of truth rather than two that drift apart.
+2. **Multiple languages on the web page only.** The agent's CLI output, its
+   error messages and its logs stay **English only**: a translated log breaks
+   both searchability and debugging.
+3. **The commit history is left as it is**; messages from here on are
+   English. No force push — changing 57 SHAs would kill the `gh-pages`
+   history and every link already handed out.
+4. **A branch plus a PR** (`english-i18n`), committed step by step.
+
+#### GitHub
+
+- Repository description, homepage and twelve topics; squash-only merges,
+  `delete_branch_on_merge`, auto-merge, the wiki and projects tabs off.
+- Community files, all English: `.github/ISSUE_TEMPLATE/*.yml`,
+  `PULL_REQUEST_TEMPLATE.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant
+  2.1), and a three-line `.github/SECURITY.md` that points at
+  `docs/SECURITY.md` so GitHub recognises the policy.
+- MIT was already in place and recognised; it was not touched.
+
+#### Web i18n
+
+- New `web/src/i18n.ts`: no dependency, `t(key, params)` with `{placeholder}`
+  substitution, `data-i18n` / `data-i18n-attr` applied to the DOM.
+- Resolution order: `?lang=` → `localStorage["peerpages-lang"]` →
+  `navigator.languages` → `en`.
+- An unknown `?lang=xx` **does not throw**: it falls back to the default and
+  writes to the console. This is a deliberate departure from the "invalid
+  input throws" rule of `relaysFromSearch` / `stunFromSearch` — a missing
+  relay list stops the tunnel from being built, a missing language is merely
+  cosmetic, so dropping the page onto an error screen would be out of
+  proportion. The reasoning is at the top of the file.
+- A small `<select>` in the header; changing it redraws the whole screen,
+  the metrics and the last status message.
+- Module errors (`TunnelError`, `PeerIDError`, `SignalingError`, …) do NOT
+  go through the dictionary: they are English and shown as they are. The
+  ~124 strings in the dictionary are the screen's own text.
+- The **Service Worker stays English**: its four plain-text bodies live in a
+  separate build target with no DOM and no knowledge of the page's chosen
+  language. An honest limit, written down in BRIEF section 8.
+
+#### The code
+
+- Every comment, doc comment and runtime string in `agent/internal/**` (81
+  files) and `web/src/**` (53 files) is English — package doc comments
+  included, since that is what `go doc` prints.
+- The `slog` keys were deduplicated: `neden`/`reason` and `hedef`/`target`
+  used to sit side by side; everything is one English form now (`limit`,
+  `bytes`, `duration`, `silence`, `file`, `frames`, `failed`, `total`,
+  `tick_interval`, `secret_required`, `first_ok`, `reported_bytes`).
+- The stdout marker `---PEERPAGES-OFFER-BEKLENIYOR---` became
+  `---PEERPAGES-OFFER-WAITING---`, with `web/e2e/fixtures/agent.ts` and
+  `docs/MANUAL-TEST.md` changed in the same commit (otherwise e2e hangs
+  waiting on stdout).
+- Test fixtures: the `agent/testdata/site` ids (`title`, `items`,
+  `description`, `download-status`), its dataset flags (`data-js-ran`,
+  `data-api-ran`), the JSON field names, and `web/e2e/fixtures/vite-app`
+  (`message.js`, `FIRST-VERSION`) — together with all 24 selector uses
+  across six spec files.
+- `faz3..6.spec.ts` → `phase3..6.spec.ts`, and the references in the docs.
+- The ~200 `name` labels in the three test-vector files are English. These
+  are labels only, never looked up, so the data and the structure are
+  untouched and both languages still read the same file.
+- CI step names, the `Makefile`'s `##` help lines, `.goreleaser.yaml` (the
+  published Homebrew and Scoop `description` fields included), and the six
+  `scripts/*.ps1` files.
+
+#### The documents
+
+All 3,770 lines of the twelve Turkish documents were **rewritten** in
+English rather than translated line by line. Section numbers, table
+structure, code blocks and file references were kept exactly as they were,
+because the code holds 96 references of the `BRIEF section 8` kind.
+
+Two stale claims were corrected rather than translated faithfully:
+`protocol/README.md` still said the agent opens the data channels (untrue
+since the phase 2 role swap), and `docs/LAUNCH.md`'s Show HN draft still
+listed "the CLI and the detailed docs are still in Turkish" as an honest
+limit.
+
+The Turkish prompt in BRIEF section 10 is deliberately kept as a historical
+record, with a note saying so.
+
+#### The guard
+
+New `scripts/check-language.mjs`: a list of ASCII-ised Turkish words
+(`govde`, `cerceve`, `gecersiz`, `baglanti`, `oturum`, …) plus a
+word-bounded regex for the diacritics. `node_modules`, `dist`, `.git`,
+this file's commit quotations and BRIEF section 10 are excluded. A non-zero
+count exits 1. Adding it to CI waits for the Actions lock to be lifted.
+
+#### Tests
+
+412 TS unit tests (+15), 19 Go packages, 39 Playwright tests (+4: English
+by default, `?lang=tr` switches the whole screen, an unknown `?lang=` falls
+back without an error, the picker survives a reload).
+
+MEASURED: bundle 43.2 → 46.8 KB gzip (+3.6 KB for both dictionaries and the
+picker); `sw.js` 2.71 KB and `ws-shim.js` 1.88 KB unchanged.
+
+#### Acceptance status
+
+Met: the page opens in English, `?lang=tr` turns the whole screen Turkish,
+the choice survives a reload, and the guard script reports zero leftover
+Turkish. GitHub Actions is still locked, so CI did not run on the PR; the
+test results above were produced locally.
+
+### Phase 0 — The skeleton
+
+- The monorepo skeleton: `web/`, `agent/`, `protocol/`, `docs/`, `scripts/`,
   `.github/workflows/`.
-- MIT lisansi, `CONTRIBUTING.md` taslagi, bu changelog.
-- `web/`: Vite + TypeScript, UI framework yok, runtime bagimliligi yok.
-  Service Worker **ayri** derlenir (`vite.sw.config.ts` -> hash'siz `dist/sw.js`);
-  `vite-plugin-pwa` kullanilmadi. `base`, `PEERPAGES_BASE` ile GitHub Pages alt
-  yolu icin ayarlanabilir. Uc ayri `tsconfig` (app / sw / node).
+- The MIT licence, a draft `CONTRIBUTING.md`, this changelog.
+- `web/`: Vite + TypeScript, no UI framework, no runtime dependency. The
+  Service Worker is built **separately** (`vite.sw.config.ts` → an unhashed
+  `dist/sw.js`); `vite-plugin-pwa` was not used. `base` can be set with
+  `PEERPAGES_BASE` for a GitHub Pages subpath. Three separate `tsconfig`
+  files (app / sw / node).
 - `agent/`: Go + cobra. `peerpages serve --target ...`; `--max-body` (50MB),
   `--max-concurrent` (64), `--manual`, `--stun`, `--verbose`.
-  - `internal/target`: hedef allowlist'i; istek yolundan host turetmek
-    imkansiz (SSRF korumasi, BRIEF ilke 1).
-  - `internal/logging`: varsayilan olarak URL path'leri maskelenir (ilke 6).
-  - `internal/size`: boyut ifadeleri (1024 tabanli).
-- Lint/format: `biome` (web), `gofmt` + `go vet` + `golangci-lint` (agent).
-- `Makefile` + Windows icin `scripts/*.ps1` esdegerleri, `docs/DEV.md`.
+  - `internal/target`: the target allowlist; deriving a host from the request
+    path is impossible (SSRF protection, BRIEF principle 1).
+  - `internal/logging`: URL paths are masked by default (principle 6).
+  - `internal/size`: size expressions (base 1024).
+- Lint and format: `biome` (web), `gofmt` + `go vet` + `golangci-lint`
+  (agent).
+- A `Makefile` plus `scripts/*.ps1` equivalents for Windows, `docs/DEV.md`.
 - `.github/workflows/ci.yml`: web lint+test, agent lint+test (-race), e2e.
 
-**Kabul (dogrulandi):** `npm run dev` -> `http://localhost:5173` 200 donuyor;
-`peerpages --help`, `peerpages serve --help` ve `peerpages --version` calisiyor.
+**Acceptance (verified):** `npm run dev` → `http://localhost:5173` returns
+200; `peerpages --help`, `peerpages serve --help` and `peerpages --version`
+work.
 
-### Faz 1 - Cekirdek kanit: elle signaling + SW proxy
+### Phase 1 - The core proof: manual signaling plus the SW proxy
 
-Signaling sunucusu ve Nostr YOK: offer/answer kopyala-yapistir ile tasiniyor.
-Amac SW + WebRTC + reverse proxy zincirini kanitlamak (BRIEF Faz 1).
+No signaling server and no Nostr: the offer and the answer are carried by
+copy-paste. The point is to prove the SW + WebRTC + reverse proxy chain
+(BRIEF phase 1).
 
-#### Protokol (`protocol/`)
+#### The protocol (`protocol/`)
 
-- `protocol/README.md` normatif tanim, `protocol/testvectors.json` makine
-  karsiligi. **Hem TS hem Go testleri ayni dosyayi okuyor.**
-- `data` cercevesi: `[4B id BE][4B seq BE][payload <= 16384]`.
-- `ctrl`: `req`/`res`/`end`/`abort`/`ping`/`pong`/`hello`; hata kodlari ve
-  hata sirasi tanimli.
-- Kanonik serilestirme: iki uygulama bayt bayt ayni cikti uretiyor; vektorler
-  bunu dogruluyor.
-- **`end` mesaji `frames` ve `len` sayaclari tasiyor** (asagidaki karar).
+- `protocol/README.md` is the normative definition and
+  `protocol/testvectors.json` its machine-readable counterpart. **Both the TS
+  and the Go tests read the same file.**
+- The `data` frame: `[4B id BE][4B seq BE][payload <= 16384]`.
+- `ctrl`: `req`/`res`/`end`/`abort`/`ping`/`pong`/`hello`; the error codes and
+  the error order are defined.
+- Canonical serialization: the two implementations produce byte-identical
+  output, and the vectors prove it.
+- **The `end` message carries `frames` and `len` counters** (the decision
+  below).
 
-#### Ajan (`agent/`)
+#### The agent (`agent/`)
 
-- `internal/signal`: elle signaling icin base64(JSON) SDP tasima.
-- `internal/tunnel`: pion/webrtc v4 oturumu, iki data channel, hello,
-  ping/pong, istek coklama, backpressure (1 MiB / 256 KiB esikleri),
-  eszamanlilik ve govde boyutu tavanlari.
-- `internal/proxy`: reverse proxy. Hop-by-hop baslik temizleme, `Host`
-  yeniden yazimi, `Location`/`Content-Location` goreli yola cevirme, baslik
-  enjeksiyonu reddi, akis halinde govde (tam govde beklenmiyor),
-  yonlendirmeleri izlememe, hata metni sizdirmama.
-- `internal/testsite` + `testdata/site`: HTML/CSS/JS/PNG/JSON/302/SSE ve
-  deterministik 5 MB `big.bin` (repoda tutulmuyor, uretiliyor).
-- `peerpages serve` artik gercekten tunel aciyor; gizli `peerpages testsite`
-  komutu testler icin yerel sunucu sagliyor.
+- `internal/signal`: base64(JSON) SDP transport for manual signaling.
+- `internal/tunnel`: a pion/webrtc v4 session, two data channels, hello,
+  ping/pong, request multiplexing, backpressure (1 MiB / 256 KiB thresholds),
+  concurrency and body-size ceilings.
+- `internal/proxy`: the reverse proxy. Hop-by-hop header stripping, `Host`
+  rewriting, `Location`/`Content-Location` turned into relative paths, header
+  injection refused, the body streamed (the full body is never buffered),
+  redirects not followed, no error text leaked.
+- `internal/testsite` + `testdata/site`: HTML/CSS/JS/PNG/JSON/302/SSE and a
+  deterministic 5 MB `big.bin` (generated, not kept in the repo).
+- `peerpages serve` really opens a tunnel now; the hidden `peerpages testsite`
+  command provides a local server for the tests.
 
-#### Web (`web/`)
+#### The web app (`web/`)
 
-- `src/sw.ts`: elle yazilmis Service Worker. Kapsamindaki istekleri yakalar,
-  `MessageChannel` ile tunel sayfasina iletir, cevabi `ReadableStream` ile
-  akitir. Kapsam **calisma zamaninda** `registration.scope`'tan turetiliyor.
-- `src/tunnel.ts`: sayfa tarafi coklayici; sayac kurali, seq dogrulamasi,
-  backpressure, AbortSignal, zaman asimi.
+- `src/sw.ts`: a hand-written Service Worker. It catches the requests in its
+  scope, forwards them to the tunnel page over a `MessageChannel` and streams
+  the response back with a `ReadableStream`. The scope is derived **at
+  runtime** from `registration.scope`.
+- `src/tunnel.ts`: the page-side multiplexer; the counter rule, seq
+  validation, backpressure, AbortSignal, timeouts.
 - `src/signal.ts`, `src/bridge.ts`, `src/page-bridge.ts`, `src/boot.ts`.
-- Baglanti ekrani: offer yapistir -> answer uret -> tunel ac, durum ve sayaclar.
+- The connect screen: paste the offer → produce an answer → open the tunnel,
+  with status and counters.
 
-#### Degisen kararlar (ikisi de olculerek bulundu, kullaniciya soruldu)
+#### Changed decisions (both found by measurement, both asked about)
 
-1. **`ctrl` ve `data` arasinda siralama garantisi yok.** Olcum: 90 KB'lik
-   cevapta 6 govde cercevesinin tamami `end`'den SONRA geldi. Cozum: `end`
-   mesajina `frames`/`len` sayaclari eklendi; alici sayaclar tamamlanana kadar
-   bekliyor. Istek yonunde de `req`'ten once gelen cerceveler tamponlaniyor.
-   Iki kanal, 16 KiB framing ve ctrl'deki `end` kararlari korundu.
-2. **App shell ile yerel sitenin koku ayni URL'yi istiyordu.** Cozum: baglanti
-   ekrani + tunel sahibi sayfa `/connect/` yolunda; scope koku yerel sitenin
-   koku. Tunel sahibi sekme yenilense bile tunel yasiyor. `#peer-id` URL
-   bicimi korundu.
+1. **There is no ordering guarantee between `ctrl` and `data`.** Measured: in
+   a 90 KB response all six body frames arrived AFTER `end`. The fix: `end`
+   gained `frames`/`len` counters, and the receiver waits until the counters
+   are complete. In the request direction, frames arriving before `req` are
+   buffered. The two channels, the 16 KiB framing and the "`end` on ctrl"
+   decisions were kept.
+2. **The app shell and the local site's root both wanted the same URL.** The
+   fix: the connect screen and the tunnel-owner page live at `/connect/`, and
+   the scope root is the local site's root. The tunnel survives even if the
+   owning tab is refreshed. The `#peer-id` URL shape was kept.
 
-#### Testler
+#### Tests
 
-- 128 TS birim testi, 8 Go paketi (framing, ctrl, hedef allowlist/SSRF,
-  baslik temizleme, Location yeniden yazimi, boyut, loglama maskeleme,
-  tunel siralama regresyonlari).
-- Gercek pion loopback baglantisi uzerinde ajan yarisinin uctan uca testi.
-- **Playwright e2e (Chromium, 8 test): Faz 1 kabul kriterlerinin tamami
-  yesil.** HTML/CSS/JS/gorsel/JSON, 5 MB dosya (sha256), tunel yoksa baglanti
-  ekranina dusme ve 503, Location yeniden yazimi, SSE, SSRF.
+- 128 TS unit tests, 8 Go packages (framing, ctrl, the target
+  allowlist/SSRF, header stripping, Location rewriting, sizes, log masking,
+  tunnel ordering regressions).
+- An end-to-end test of the agent half over a real pion loopback connection.
+- **Playwright e2e (Chromium, 8 tests): every phase 1 acceptance criterion
+  green.** HTML/CSS/JS/image/JSON, the 5 MB file (sha256), falling back to the
+  connect screen and a 503 with no tunnel, Location rewriting, SSE, SSRF.
 
-#### Olcumler
+#### Measurements
 
-Loopback, Chromium: 5 MB indirme ~103 ms (~48 MB/s), ctrl ping RTT medyan
-0.2-0.3 ms, kucuk GET medyan ~1.2 ms / p95 ~2.3 ms. Ajan yarisi tek basina
-5 MB'i 63 ms'de (~79 MB/s) tasiyor; aradaki fark SW koprusunun maliyeti.
-Ayrinti: `docs/MEASUREMENTS.md`.
+Loopback, Chromium: a 5 MB download ~103 ms (~48 MB/s), ctrl ping RTT median
+0.2-0.3 ms, a small GET median ~1.2 ms / p95 ~2.3 ms. The agent half alone
+carries 5 MB in 63 ms (~79 MB/s); the difference is the cost of the SW
+bridge. The detail is in `docs/MEASUREMENTS.md`.
 
-#### Dokumantasyon
+#### Documentation
 
-- `docs/MANUAL-TEST.md`: iki pencere ve iki cihaz senaryosu, kontrol listesi,
-  sorun giderme.
-- `docs/MEASUREMENTS.md`: olculenler ve **olculmeyenler** (Firefox/Safari,
-  gercek ag, eszamanli yuk).
-- BRIEF bolum 8: iki karar kapatildi, Firefox/Safari acik kaldi.
+- `docs/MANUAL-TEST.md`: the two-window and two-device scenarios, a
+  checklist, troubleshooting.
+- `docs/MEASUREMENTS.md`: what was measured and what was **not**
+  (Firefox/Safari, a real network, concurrent load).
+- BRIEF section 8: two decisions closed, Firefox/Safari left open.
 
-### Faz 2 - Nostr signaling
+### Phase 2 - Nostr signaling
 
-Kopyala-yapistir kalkti: ziyaretci yalnizca URL'yi aciyor. Signaling herkese
-acik Nostr relay'leri uzerinden; hala sunucu yok, relay'ler icerigi goremiyor
-(NIP-44).
+Copy-paste is gone: the visitor only opens the URL. Signaling goes over
+public Nostr relays; there is still no server, and the relays cannot see the
+content (NIP-44).
 
-#### Degisen README kararlari (ikisi de soruldu ve onaylandi)
+#### Changed README decisions (both asked about and approved)
 
-1. **peer-id = TAM npub** (ekranda kisaltilmis gosterim). README "npub'in kisa
-   formu" diyordu ama NIP-44 ve `#p` tag'i tam 32 baytlik pubkey istiyor;
-   kisaltilmis id'den turetilemez.
-2. **Offer'i ZIYARETCI yayinlar**, ajan answer doner. Ajan ziyaretcinin gecici
-   pubkey'ini onceden bilemedigi icin ilk mesaji gonderemez. Bu yonle mesaj
-   listesi aynen gecerli kaldi ve baglanti 3 yerine 2 bacakta kuruluyor.
-   Kanallari da ziyaretci aciyor; Session artik yalnizca answerer (tek kod
-   yolu, elle signaling dahil).
+1. **peer-id = the FULL npub** (shortened on screen). The README said "a
+   short form of the npub", but NIP-44 and the `#p` tag want the full 32-byte
+   pubkey, and that cannot be derived from a shortened id.
+2. **The VISITOR publishes the offer** and the agent returns the answer. The
+   agent cannot send the first message because it does not know the visitor's
+   ephemeral pubkey in advance. With this direction the message list stayed
+   valid as it was, and the connection is built in 2 legs instead of 3. The
+   visitor opens the channels too; Session is now answerer-only (a single
+   code path, manual signaling included).
 
-#### Protokol
+#### The protocol
 
-- `protocol/signaling.md` normatif tanim, `signaling-testvectors.json` makine
-  karsiligi. Vektorler UCUNCU bir bagimsiz uygulama ile uretildi
-  (`gen-signaling-vectors.py`); Go ve TS ikisi de ona karsi dogrulaniyor.
-- Mesajlar: offer / answer / candidate / bye. `sid` (16 hex) oturum kimligi.
-- `--secret` katmani NIP-44'un ALTINDA: HKDF-SHA256 + ChaCha20-Poly1305,
-  `pps1.` onekli payload. Uc uygulama da ayni anahtari ve ayni nonce ile
-  bayt bayt ayni payload'i uretiyor.
+- `protocol/signaling.md` is the normative definition and
+  `signaling-testvectors.json` its machine-readable counterpart. The vectors
+  were produced by a THIRD independent implementation
+  (`gen-signaling-vectors.py`); both Go and TS verify against it.
+- The messages: offer / answer / candidate / bye. `sid` (16 hex) is the
+  session id.
+- The `--secret` layer sits UNDER NIP-44: HKDF-SHA256 + ChaCha20-Poly1305,
+  a payload with the `pps1.` prefix. All three implementations produce a
+  byte-identical payload from the same key and the same nonce.
 
-#### Ajan
+#### The agent
 
-- `internal/nostr`: relay havuzu (hedged yayin, onceden baglanma), NIP-44.
-- `internal/nostr/fakerelay`: surec ici test relay'i; ephemeral dusurme,
-  auth isteme, reddetme senaryolari.
-- `internal/doctor` + `peerpages doctor`: NIP-11, baglanti ve **ephemeral
-  yanki** testi; iki STUN sunucusuyla NAT tipi tahmini.
-- `internal/identity` + `peerpages key`: keypair, `~/.peerpages/key` (nsec),
-  peer-id. Var olan anahtarin uzerine YAZILMIYOR.
-- `internal/connect`: offer'lari oturumlara ceviren akis + ziyaretci
-  kurallari (replay, saat kaymasi, hiz limiti, oturum tavani).
-- `serve` varsayilani Nostr; `--manual` elle yol. Yeni bayraklar: `--relay`,
-  `--secret`, `--key`, `--app-url`, `--max-sessions`.
+- `internal/nostr`: the relay pool (hedged publishing, connecting ahead of
+  time), NIP-44.
+- `internal/nostr/fakerelay`: an in-process test relay; dropping ephemerals,
+  asking for auth, refusal scenarios.
+- `internal/doctor` + `peerpages doctor`: NIP-11, connection and an
+  **ephemeral echo** test; a NAT-type guess from two STUN servers.
+- `internal/identity` + `peerpages key`: the keypair, `~/.peerpages/key`
+  (nsec), the peer-id. An existing key is NEVER overwritten.
+- `internal/connect`: the stream that turns offers into sessions, plus the
+  visitor rules (replay, clock skew, rate limit, session ceiling).
+- `serve` defaults to Nostr; `--manual` is the manual path. New flags:
+  `--relay`, `--secret`, `--key`, `--app-url`, `--max-sessions`.
 
-#### Web
+#### The web app
 
-- `src/nostr/`: peer-id ayristirma, relay havuzu, ziyaretci akisi, relay
-  listesi (`?relay=`).
-- Baglanti ekrani: URL'de peer-id varsa kendiliginden baglaniyor; hata
-  ekranlari ("ajan yanit vermedi", "sir uyusmuyor", "veri kanallari
-  acilmadi").
+- `src/nostr/`: peer-id parsing, the relay pool, the visitor flow, the relay
+  list (`?relay=`).
+- The connect screen: with a peer-id in the URL it connects on its own, and
+  there are error screens ("the agent did not answer", "the secret does not
+  match", "the data channels did not open").
 
-#### Olculen ve bulunan
+#### Measured and found
 
-- Relay listesi canli dogrulandi; `relay.nostr.band` bu agdan erisilemedigi
-  icin varsayilandan cikarildi, yerine primal ve nostr.mom geldi.
-- **Bu agda NAT simetrik** (iki STUN farkli dis port gordu): karsi taraf da
-  simetrikse TURN gerekir (Faz 5). `doctor` bunu onceden soyluyor.
-- **Gercek relay'lerle kosumda bulunan hata:** ajan abonelik kurulmadan
-  "hazir" diyordu; ephemeral event'ler saklanmadigi icin hemen gelen offer
-  kayboluyordu. Sira duzeltildi: baglan -> abone ol -> hazir de.
-- URL'den acik tunele: 356 ms (sahte relay), **979 ms (gercek relay'ler)**.
-- Bundle 6.8 KB -> 35.8 KB gzip; bip32/bip39/wasm girmedi.
+- The relay list was verified live; `relay.nostr.band` was dropped from the
+  default because it is unreachable from this network, and primal plus
+  nostr.mom took its place.
+- **This network's NAT is symmetric** (the two STUN servers saw different
+  external ports): if the other side is symmetric too, TURN is needed
+  (phase 5). `doctor` says so up front.
+- **A bug found while running against real relays:** the agent said "ready"
+  before the subscription was established, and because ephemeral events are
+  not stored, an offer arriving right away was lost. The order was fixed:
+  connect → subscribe → say ready.
+- From the URL to an open tunnel: 356 ms (a fake relay), **979 ms (real
+  relays)**.
+- Bundle 6.8 KB → 35.8 KB gzip; bip32, bip39 and wasm stayed out.
 
-#### Testler
+#### Tests
 
-216 TS birim testi, 13 Go paketi (connect akisi sahte relay uzerinde gercek
-NIP-44 ve gercek WebRTC ile test ediliyor), 16 Playwright testi (8 elle yol +
-8 Nostr yolu). Gercek relay'lerle Nostr e2e 7/7.
+216 TS unit tests, 13 Go packages (the connect flow is tested over a fake
+relay with real NIP-44 and real WebRTC), 16 Playwright tests (8 manual path +
+8 Nostr path). Nostr e2e against real relays 7/7.
 
-#### Kabul durumu
+#### Acceptance status
 
-Faz 2'nin "farkli aglardaki iki cihaz" kriteri **kullanici dogrulamasi
-bekliyor**: tek makineden test edilemez. Yontem `docs/MANUAL-TEST.md`'de.
-
-### Faz 3 - Coklu hedef ve ziyaretci deneyimi
-
-Tek ajan birden cok yerel projeyi yayinliyor ve baglanti ekrani artik
-anlamli bilgi gosteriyor.
-
-#### Coklu hedef
-
-- Hedef adi URL'de tasiniyor: `#npub1…/admin`. Fragment dilbilgisi
-  `npub [ "/" hedef ] [ ":" sir ]`; '/' yalnizca ':' ONCESINDE araniyor,
-  cunku sir serbest metin ve icinde '/' bulunabilir.
-- Hedef signaling `offer`'inda tasiniyor (`protocol/signaling.md`), data
-  channel protokolu ve Faz 1'in kanonik anahtar sirasi degismedi. Oturum
-  basina tek hedef.
-- Bilinmeyen hedef `bye`/`unknown-target` ile reddediliyor ve oturum HIC
-  kurulmuyor. Sessizce `default`'a dusmek yok.
-- Ajan her hedef icin ayri ziyaretci URL'si basiyor. Elle signaling yolunda
-  hedefi `--manual-target` seciyor.
-
-#### Baglanti ekrani
-
-- Gecikme SUREKLI olculuyor (5 sn'de bir ping): son deger + medyan + n.
-- Istek/hata, alinan ve gonderilen bayt, anlik hiz, devam eden istek, hedef
-  listesi (ctrl `hello`'dan), aktif hedef.
-- "Adresi kopyala" butonu (guvenli olmayan baglam icin execCommand yedegi —
-  iki cihazla denemede clipboard API yok) ve QR paneli.
-
-#### QR kodlayici
-
-- `web/src/ui/qr.ts`: elle yazilmis, bagimlilik yok. Byte modu, seviye M,
-  surum 1-10. Cizim yapmaz, matris donduru — DOM'suz test edilebiliyor.
-- Vektorler UCUNCU bir bagimsiz uygulama (python `qrcode`) ile uretildi.
-  15 maske-zorlanmis vektor bayt bayt, 5 vektor otomatik maske secimi.
-  Vektorler iki hata yakaladi (bicim bilgisi kopyalari, veri yerlestirmede
-  kolon kaydirmasi).
-- Bundle 35.8 -> 39.7 KB gzip.
-
-#### Sayaclar
-
-- `agent/internal/stats`: hedef basina istek/basari/hata ve bayt, atomik.
-- Hedefin 404/500'u BASARI sayiliyor: proxy isini yapti. Hata sayaci
-  yalnizca ajanin cevabi tasiyamadigi durumlar.
-- stdout'ta 5 sn'de bir, yalnizca degistiginde durum satiri.
-
-#### Kaynak birakma
-
-- Ajan 10 sn'de bir ctrl `ping` yolluyor, 30 sn yanitsiz oturumu kapatiyor.
-  Protokol degismedi: sayfa gelen ping'e zaten pong donuyordu.
-- SW bayatlamis tunel sahibini yeniden yokluyor (`clients.get` sekme hayatta
-  oldugu surece client donduruyordu).
-- SW tarafindaki tespit TEMBEL: istek gelmezse kontrol de olmaz. Zaman
-  sinirli gercek koruma ajandaki denetim.
-
-#### Yolda bulunan hata
-
-Tavani asan govde cercevesi `req`'TEN ONCE gelirse sessizce dusuruluyordu:
-govde hic gelmedigi icin proxy sonsuza kadar bekliyor, ziyaretci abort
-almiyor, istek askida kaliyordu — tavan korumasi kaynak sizintisina
-donusuyordu. Kirilgan bir test (6 kosumda 3 kirmizi) ortaya cikardi; sorun
-testin degil davranisin kendisiydi.
-
-#### Testler
-
-276 TS birim testi, 15 Go paketi, 22 Playwright testi (8 elle yol +
-8 Nostr + 6 Faz 3). Gercek relay'lerle (tek relay) Nostr e2e 7/7.
-
-#### Kabul durumu
-
-Faz 3 kabul kriteri (tek ajan iki projeyi yayinliyor, ekranda anlamli durum
-bilgisi var) otomatik testlerle karsilandi. QR'in telefonla gercekten
-okundugu ve iki cihaz/iki ag dogrulamasi kullanici tarafinda:
+Phase 2's "two devices on different networks" criterion is **waiting on the
+user**: it cannot be tested from a single machine. The method is in
 `docs/MANUAL-TEST.md`.
 
-### Faz 4 - Dagitim ve dayaniklilik
+### Phase 3 - Several targets and the visitor experience
 
-Kopan baglanti artik kendini topluyor ve ajan kurulabilir hale geldi.
+One agent publishes several local projects, and the connect screen shows
+meaningful information now.
 
-#### Dayaniklilik (ajan)
+#### Several targets
 
-- Bosta kalma denetimi MONOTONIK saatle calisiyor. Onceki hali `lastSeen`'i
-  unix nano olarak saklayip `time.Unix` ile geri okuyordu; boyle kurulan bir
-  `time.Time` monotonik okumayi tasimaz, yani karsilastirma duvar saatiydi.
-  Askiya alma suresi oldugu gibi "sessizlik" sayiliyor ve uyanmadan sonraki
-  ILK TIK tum oturumlari kapatiyordu.
-- Denetim kendi gecikmesine de bakiyor: iki tik arasi beklenenin 3 katindan
-  fazlaysa bu bir uyanmadir, sessizlik sayaci sifirlanir ve oturum bir tur
-  daha ping'le sinanir. Kapatma karari her zaman cevapsiz kalan bir ping'e
-  dayaniyor.
-- ICE `Disconnected` artik terminal degil: 10 saniyelik tolerans
-  (`DisconnectGrace`); geri donerse oturum yasar, donmezse `ErrDisconnected`.
-  Daha once aninda kapatiliyor ve TEMIZ kapanis gibi raporlaniyordu.
-- Kapanis nedeni log'da: `bosta` / `baglanti-koptu` / `temiz`.
-- `internal/nostr`: relay basina saglik (`Health`, `HealthyCount`).
-- `Acceptor.Run` denetimli dongu: abonelik kapandiginda, hicbir relay bagli
-  olmadiginda (3 yoklama) ya da surec askiya alinmis gorundugunde yeniden
-  abone olur; her donemde filtre `since` tazelenir. Geri sayim 1→60 sn.
-  Onceden abonelik kapandiginda Run hata donuyor ve ajan `exit 1` ile
-  oluyordu.
-- Durum satirinda `relay 3/4` alani.
+- The target name is carried in the URL: `#npub1…/admin`. The fragment
+  grammar is `npub [ "/" target ] [ ":" secret ]`; the '/' is only looked for
+  BEFORE the ':', because the secret is free text and may contain a '/'.
+- The target travels in the signaling `offer` (`protocol/signaling.md`); the
+  data channel protocol and phase 1's canonical key order did not change. One
+  target per session.
+- An unknown target is refused with `bye`/`unknown-target` and the session is
+  NEVER established. There is no silent fallback to `default`.
+- The agent prints a separate visitor URL for each target. On the manual
+  signaling path `--manual-target` picks the target.
 
-#### Dayaniklilik (web)
+#### The connect screen
 
-- Yeni `src/reconnect.ts`: geri sayimli denetleyici (1-2-4-8-15-30 sn).
-  Her deneme SIFIRDAN oturum kurar (yeni sid + yeni gecici keypair) — ajan
-  answerer-only ve oturum tek seferlik oldugu icin ICE restart yerine bu yol
-  secildi (BRIEF §8 sapma notu).
-- `online` ve `visibilitychange` geri sayimi sifirlar (uyanma yolu).
-- Canlilik denetimi: ust uste iki cevapsiz ping kopma sayilir. WebRTC durum
-  makinesi her kopmayi bildirmiyor.
-- Kopmada elle signaling paneli ACILMIYOR; ekran geri sayimi gosteriyor,
-  sayaclar korunuyor, `#metrics`'te yeniden baglanma sayisi var.
-- SW kopma boslugunda istegi bekletiyor: alt kaynaklar 10 sn, gezinmeler
-  3 sn. Tam istek sirasinda kopan GET/HEAD bir kez tekrar deneniyor
-  (yalnizca cevap basligi hic gitmediyse: hedeften gelen hatalar tekrar
-  denenmez).
+- Latency is measured CONTINUOUSLY (a ping every 5 s): the last value plus
+  the median plus n.
+- Requests/errors, bytes received and sent, the instantaneous rate, requests
+  in flight, the target list (from the ctrl `hello`), the active target.
+- A "copy the address" button (with an execCommand fallback for insecure
+  contexts — there was no clipboard API in the two-device trial) and the QR
+  panel.
 
-#### Dagitim
+#### The QR encoder
 
-- `internal/version`: ldflags (-X) + `runtime/debug.ReadBuildInfo` yedegi.
-  `go install ...@latest` ile kurulan binary de surumunu biliyor.
-- Yeni `peerpages version` komutu (surum, commit, tarih, platform, Go).
-- `.goreleaser.yaml`: linux/darwin/windows x amd64/arm64, CGO kapali,
-  `-trimpath`, tar.gz (Windows'ta zip), `checksums.txt`. Release TASLAK
-  acilir. Scoop/Homebrew taslak ama yukleme kapali (tap depolari yok).
-- `.github/workflows/release.yml`: `v*` etiketinde goreleaser.
-- `ci.yml`: ubuntu/macos/windows derleme matrisi.
-- `docs/INSTALL.md`: binary indirme, `go install`, kaynaktan derleme,
-  dogrulama, Windows'ta servis (Task Scheduler / NSSM — yalnizca belge).
-- `Makefile`: `release-snapshot`, `release-check`; `lint-agent`'in sessiz
-  gofmt hatasi duzeltildi (dosya listelese bile 0 donuyordu).
-- `go mod tidy`: pion, go-nostr ve coder/websocket dogrudan bagimlilik.
+- `web/src/ui/qr.ts`: hand-written, no dependency. Byte mode, level M,
+  versions 1-10. It does not draw: it returns a matrix, so it can be tested
+  without a DOM.
+- The vectors were produced by a THIRD independent implementation (python
+  `qrcode`). 15 mask-forced vectors byte for byte, 5 vectors for automatic
+  mask selection. The vectors caught two bugs (duplicated format information,
+  a column shift in data placement).
+- Bundle 35.8 → 39.7 KB gzip.
 
-#### Yolda bulunan hata
+#### Counters
 
-SW bekleme penceresinin ilk hali yalnizca "tunel sahibi sekme yok"
-durumunda devreye giriyordu. Tunel tam istek sirasinda koparsa istek yine
-dispatch ediliyor, sayfada hata aliyor ve ziyaretci **502** goruyordu — yani
-pencere o yolda hic islemiyordu. Yeni e2e testi yakaladi.
+- `agent/internal/stats`: requests/successes/errors and bytes per target,
+  atomic.
+- A 404 or 500 from the target counts as SUCCESS: the proxy did its job. The
+  error counter is only for the cases where the agent could not carry the
+  response.
+- A status line on stdout every 5 s, only when something changed.
 
-#### Testler
+#### Releasing resources
 
-285 TS birim testi (+9), 16 Go paketi, 26 Playwright testi (+4: yeniden
-baglanma, kopma ekrani, relay dusmesi, SW bekleme penceresi).
+- The agent sends a ctrl `ping` every 10 s and closes a session that has not
+  answered for 30 s. The protocol did not change: the page already returned a
+  pong to an incoming ping.
+- The SW re-checks a stale tunnel owner (`clients.get` kept returning a
+  client as long as the tab was alive).
+- The detection on the SW side is LAZY: with no request arriving there is no
+  check either. The real time-bounded protection is the audit in the agent.
 
-OLCUM: ajan yeniden basladiktan sonra tunel 6.3 sn'de geri geldi; alti
-platform arsivi 6.5-7.3 MB; bundle 39.7 → 40.7 KB gzip.
+#### A bug found on the way
 
-#### Kabul durumu
+A body frame over the ceiling arriving BEFORE `req` was dropped silently:
+because the body never arrived, the proxy waited forever, the visitor got no
+abort, and the request hung — the ceiling protection turned into a resource
+leak. A flaky test (3 red out of 6 runs) exposed it; the problem was not the
+test but the behaviour itself.
 
-Yeniden baglanma kriteri otomatik testlerle karsilandi (ajanin yeniden
-baslamasi, relay dusup donmesi, kopma boslugu). GERCEK uyku/uyanma elle
-denenmeli: `docs/MANUAL-TEST.md` → "Uyku/uyanma (Faz 4)".
-Release workflow'u YERELDE dogrulandi (`goreleaser check` + `--snapshot`:
-6 arsiv + checksums); GitHub Actions'ta kosturulmadi, cunku hic push ya da
-etiket yok (BRIEF §8).
+#### Tests
 
-### Faz 5 - TURN fallback
+276 TS unit tests, 15 Go packages, 22 Playwright tests (8 manual path +
+8 Nostr + 6 for phase 3). Nostr e2e against real relays (a single relay) 7/7.
 
-Baglanamayan aglara (simetrik NAT) cikis yolu. Protokol DEGISMEDI: ne
-signaling ne data channel mesajlarina alan eklendi.
+#### Acceptance status
 
-#### Karar: TURN yalnizca ajan tarafinda
+Phase 3's criterion (one agent publishes two projects, the screen shows
+meaningful status) was met by the automated tests. Reading the QR with a real
+phone, and the two-device/two-network verification, are on the user's side:
+`docs/MANUAL-TEST.md`.
 
-Ziyaretciye ne TURN adresi ne kimlik bilgisi gonderiliyor. Zorlayan sebep
-yapisal: ziyaretci offer'i ajandan tek kelime duymadan ONCE uretiyor, yani
-TURN bilgisini signaling ile gondermek cok gec kalirdi. Tek tarafli TURN
-yeterli (ajan relay adayi toplar, ziyaretci o genel adrese paket yollar) ve
-kota ile sir sahibinde kaliyor.
+### Phase 4 - Distribution and resilience
 
-#### Karar: Cloudflare Worker yazilmadi (BRIEF'ten sapma)
+A broken connection picks itself up now, and the agent became installable.
 
-Worker'in tek isi API jetonunu TARAYICIDAN saklamakti; TURN'u yalnizca ajan
-kullandigi ve jeton zaten sahibinin makinesinde durdugu icin aradaki sunucu
-gereksiz. Ajan kimlik bilgisini API'den kendisi cekiyor. "Tek sunucu
-gerektiren parca" tamamen ortadan kalkti.
+#### Resilience (the agent)
 
-#### Ajan
+- The idle audit runs on the MONOTONIC clock. It used to store `lastSeen` as
+  unix nanos and read it back with `time.Unix`; a `time.Time` built that way
+  carries no monotonic reading, so the comparison was wall-clock. The time
+  spent suspended counted as "silence" as it was, and the FIRST TICK after
+  waking closed every session.
+- The audit also looks at its own lateness: if more than 3× the expected gap
+  passed between two ticks, that is a wake-up, the silence counter is reset
+  and the session is tried with one more ping. The decision to close always
+  rests on a ping that went unanswered.
+- ICE `Disconnected` is no longer terminal: a 10-second tolerance
+  (`DisconnectGrace`); if it comes back the session lives, otherwise
+  `ErrDisconnected`. It used to be closed instantly and reported as a CLEAN
+  close.
+- The close reason is in the log: `idle` / `disconnected` / `clean`.
+- `internal/nostr`: per-relay health (`Health`, `HealthyCount`).
+- `Acceptor.Run` is an audited loop: it resubscribes when the subscription
+  closes, when no relay is connected (3 checks) or when the process appears to
+  have been suspended; the filter's `since` is refreshed every period. The
+  backoff is 1→60 s. Previously Run returned an error when the subscription
+  closed and the agent died with `exit 1`.
+- A `relay 3/4` field in the status line.
 
-- Yeni `internal/ice`: ParseServerURL (stun/stuns/turn/turns, portsuz
-  adrese 3478/5349, ?transport korunur, URL icinde kullanici bilgisi
-  REDDEDILIR), Config.Validated(), Servers() (STUN ve TURN ayri girdiler:
-  Username/Credential girdi basinadir), Policy(), Describe() (sifre asla
-  yazilmaz), DefaultSTUN.
-- `tunnel.Config.STUN` yerine `ICEServers` + `ICEPolicy`; `ICETransportPolicy`
-  ilk kez kullaniliyor. `connect.Config.ICE` bir FONKSIYON (ICEFactory):
-  Cloudflare kimlik bilgisi sureli, her yeni oturum gecerli listeyi aliyor.
+#### Resilience (the web app)
+
+- New `src/reconnect.ts`: a controller with backoff (1-2-4-8-15-30 s). Every
+  attempt builds a session FROM SCRATCH (a new sid plus a new ephemeral
+  keypair) — this path was chosen over an ICE restart because the agent is
+  answerer-only and a session is single-use (the departure note in BRIEF
+  section 8).
+- `online` and `visibilitychange` reset the backoff (the wake-up path).
+- Liveness check: two unanswered pings in a row count as a disconnect. The
+  WebRTC state machine does not report every break.
+- The manual signaling panel does NOT open on a disconnect; the screen shows
+  the countdown, the counters are kept, and `#metrics` holds the reconnect
+  count.
+- The SW holds requests during the gap: subresources for 10 s, navigations
+  for 3 s. A GET/HEAD broken mid-request is retried once (only if no response
+  header ever went out: errors coming from the target are not retried).
+
+#### Distribution
+
+- `internal/version`: ldflags (-X) with a `runtime/debug.ReadBuildInfo`
+  fallback. A binary installed with `go install ...@latest` knows its version
+  too.
+- A new `peerpages version` command (version, commit, date, platform, Go).
+- `.goreleaser.yaml`: linux/darwin/windows × amd64/arm64, CGO off,
+  `-trimpath`, tar.gz (zip on Windows), `checksums.txt`. The release opens as
+  a DRAFT. Scoop and Homebrew are drafted but upload is off (the tap
+  repositories do not exist).
+- `.github/workflows/release.yml`: goreleaser on a `v*` tag.
+- `ci.yml`: an ubuntu/macos/windows build matrix.
+- `docs/INSTALL.md`: downloading a binary, `go install`, building from
+  source, verification, running as a service on Windows (Task Scheduler /
+  NSSM — documentation only).
+- `Makefile`: `release-snapshot`, `release-check`; `lint-agent`'s silent
+  gofmt failure was fixed (it returned 0 even when it listed files).
+- `go mod tidy`: pion, go-nostr and coder/websocket are direct dependencies.
+
+#### A bug found on the way
+
+The first version of the SW waiting window only kicked in when there was "no
+tunnel-owner tab". If the tunnel broke mid-request the request was still
+dispatched, failed on the page and the visitor saw a **502** — so the window
+never did anything on that path. A new e2e test caught it.
+
+#### Tests
+
+285 TS unit tests (+9), 16 Go packages, 26 Playwright tests (+4: reconnect,
+the disconnect screen, a relay going down, the SW waiting window).
+
+MEASURED: after the agent restarted, the tunnel came back in 6.3 s; the six
+platform archives are 6.5-7.3 MB; bundle 39.7 → 40.7 KB gzip.
+
+#### Acceptance status
+
+The reconnect criterion was met by the automated tests (the agent
+restarting, a relay going down and coming back, the disconnect gap). REAL
+sleep/wake has to be tried by hand: `docs/MANUAL-TEST.md` → "Sleep and wake
+(phase 4)". The release workflow was verified LOCALLY (`goreleaser check` +
+`--snapshot`: 6 archives plus checksums); it was not run on GitHub Actions,
+because there is no push and no tag (BRIEF section 8).
+
+### Phase 5 - The TURN fallback
+
+A way out for networks that cannot connect (symmetric NAT). The protocol did
+NOT change: no field was added to the signaling or the data channel messages.
+
+#### Decision: TURN on the agent side only
+
+Neither a TURN address nor a credential is sent to the visitor. The forcing
+reason is structural: the visitor produces the offer BEFORE hearing a single
+word from the agent, so sending TURN information through signaling would be
+far too late. One-sided TURN is enough (the agent gathers a relay candidate
+and the visitor sends packets to that public address) and the quota stays
+with the owner of the secret.
+
+#### Decision: no Cloudflare Worker was written (a departure from BRIEF)
+
+The Worker's only job was to keep the API token out of THE BROWSER; since
+only the agent uses TURN and the token already sits on the owner's machine,
+a server in between is unnecessary. The agent fetches the credential from the
+API itself. The "one piece that needs a server" disappeared completely.
+
+#### The agent
+
+- New `internal/ice`: ParseServerURL (stun/stuns/turn/turns, 3478/5349 for an
+  address with no port, `?transport` preserved, user information inside the
+  URL REFUSED), Config.Validated(), Servers() (STUN and TURN as separate
+  entries: Username/Credential are per entry), Policy(), Describe() (the
+  password is never printed), DefaultSTUN.
+- `ICEServers` + `ICEPolicy` instead of `tunnel.Config.STUN`;
+  `ICETransportPolicy` is used for the first time. `connect.Config.ICE` is a
+  FUNCTION (ICEFactory): a Cloudflare credential has a lifetime, so every new
+  session gets the current list.
 - `serve`: --turn, --turn-user, --turn-pass (PEERPAGES_TURN_PASS),
   --ice-relay-only, --turn-cloudflare-key-id, --turn-cloudflare-token
-  (PEERPAGES_CF_TURN_TOKEN). Baslangicta dogrulama ve banner'da `ice` satiri.
-- `internal/ice/cloudflare.go`: kisa omurlu kimlik bilgisi, TTL'in %80'inde
-  yenileme, yenileme basarisizsa eskisini kullanmaya devam. Ilk cekim
-  basarisizsa ajan BASLAMAZ (sessizce TURN'suz devam etmek yanlis olur).
-- `doctor`: her TURN sunucusundan ALLOCATION isteniyor ("ayakta mi" degil
-  "relay adresi veriyor mu"), rapora relay adresi yaziliyor; Report.Advice
-  NAT karariyla TURN sonucunu birlestiriyor; TURN istendi ama hicbiri
-  allocation vermediyse cikis kodu sifirdan farkli. Simetrik NAT tek basina
-  hata DEGIL.
-- `internal/ice/faketurn` + gizli `peerpages faketurn` komutu (pion/turn v5,
-  zaten dolayli bagimliliktaydi).
+  (PEERPAGES_CF_TURN_TOKEN). Validation at startup and an `ice` line in the
+  banner.
+- `internal/ice/cloudflare.go`: a short-lived credential, refreshed at 80% of
+  the TTL, and if the refresh fails the old one keeps being used. If the
+  first fetch fails the agent does NOT START (carrying on silently without
+  TURN would be wrong).
+- `doctor`: an ALLOCATION is requested from every TURN server (not "is it
+  up" but "does it hand out a relay address"), and the relay address goes
+  into the report; Report.Advice combines the NAT verdict with the TURN
+  result; if TURN was asked for and none of them gave an allocation the exit
+  code is non-zero. Symmetric NAT on its own is NOT an error.
+- `internal/ice/faketurn` plus a hidden `peerpages faketurn` command
+  (pion/turn v5, already an indirect dependency).
 
-#### Web
+#### The web app
 
-- Yeni `src/ice.ts`: DEFAULT_STUN (Go tarafiyla ayni), normalizeStunURL,
-  stunFromSearch (?stun=...), iceServers(), routeFromStats().
-- Sayfa bu faza kadar HIC ICE sunucusu vermiyordu (yalnizca host adayi
-  topluyordu); artik varsayilan STUN listesi veriliyor ve ziyaretci de kendi
-  srflx adayini topluyor.
-- `#metrics`'e "Baglanti yolu" satiri: dogrudan / TURN uzerinden
-  (pc.getStats()'tan secilen aday cifti). Ziyaretci trafigin bir sunucudan
-  gectigini goruyor; ucten uca sifreleme surer ama yol degisir.
+- New `src/ice.ts`: DEFAULT_STUN (the same as the Go side),
+  normalizeStunURL, stunFromSearch (?stun=...), iceServers(),
+  routeFromStats().
+- Up to this phase the page gave NO ICE server at all (it only gathered host
+  candidates); it now gives the default STUN list, and the visitor gathers
+  its own srflx candidate too.
+- A "connection path" line in `#metrics`: direct / over TURN (from the
+  candidate pair chosen in `pc.getStats()`). The visitor sees that the
+  traffic goes through a server; end-to-end encryption continues, but the
+  path changes.
 
-#### Yolda ogrenilen
+#### Learned on the way
 
-Sahte TURN sunucusunun DUYURDUGU adres, paket gonderirken kullandigi kaynak
-adresle ayni olmali. Relay 127.0.0.1'e bagliyken karsi taraf (loopback adayi
-uretmeyen pion ve tarayicilar) ulasamiyordu; tum arayuzlere baglanip
-127.0.0.1 duyurulunca da tarayici gelen kontrolu peer-reflexive sayiyor ve
-secilen aday cifti relay GORUNMUYORDU — test calisan bir TURN'u olcemiyordu.
-Gercek bir TURN sunucusunda bu tutarlilik zaten var.
+The address a fake TURN server ANNOUNCES has to be the same as the source
+address it sends packets from. With the relay bound to 127.0.0.1 the other
+side could not reach it (pion and browsers do not produce a loopback
+candidate), and binding to every interface while announcing 127.0.0.1 made
+the browser treat the incoming check as peer-reflexive, so the selected
+candidate pair DID NOT LOOK like a relay — the test could not measure a
+working TURN. On a real TURN server that consistency is there already.
 
-#### Testler
+#### Tests
 
-309 TS birim testi (+24), 18 Go paketi, 30 Playwright testi (+4). Go
-tarafinda relay-only + faketurn ile tunel aciliyor ve negatif kontrol
-(TURN yok) baglanamiyor.
+309 TS unit tests (+24), 18 Go packages, 30 Playwright tests (+4). On the Go
+side the tunnel opens with relay-only plus faketurn, and the negative control
+(no TURN) cannot connect.
 
-OLCUM: 5 MB indirme dogrudan 96 ms / TURN uzerinden 114 ms (~%16);
-URL'den TURN tuneline 306 ms; allocation 52-57 ms; bundle 40.7 -> 41.6 KB.
+MEASURED: a 5 MB download 96 ms directly / 114 ms over TURN (~16%); from the
+URL to a TURN tunnel 306 ms; an allocation 52-57 ms; bundle 40.7 → 41.6 KB.
 
-#### Kabul durumu
+#### Acceptance status
 
-Kriter (simetrik NAT simulasyonunda TURN ile baglaniyor) otomatik testlerle
-karsilandi: --ice-relay-only dogrudan yolu imkansiz kiliyor, tunel aciliyor
-ve ekran "TURN uzerinden" diyor. GERCEK iki ag denemesi ve Cloudflare hesabi
-kullanici tarafinda (docs/MANUAL-TEST.md, docs/TURN.md).
+The criterion (it connects over TURN in a symmetric-NAT simulation) was met
+by the automated tests: `--ice-relay-only` makes the direct path impossible,
+the tunnel opens and the screen says "over TURN". A REAL two-network trial
+and a Cloudflare account are on the user's side (docs/MANUAL-TEST.md,
+docs/TURN.md).
 
-### Faz 6 - WebSocket ve SSE koprusu
+### Phase 6 - The WebSocket and SSE bridge
 
-#### Protokol
+#### The protocol
 
-- Uc yeni ctrl mesaji: `ws-open` (id, path, protos), `ws-ok` (id, proto),
-  `ws-close` (id, code, reason). `ws-frame` YOK: yuk `data` kanalindan
-  gidiyor.
-- ws cerceve alt bicimi: dis cerceve ([4B id][4B seq][payload]) AYNEN
-  korundu, bir ws id'sine ait cercevenin payload'i [1B bayrak][parca] oldu
-  (bayrak: metin/ikili + son-parca). Backpressure, 16 KiB parcalama ve seq
-  denetimi bedavaya geldi; ikili veri base64 sismesi yemiyor ve toplu ws
-  trafigi ctrl kanalini tikamiyor.
-- ws oturumlari HTTP istekleriyle AYNI id uzayini paylasiyor.
-- Vektorler iki dilde ayni dosyadan: 7 gecerli + 16 gecersiz ctrl, 6 gecerli
-  + 4 gecersiz ws cerceve vektoru.
+- Three new ctrl messages: `ws-open` (id, path, protos), `ws-ok` (id, proto),
+  `ws-close` (id, code, reason). There is NO `ws-frame`: the payload goes over
+  the `data` channel.
+- A ws frame subformat: the outer frame ([4B id][4B seq][payload]) was kept
+  EXACTLY as it was, and the payload of a frame belonging to a ws id became
+  [1B flag][chunk] (the flag: text/binary plus last-chunk). Backpressure,
+  16 KiB chunking and seq checking came for free; binary data takes no base64
+  inflation and bulk ws traffic does not clog the ctrl channel.
+- ws sessions share the SAME id space as HTTP requests.
+- The vectors come from one file for both languages: 7 valid + 16 invalid
+  ctrl, 6 valid + 4 invalid ws frame vectors.
 
-#### Ajan
+#### The agent
 
-- Yeni `internal/wsbridge`: coder/websocket ile yerel hedefe baglanti
-  (zaten dogrudan bagimliliktaydi). Hedef URL'si YALNIZCA allowlist'ten
-  (ilke 1). `Origin` basligi hedefin kendi origin'i olarak gidiyor, yoksa
-  Vite ve Socket.IO el sikismayi reddediyor.
-- `internal/tunnel`: ws oturum dagitimi, iki yonlu pompa, `WSDialer`
-  arayuzu (nil = kopru kapali -> ws-close 1008). `Proxy` arayuzune metot
-  EKLENMEDI (testlerde birkac yerde gercekleniyor).
-- Yeni bayraklar: `--inject-ws-shim` (kopru + shim, varsayilan KAPALI),
+- New `internal/wsbridge`: a connection to the local target with
+  coder/websocket (already a direct dependency). The target URL comes ONLY
+  from the allowlist (principle 1). The `Origin` header goes out as the
+  target's own origin, without which Vite and Socket.IO refuse the handshake.
+- `internal/tunnel`: ws session dispatch, a two-way pump, the `WSDialer`
+  interface (nil = the bridge is off → ws-close 1008). No method was ADDED to
+  the `Proxy` interface (it is implemented in several places in the tests).
+- New flags: `--inject-ws-shim` (the bridge plus the shim, OFF by default),
   `--max-ws-message` (1MB), `--max-streams` (8).
-- Test sitesi: `/sse?n=&delay=&keepalive=` (varsayilanlar degismedi) ve
-  yeni `/ws` yanki ucu.
+- The test site: `/sse?n=&delay=&keepalive=` (the defaults did not change)
+  and a new `/ws` echo endpoint.
 
-#### Web
+#### The web app
 
-- `Tunnel.openSocket`: mesaj bazli ws arayuzu; parcalama, FIN birlestirme,
-  seq denetimi ve backpressure iceride.
-- Yeni `src/ws-shim.ts` -> `dist/ws-shim.js` (klasik IIFE, ucuncu vite
-  yapilandirmasi). Yalnizca AYNI HOSTNAME'e giden ws adreslerini tunele
-  aliyor; scope onekini `document.currentScript.src`'den hesapliyor.
-- Yeni `src/inject.ts`: HTML akisina `<script>` sokan TransformStream
-  (etiket cerceveye bolunmus olabilir; 8 KiB sonra basa yazar).
-- SW: shim el sikismasinda portu tunel sahibi sekmeye AKTARIYOR, sonrasi
-  sekme <-> sekme. SW bosta oldurulebilir, uzun yasayan bir soket ona
-  dayanamaz.
-- `#metrics`'e kosullu "WebSocket: N acik" satiri.
+- `Tunnel.openSocket`: a message-based ws interface; chunking, FIN
+  reassembly, seq checking and backpressure are inside.
+- New `src/ws-shim.ts` → `dist/ws-shim.js` (a classic IIFE, a third vite
+  configuration). It only tunnels ws addresses going to the SAME HOSTNAME,
+  and it computes the scope prefix from `document.currentScript.src`.
+- New `src/inject.ts`: a TransformStream that inserts a `<script>` into the
+  HTML stream (the tag may be split across frames; after 8 KiB it gives up
+  and writes at the head).
+- The SW TRANSFERS the port to the tunnel-owner tab during the shim
+  handshake, and everything after that is tab ↔ tab. The SW can be killed
+  while idle, and a long-lived socket cannot depend on it.
+- A conditional "WebSocket: N open" line in `#metrics`.
 
-#### Yolda bulunan hata
+#### A bug found on the way
 
-`internal/proxy` istek baglamini 60 saniyelik bir sureyle sariyordu ve bu
-TUM cevabi kapsiyordu: 60 saniyeden uzun yasayan her SSE akisi sessizce
-kesiliyordu -- ziyaretci hata gormuyor, yalnizca "akis bitti" goruyordu.
-Sinir artik Transport'ta ve yalnizca baslik fazinda. Cevapsiz kalan hedef
-hala istegi askida tutamiyor.
+`internal/proxy` wrapped the request context in a 60-second deadline, and
+that covered the WHOLE response: every SSE stream living longer than 60
+seconds was cut silently — the visitor saw no error, only "the stream
+ended". The limit is in the Transport now and only on the header phase. A
+target that never answers still cannot hold the request open.
 
-#### Kararlar (BRIEF'ten sapma)
+#### Decisions (a departure from BRIEF)
 
-Shim'i HTML'e ajan degil Service Worker sokuyor; ajan yalnizca
-`x-peerpages-ws-shim` basligini ekliyor. Boylece protokol surumu kirilmiyor
-(`hello` tek yonlu ve opsiyonel alan kabul etmiyor) ve `internal/proxy`
-bayt bayt gecirgen kaliyor. Gerekcesi BRIEF §8, ayrinti docs/WEBSOCKET.md.
+The Service Worker, not the agent, inserts the shim into the HTML; the agent
+only adds the `x-peerpages-ws-shim` header. That way the protocol version is
+not broken (`hello` is one-way and accepts no optional field) and
+`internal/proxy` stays byte-for-byte transparent. The reasoning is in BRIEF
+section 8, the detail in docs/WEBSOCKET.md.
 
-#### Testler
+#### Tests
 
-397 TS birim testi (+88), 19 Go paketi (yeni: `internal/wsbridge`), 35 Playwright
-testi (+5).
+397 TS unit tests (+88), 19 Go packages (new: `internal/wsbridge`), 35
+Playwright tests (+5).
 
-OLCUM ws kucuk mesaj RTT medyan 0.40 ms; 1 MB gidis-donus 40 ms;
-Vite HMR guncellemesi 38 ms (sayfa yenilenmeden); SSE ilk olay 2 ms /
-ucuncu 804 ms; bundle 41.6 -> 43.2 KB + ayri 1.9 KB shim.
+MEASURED: a small ws message RTT median 0.40 ms; a 1 MB round trip 40 ms; a
+Vite HMR update 38 ms (without the page reloading); the first SSE event 2 ms
+/ the third 804 ms; bundle 41.6 → 43.2 KB plus a separate 1.9 KB shim.
 
-#### Kabul durumu
+#### Acceptance status
 
-Vite HMR kriteri otomatik testle karsilandi: fixture projede `vite dev`
-kosuyor, kaynak dosya degisiyor ve sayfa YENILENMEDEN guncelleniyor.
-Socket.IO ornegi elle dogrulamada (docs/MANUAL-TEST.md): iki yeni
-bagimlilik getirecegi icin otomatik test edilmedi.
+The Vite HMR criterion was met by an automated test: `vite dev` runs in a
+fixture project, a source file changes and the page updates WITHOUT
+RELOADING. The Socket.IO example is in the manual verification
+(docs/MANUAL-TEST.md): it was not automated because it would pull in two new
+dependencies.
 
-### Faz 7 - Yayin ve lansman
+### Phase 7 - Publishing and the launch
 
-#### Isim
+#### The name
 
-PeerPages olarak KESINLESTI. Hic etiket atilmamisti, yani modul yolunu
-degistirmek icin en ucuz andi; depo adi, Pages URL'si, modul yolu, binary
-adi ve kapsam oneki zaten tutarli oldugu icin degistirilmedi.
-"Isim Faz 7'de degisebilir" notlari .goreleaser.yaml, docs/INSTALL.md ve
-docs/DEV.md'den kaldirildi.
+PeerPages was SETTLED. No tag had ever been pushed, so this was the cheapest
+possible moment to change the module path; it was not changed, because the
+repository name, the Pages URL, the module path, the binary name and the
+scope prefix were consistent already. The "the name may change in phase 7"
+notes were removed from .goreleaser.yaml, docs/INSTALL.md and docs/DEV.md.
 
-#### Belgeler
+#### The documents
 
-- Turkce brief + yol haritasi + §8 karar defteri **docs/BRIEF.md**'ye
-  tasindi; bolum numaralari aynen korundu. Koddaki 96 atif (54 dosya) ve
-  belgelerdeki 30 atif mekanik olarak guncellendi; diff simetrik ve yalnizca
-  yorum/metin satirlarina dokunuyor.
-- Kokte **Ingilizce public README** (223 satir): pitch, gercek ekran
-  goruntuleri, kendi kendine yeten quickstart, "Why not ngrok?", nasil
-  calistigi, alti numarali guvenlik ilkesi (BRIEF §6 ile ayni numaralar),
-  dokuz maddelik durust sinirlar, yedi soruluk FAQ.
-- Yeni **docs/SECURITY.md**: dort aktorlu tehdit modeli (relay izleyicisi,
-  peer-id tahmini, kotu niyetli ziyaretci, SSRF), gercek sabitlerden
-  olusturulmus guard tablosu, yedi bilincli takas, kapsam disi bolumu ve
-  iddialari dogrulayan bes kopyala-calistir komutu.
-- Yeni **docs/LAUNCH.md**: GIF cekim tarifi, Show HN basligi + ilk yorum +
-  zor sorularin cevaplari, r/selfhosted ve r/webdev metinleri, sosyal medya
-  metni, on kalemlik kontrol listesi. Hicbiri paylasilmadi.
-- docs/DEV.md'ye "Pages dagitimi" bolumu; web derlemesinin uc adim oldugu
-  (shim) duzeltildi.
+- The Turkish brief plus the roadmap plus the section 8 decision log moved
+  into **docs/BRIEF.md**; the section numbers were kept exactly. The 96
+  references in the code (54 files) and the 30 in the documents were updated
+  mechanically; the diff is symmetric and touches only comment and text
+  lines.
+- An **English public README** at the root (223 lines): the pitch, real
+  screenshots, a self-contained quickstart, "Why not ngrok?", how it works,
+  the six numbered security principles (the same numbers as BRIEF section 6),
+  nine honest limits, a seven-question FAQ.
+- New **docs/SECURITY.md**: a four-actor threat model (a relay watcher,
+  peer-id guessing, a malicious visitor, SSRF), a guard table built from the
+  real constants, seven deliberate trade-offs, an out-of-scope section and
+  five copy-and-run commands that verify the claims.
+- New **docs/LAUNCH.md**: a GIF recording recipe, a Show HN title plus first
+  comment plus answers to the hard questions, r/selfhosted and r/webdev
+  texts, a social media text, a ten-item checklist. None of it was posted.
+- A "the Pages deploy" section in docs/DEV.md; the fact that the web build is
+  three steps (the shim) was corrected.
 
-#### Dagitim
+#### Distribution
 
-- Yeni `.github/workflows/pages.yml`: main'e web/** ya da protocol/**
-  degisikligi gidince app shell'i Pages'e dagitir. `configure-pages`
-  `enablement: true` ile Pages'i kendisi acar; `PAGES_BASE` ve `PAGES_CNAME`
-  depo degiskenleri custom domain yolunu tek adimda aciyor.
-- `internal/cli/key.go`: DefaultAppURL artik gercek adres. Onceki sablon
-  deger ("<kullanici>") bayraksiz calisan ajanin CALISMAYAN bir URL
-  basmasina yol aciyordu.
-- `main` ILK KEZ push edildi (54 commit).
+- New `.github/workflows/pages.yml`: it deploys the app shell to Pages when a
+  change under `web/**` or `protocol/**` reaches main. `configure-pages`
+  turns Pages on itself with `enablement: true`; the `PAGES_BASE` and
+  `PAGES_CNAME` repository variables open the custom-domain path in one step.
+- `internal/cli/key.go`: DefaultAppURL is a real address now. The previous
+  template value ("<user>") let an agent running with no flags print a URL
+  that DID NOT WORK.
+- `main` was pushed FOR THE FIRST TIME (54 commits).
 
-#### Gorseller
+#### Images
 
-`web/e2e/demo.spec.ts` gercek bir tunelden iki ekran goruntusu uretiyor
-(52 KB toplam); normal kosumda atlaniyor (grepInvert /@demo/), yani test
-sayisi 35'te kaliyor.
+`web/e2e/demo.spec.ts` produces two screenshots from a real tunnel (52 KB in
+total); it is skipped in a normal run (grepInvert /@demo/), so the test count
+stays at 35.
 
-#### Kabul durumu
+#### Acceptance status
 
-**Karsilandi ve CANLI olculdu.** Site yayinda
-(https://aliosmanmho.github.io/PeerPages/): ajan bayraksiz calistirildi,
-bastigi URL oldugu gibi acildi, tunel 8.6 saniyede kuruldu ve yerel site
-github.io adresinde gorundu. Gercek Nostr relay'leriyle (3/4 bagli) kucuk
-istek 2 ms, 5 MB indirme 114 ms.
+**Met, and measured LIVE.** The site is up
+(https://aliosmanmho.github.io/PeerPages/): the agent was run with no flags,
+the URL it printed opened as it was, the tunnel was built in 8.6 seconds and
+the local site appeared at the github.io address. With real Nostr relays (3/4
+connected) a small request took 2 ms and a 5 MB download 114 ms.
 
-GitHub Actions hesaptaki faturalandirma kilidi yuzunden KOSAMADI
-("your account is locked due to a billing issue"), bu yuzden yayin
-pages.yml ile degil, GitHub'in kendi dal tabanli Pages derleyicisiyle
-yapildi (`gh-pages` dali, build_type legacy -- Actions kullanmiyor, 27 sn).
-Workflow duruyor; kilit kalkinca kaynak tek komutla "GitHub Actions"a
-alinabilir ve dal silinebilir.
+GitHub Actions COULD NOT RUN because of a billing lock on the account ("your
+account is locked due to a billing issue"), so publishing was done not with
+pages.yml but with GitHub's own branch-based Pages builder (the `gh-pages`
+branch, build_type legacy — it does not use Actions, 27 s). The workflow is
+still there; once the lock is lifted the source can be switched to "GitHub
+Actions" with a single command and the branch deleted.
 
-Hala acik: workflow'lar GitHub runner'inda hic kosmadi (-race ve CI surumu
-golangci-lint yalnizca yerelde), ve etiket olmadigi icin binary indirme
-yolu yok -- bugun tek kurulum yolu `go install`.
+Still open: the workflows have never run on a GitHub runner (-race and the CI
+version of golangci-lint only ran locally), and because there is no tag there
+is no binary download path — today `go install` is the only installation
+route.

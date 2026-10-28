@@ -1,7 +1,8 @@
-// Package protocol data channel uzerindeki mesaj bicimini uygular.
+// Package protocol implements the message format carried over the data
+// channel.
 //
-// Normatif tanim: protocol/README.md. TypeScript karsiligi
-// web/src/protocol/. Iki taraf AYNI test vektorlerini okur:
+// Normative definition: protocol/README.md. TypeScript counterpart:
+// web/src/protocol/. Both sides read the SAME test vectors:
 // protocol/testvectors.json.
 package protocol
 
@@ -11,25 +12,26 @@ import (
 )
 
 const (
-	// HeaderBytes cerceve basligi: id (4) + seq (4).
+	// HeaderBytes is the frame header: id (4) + seq (4).
 	HeaderBytes = 8
-	// MaxPayload en buyuk payload: 16 KiB (tarayici data channel uyumlulugu).
+	// MaxPayload is the largest payload: 16 KiB (browser data channel
+	// compatibility).
 	MaxPayload = 16384
-	// MaxFrame en buyuk cerceve.
+	// MaxFrame is the largest frame.
 	MaxFrame = HeaderBytes + MaxPayload
 )
 
-// FramingErrorCode iki dilde ayni olan framing hata kodlari.
+// FramingErrorCode is a framing error code, the same in both languages.
 type FramingErrorCode string
 
 const (
-	// CodeShortFrame cerceve basligi tamamlanmiyor.
+	// CodeShortFrame means the frame header is incomplete.
 	CodeShortFrame FramingErrorCode = "short-frame"
-	// CodePayloadTooLarge payload 16 KiB sinirini asiyor.
+	// CodePayloadTooLarge means the payload exceeds the 16 KiB limit.
 	CodePayloadTooLarge FramingErrorCode = "payload-too-large"
 )
 
-// FramingError framing hatasi. Code degeri testvectors.json ile birebir eslesir.
+// FramingError is a framing error. Code matches testvectors.json exactly.
 type FramingError struct {
 	Code   FramingErrorCode
 	Detail string
@@ -39,23 +41,23 @@ func (e *FramingError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Code, e.Detail)
 }
 
-// Frame cozulmus bir data cercevesi.
+// Frame is a decoded data frame.
 type Frame struct {
 	ID      uint32
 	Seq     uint32
 	Payload []byte
 }
 
-// EncodeFrame cerceveyi kodlar.
+// EncodeFrame encodes a frame.
 //
-// payload MaxPayload'dan buyukse payload-too-large doner. id/seq uint32
-// oldugundan aralik kontrolune gerek yok (TS tarafinda var, cunku orada
-// number).
+// If payload is larger than MaxPayload it returns payload-too-large. id
+// and seq are uint32, so no range check is needed (the TS side has one,
+// because there they are numbers).
 func EncodeFrame(id, seq uint32, payload []byte) ([]byte, error) {
 	if len(payload) > MaxPayload {
 		return nil, &FramingError{
 			Code:   CodePayloadTooLarge,
-			Detail: fmt.Sprintf("%d bayt, sinir %d", len(payload), MaxPayload),
+			Detail: fmt.Sprintf("%d bytes, limit %d", len(payload), MaxPayload),
 		}
 	}
 	out := make([]byte, HeaderBytes+len(payload))
@@ -65,12 +67,13 @@ func EncodeFrame(id, seq uint32, payload []byte) ([]byte, error) {
 	return out, nil
 }
 
-// AppendFrame cerceveyi dst'ye ekler; sicak yolda tahsisi azaltmak icin.
+// AppendFrame appends the frame to dst, to cut allocations on the hot
+// path.
 func AppendFrame(dst []byte, id, seq uint32, payload []byte) ([]byte, error) {
 	if len(payload) > MaxPayload {
 		return dst, &FramingError{
 			Code:   CodePayloadTooLarge,
-			Detail: fmt.Sprintf("%d bayt, sinir %d", len(payload), MaxPayload),
+			Detail: fmt.Sprintf("%d bytes, limit %d", len(payload), MaxPayload),
 		}
 	}
 	var head [HeaderBytes]byte
@@ -80,22 +83,22 @@ func AppendFrame(dst []byte, id, seq uint32, payload []byte) ([]byte, error) {
 	return append(dst, payload...), nil
 }
 
-// DecodeFrame cerceveyi cozer.
+// DecodeFrame decodes a frame.
 //
-// Donen Payload, frame'in KOPYASIDIR: cagiran taraf gelen tamponu yeniden
-// kullanabilir (pion data channel tamponu paylasabilir).
+// The returned Payload is a COPY of frame: the caller may reuse the
+// incoming buffer (the pion data channel can share its buffer).
 func DecodeFrame(frame []byte) (Frame, error) {
 	if len(frame) < HeaderBytes {
 		return Frame{}, &FramingError{
 			Code:   CodeShortFrame,
-			Detail: fmt.Sprintf("%d bayt, en az %d gerekli", len(frame), HeaderBytes),
+			Detail: fmt.Sprintf("%d bytes, at least %d required", len(frame), HeaderBytes),
 		}
 	}
 	payloadLen := len(frame) - HeaderBytes
 	if payloadLen > MaxPayload {
 		return Frame{}, &FramingError{
 			Code:   CodePayloadTooLarge,
-			Detail: fmt.Sprintf("%d bayt, sinir %d", payloadLen, MaxPayload),
+			Detail: fmt.Sprintf("%d bytes, limit %d", payloadLen, MaxPayload),
 		}
 	}
 
@@ -108,11 +111,12 @@ func DecodeFrame(frame []byte) (Frame, error) {
 	}, nil
 }
 
-// FrameBody govdeyi MaxPayload'lik parcalara boler ve cerceveleri dondurur.
-// seq startSeq'ten baslayarak artar. Bos govde icin cerceve uretilmez.
+// FrameBody splits the body into MaxPayload chunks and returns the
+// frames. seq starts at startSeq and increments. An empty body yields no
+// frame.
 //
-// Akis halinde gonderim icin proxy katmani dogrudan AppendFrame kullanir; bu
-// yardimci kucuk govdeler ve testler icin.
+// For streaming sends the proxy layer uses AppendFrame directly; this
+// helper is for small bodies and tests.
 func FrameBody(id uint32, body []byte, startSeq uint32) ([][]byte, error) {
 	if len(body) == 0 {
 		return nil, nil

@@ -11,34 +11,36 @@ import (
 	"unicode/utf8"
 )
 
-// Version su an desteklenen protokol surumu (hello.v).
+// Version is the protocol version supported right now (hello.v).
 const Version = 1
 
-// HeaderWSShim ajanin WebSocket shim'i icin ziyaretci sayfasina verdigi
-// isaret (Faz 6).
+// HeaderWSShim is the hint the agent gives the visitor page for the
+// WebSocket shim (phase 6).
 //
-// ctrl mesaji DEGIL, bir HTTP cevap basligi — ama tel uzerindeki sozlesmenin
-// parcasi oldugu icin burada: `--inject-ws-shim` verildiginde ajan HTML
-// cevaplarina bunu ekler, Service Worker gorunce `<script>` enjekte eder.
-// Boylece protokol surumu kirilmiyor ve ajan govdeye dokunmuyor
-// (protocol/README.md).
+// NOT a ctrl message but an HTTP response header — it lives here because
+// it is part of the contract on the wire: with `--inject-ws-shim` the
+// agent adds it to HTML responses, and when the Service Worker sees it, it
+// injects the `<script>`. That way the protocol version is not broken and
+// the agent never touches the body (protocol/README.md).
 const HeaderWSShim = "x-peerpages-ws-shim"
 
-// CtrlErrorCode iki dilde ayni olan ctrl hata kodlari.
+// CtrlErrorCode is a ctrl error code, the same in both languages.
 type CtrlErrorCode string
 
 const (
-	// CodeBadJSON JSON okunamadi ya da en ust duzey bir nesne degil.
+	// CodeBadJSON means the JSON could not be read, or the top level is
+	// not an object.
 	CodeBadJSON CtrlErrorCode = "bad-json"
-	// CodeUnknownType t taninmayan bir deger.
+	// CodeUnknownType means t holds an unrecognised value.
 	CodeUnknownType CtrlErrorCode = "unknown-type"
-	// CodeMissingField tip icin zorunlu bir alan yok.
+	// CodeMissingField means a field required for the type is missing.
 	CodeMissingField CtrlErrorCode = "missing-field"
-	// CodeBadField alan var ama tipi/araligi/bicimi gecersiz.
+	// CodeBadField means the field is there but its type, range or format
+	// is invalid.
 	CodeBadField CtrlErrorCode = "bad-field"
 )
 
-// CtrlError ctrl ayristirma hatasi.
+// CtrlError is a ctrl parse error.
 type CtrlError struct {
 	Code   CtrlErrorCode
 	Detail string
@@ -48,25 +50,26 @@ func (e *CtrlError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Code, e.Detail)
 }
 
-// AuthMode hello.auth degeri.
+// AuthMode is the hello.auth value.
 type AuthMode string
 
-// Desteklenen auth degerleri.
+// The supported auth values.
 const (
 	AuthNone     AuthMode = "none"
 	AuthRequired AuthMode = "required"
 )
 
-// Msg bir ctrl mesaji.
+// Msg is a ctrl message.
 type Msg interface {
-	// Type mesaj tipi ("req", "res", ...).
+	// Type is the message type ("req", "res", ...).
 	Type() string
-	// Canonical mesajin kanonik serilestirmesi (protocol/README.md).
-	// TS tarafindaki canonicalCtrl ile bayt bayt ayni cikti uretir.
+	// Canonical is the message's canonical serialization
+	// (protocol/README.md). It produces byte-for-byte the same output as
+	// canonicalCtrl on the TS side.
 	Canonical() string
 }
 
-// Req ziyaretciden gelen HTTP istegi.
+// Req is an HTTP request from the visitor.
 type Req struct {
 	ID      uint32
 	Method  string
@@ -75,67 +78,69 @@ type Req struct {
 	HasBody bool
 }
 
-// Res istege verilen HTTP cevabinin basligi.
+// Res is the head of the HTTP response to a request.
 type Res struct {
 	ID      uint32
 	Status  int
 	Headers map[string]string
 }
 
-// End o id icin govdenin bittigini bildirir.
+// End reports that the body for that id is finished.
 //
-// Frames ve Len zorunlu: ctrl ve data ayri SCTP stream'leri oldugundan End,
-// govde cercevelerinden ONCE varabilir. Alici bu sayaclara ulasana kadar data
-// kanalini dinlemeye devam eder (protocol/README.md).
+// Frames and Len are mandatory: because ctrl and data are separate SCTP
+// streams, End can arrive BEFORE the body frames. The receiver keeps
+// listening on the data channel until it reaches these counters
+// (protocol/README.md).
 type End struct {
 	ID     uint32
 	Frames uint32
 	Len    int64
 }
 
-// Abort o id icin akisin iptal edildigini bildirir.
+// Abort reports that the stream for that id was cancelled.
 type Abort struct {
 	ID     uint32
 	Reason string
 }
 
-// Ping canlilik/gecikme olcumu.
+// Ping measures liveness and latency.
 type Ping struct{}
 
-// Pong Ping cevabi.
+// Pong answers a Ping.
 type Pong struct{}
 
-// WSOpen ziyaretciden gelen WebSocket acma istegi (Faz 6).
+// WSOpen is a WebSocket open request from the visitor (phase 6).
 //
-// Yuk `data` kanalindan gider (wsframe.go); bu mesaj yalnizca el sikismadir.
-// ID, HTTP istekleriyle AYNI id uzayindan gelir, yani cakisma yapisal olarak
-// imkansiz.
+// The payload travels on the `data` channel (wsframe.go); this message is
+// only the handshake. ID comes from the SAME id space as HTTP requests, so
+// a collision is structurally impossible.
 type WSOpen struct {
 	ID uint32
-	// Path ws yolu; hedef host ASLA buradan turetilmez (BRIEF ilke 1).
+	// Path is the ws path; the target host is NEVER derived from it
+	// (BRIEF principle 1).
 	Path string
-	// Protos istenen alt protokoller; bos olabilir.
+	// Protos holds the requested subprotocols; may be empty.
 	Protos []string
 }
 
-// WSOk ajanin kabul ettigi WebSocket baglantisi.
+// WSOk is a WebSocket connection the agent accepted.
 type WSOk struct {
 	ID uint32
-	// Proto sunucunun sectigi alt protokol; yoksa bos string.
+	// Proto is the subprotocol the server chose; empty when there is none.
 	Proto string
 }
 
-// WSClose WebSocket oturumunun kapandigini bildirir (iki yonde de).
+// WSClose reports that a WebSocket session closed (in either direction).
 //
-// HTTP'nin end/abort ikilisi ws icin kullanilmaz: kapanisin kodu ve sebebi
-// ziyaretcinin onclose'una dogrudan gecer.
+// HTTP's end/abort pair is not used for ws: the close code and reason go
+// straight into the visitor's onclose.
 type WSClose struct {
 	ID     uint32
 	Code   int
 	Reason string
 }
 
-// Hello baglanti kurulunca ajandan ziyaretciye gider.
+// Hello goes from the agent to the visitor once the connection is up.
 type Hello struct {
 	V       int
 	Targets []string
@@ -153,8 +158,8 @@ func (WSOpen) Type() string  { return "ws-open" }
 func (WSOk) Type() string    { return "ws-ok" }
 func (WSClose) Type() string { return "ws-close" }
 
-// Canonical kanonik serilestirme — anahtar sirasi tipe gore sabit, bosluk yok,
-// headers kucuk harf ve sozluk sirali.
+// Canonical is the canonical serialization: key order fixed per type, no
+// whitespace, headers lowercase and sorted.
 func (m Req) Canonical() string {
 	var b strings.Builder
 	b.WriteString(`{"t":"req","id":`)
@@ -287,10 +292,10 @@ func writeCanonicalHeaders(b *strings.Builder, h map[string]string) {
 	b.WriteString("}")
 }
 
-// QuoteJSON bir stringi JSON literali olarak kacirir (cift tirnaklar dahil).
+// QuoteJSON escapes a string as a JSON literal (double quotes included).
 //
-// JS'in JSON.stringify'i ile AYNI kurallari uygular; signaling katmani da
-// (internal/signaling) ayni kanonik bicimi uretmek icin bunu kullanir.
+// It applies the SAME rules as JS JSON.stringify; the signaling layer
+// (internal/signaling) also uses it to produce the same canonical form.
 func QuoteJSON(s string) string {
 	var b strings.Builder
 	b.Grow(len(s) + 2)
@@ -298,14 +303,15 @@ func QuoteJSON(s string) string {
 	return b.String()
 }
 
-// writeJSONString JS'in JSON.stringify'i ile AYNI kacis kurallarini uygular.
+// writeJSONString applies the SAME escaping rules as JS JSON.stringify.
 //
-// Go'nun encoding/json'u kullanilmiyor cunku:
-//   - varsayilan olarak <, >, & kacirir (SetEscapeHTML ile kapatilabilir),
-//   - U+2028/U+2029'u kacirir, JS kacirmaz,
-//   - 0x08 ve 0x0C icin \u0008/\u000c yazar, JS \b ve \f yazar.
+// Go's encoding/json is not used because:
+//   - it escapes <, >, & by default (can be turned off with SetEscapeHTML),
+//   - it escapes U+2028/U+2029, which JS does not,
+//   - it writes \u0008/\u000c for 0x08 and 0x0C, where JS writes \b and \f.
 //
-// Kanonik bicim iki dilde bayt bayt ayni olmak zorunda (protocol/README.md).
+// The canonical form must be byte-for-byte identical in both languages
+// (protocol/README.md).
 func writeJSONString(b *strings.Builder, s string) {
 	b.WriteByte('"')
 	for _, r := range s {
@@ -329,7 +335,7 @@ func writeJSONString(b *strings.Builder, s string) {
 			case r < 0x20:
 				b.WriteString(fmt.Sprintf(`\u%04x`, r))
 			case r == utf8.RuneError:
-				// Gecersiz UTF-8: JS tarafinda da U+FFFD olarak gorunur.
+				// Invalid UTF-8: it shows up as U+FFFD on the JS side too.
 				b.WriteRune(utf8.RuneError)
 			default:
 				b.WriteRune(r)
@@ -341,49 +347,53 @@ func writeJSONString(b *strings.Builder, s string) {
 
 var methodRe = regexp.MustCompile(`^[A-Z]+$`)
 
-// wsProtoRe alt protokol adi: RFC 6455 token'i (bos olamaz).
+// wsProtoRe is the subprotocol name: an RFC 6455 token (may not be empty).
 var wsProtoRe = regexp.MustCompile("^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$")
 
-// WebSocket kapanis kodu sinirlari ve kullandigimiz kodlar.
+// WebSocket close code bounds and the codes we use.
 //
-// 1005/1006 araligin icinde: WebSocket protokolu bunlari TELDE yasaklar ama
-// bir kopru olarak anormal kapanisi ziyaretciye bildirmemiz gerekiyor
-// (tarayici da onclose'ta bu kodlari uretir).
+// 1005/1006 are inside the range: the WebSocket protocol forbids them ON
+// THE WIRE, but as a bridge we have to report an abnormal close to the
+// visitor (a browser produces these codes in onclose as well).
 const (
-	// WSCloseMin en kucuk gecerli kapanis kodu.
+	// WSCloseMin is the smallest valid close code.
 	WSCloseMin = 1000
-	// WSCloseMax en buyuk gecerli kapanis kodu (4000-4999 uygulamaya ait).
+	// WSCloseMax is the largest valid close code (4000-4999 belong to the
+	// application).
 	WSCloseMax = 4999
-	// WSCloseReasonMax kapanis sebebinin en buyuk boyu (WebSocket siniri).
+	// WSCloseReasonMax is the largest close reason (a WebSocket limit).
 	WSCloseReasonMax = 123
 
-	// WSCloseNormal normal kapanis.
+	// WSCloseNormal is a normal close.
 	WSCloseNormal = 1000
-	// WSCloseGoingAway taraf gidiyor (oturum kapandi).
+	// WSCloseGoingAway means the peer is going away (the session closed).
 	WSCloseGoingAway = 1001
-	// WSCloseProtocol protokol hatasi (bozuk bayrak, tutarsiz parca).
+	// WSCloseProtocol is a protocol error (bad flags, inconsistent chunk).
 	WSCloseProtocol = 1002
-	// WSClosePolicy politika: yol reddedildi ya da kopru kapali.
+	// WSClosePolicy is a policy close: the path was refused or the bridge
+	// is off.
 	WSClosePolicy = 1008
-	// WSCloseTooBig mesaj --max-ws-message sinirini asti.
+	// WSCloseTooBig means the message exceeded the --max-ws-message limit.
 	WSCloseTooBig = 1009
-	// WSCloseInternal yerel sunucuya baglanilamadi ya da beklenmeyen hata.
+	// WSCloseInternal means the local server was unreachable, or an
+	// unexpected error.
 	WSCloseInternal = 1011
-	// WSCloseTryAgainLater akis butcesi dolu (--max-streams).
+	// WSCloseTryAgainLater means the stream budget is full (--max-streams).
 	WSCloseTryAgainLater = 1013
 )
 
-// ParseCtrl ctrl kanalindan gelen metni ayristirip dogrular.
+// ParseCtrl parses and validates text arriving on the ctrl channel.
 //
-// Hata sirasi protocol/README.md'de tanimli: bad-json -> missing-field (t yok)
-// -> bad-field (t string degil) -> unknown-type -> tipe ozgu kontroller.
+// The error order is defined in protocol/README.md: bad-json ->
+// missing-field (no t) -> bad-field (t is not a string) -> unknown-type ->
+// type-specific checks.
 func ParseCtrl(text string) (Msg, error) {
 	trimmed := strings.TrimLeft(text, " \t\r\n")
 	if trimmed == "" {
-		return nil, &CtrlError{CodeBadJSON, "bos metin"}
+		return nil, &CtrlError{CodeBadJSON, "empty text"}
 	}
 	if trimmed[0] != '{' {
-		return nil, &CtrlError{CodeBadJSON, "en ust duzey bir JSON nesnesi olmali"}
+		return nil, &CtrlError{CodeBadJSON, "the top level must be a JSON object"}
 	}
 
 	var o map[string]json.RawMessage
@@ -393,11 +403,11 @@ func ParseCtrl(text string) (Msg, error) {
 
 	rawT, ok := o["t"]
 	if !ok {
-		return nil, &CtrlError{CodeMissingField, "t yok"}
+		return nil, &CtrlError{CodeMissingField, "t is missing"}
 	}
 	var t string
 	if err := json.Unmarshal(rawT, &t); err != nil {
-		return nil, &CtrlError{CodeBadField, "t string olmali, verilen: " + string(rawT)}
+		return nil, &CtrlError{CodeBadField, "t must be a string, got: " + string(rawT)}
 	}
 
 	switch t {
@@ -440,7 +450,7 @@ func parseReq(o map[string]json.RawMessage, t string) (Msg, error) {
 		return nil, err
 	}
 	if !methodRe.MatchString(method) {
-		return nil, &CtrlError{CodeBadField, "req.method buyuk harf HTTP token'i olmali: " + method}
+		return nil, &CtrlError{CodeBadField, "req.method must be an uppercase HTTP token: " + method}
 	}
 	id, err := uint32Field(o, "id", t)
 	if err != nil {
@@ -475,25 +485,25 @@ func parseEnd(o map[string]json.RawMessage, t string) (Msg, error) {
 	}
 	rawLen, ok := o["len"]
 	if !ok {
-		return nil, &CtrlError{CodeMissingField, t + ".len yok"}
+		return nil, &CtrlError{CodeMissingField, t + ".len is missing"}
 	}
 	if !rawIsJSONNumber(rawLen) {
-		return nil, &CtrlError{CodeBadField, t + ".len tamsayi olmali, verilen: " + string(rawLen)}
+		return nil, &CtrlError{CodeBadField, t + ".len must be an integer, got: " + string(rawLen)}
 	}
 	var n json.Number
 	if uerr := json.Unmarshal(rawLen, &n); uerr != nil {
-		return nil, &CtrlError{CodeBadField, t + ".len tamsayi olmali, verilen: " + string(rawLen)}
+		return nil, &CtrlError{CodeBadField, t + ".len must be an integer, got: " + string(rawLen)}
 	}
 	length, perr := strconv.ParseInt(n.String(), 10, 64)
 	if perr != nil {
-		return nil, &CtrlError{CodeBadField, t + ".len tamsayi olmali, verilen: " + n.String()}
+		return nil, &CtrlError{CodeBadField, t + ".len must be an integer, got: " + n.String()}
 	}
 	if length < 0 {
-		return nil, &CtrlError{CodeBadField, "end.len negatif olamaz: " + n.String()}
+		return nil, &CtrlError{CodeBadField, "end.len must not be negative: " + n.String()}
 	}
-	// frames ve len tutarli olmali: biri 0 ise digeri de 0.
+	// frames and len must agree: if one is 0 so is the other.
 	if (frames == 0) != (length == 0) {
-		return nil, &CtrlError{CodeBadField, fmt.Sprintf("end.frames=%d ile end.len=%d tutarsiz", frames, length)}
+		return nil, &CtrlError{CodeBadField, fmt.Sprintf("end.frames=%d is inconsistent with end.len=%d", frames, length)}
 	}
 	return End{ID: id, Frames: frames, Len: length}, nil
 }
@@ -505,14 +515,14 @@ func parseRes(o map[string]json.RawMessage, t string) (Msg, error) {
 	}
 	raw, ok := o["status"]
 	if !ok {
-		return nil, &CtrlError{CodeMissingField, t + ".status yok"}
+		return nil, &CtrlError{CodeMissingField, t + ".status is missing"}
 	}
 	status, cerr := intFromRaw(raw, t+".status")
 	if cerr != nil {
 		return nil, cerr
 	}
 	if status < 100 || status > 599 {
-		return nil, &CtrlError{CodeBadField, fmt.Sprintf("res.status 100…599 olmali, verilen: %d", status)}
+		return nil, &CtrlError{CodeBadField, fmt.Sprintf("res.status must be 100-599, got: %d", status)}
 	}
 	headers, err := headersField(o, "headers", t)
 	if err != nil {
@@ -524,30 +534,30 @@ func parseRes(o map[string]json.RawMessage, t string) (Msg, error) {
 func parseHello(o map[string]json.RawMessage, t string) (Msg, error) {
 	rawV, ok := o["v"]
 	if !ok {
-		return nil, &CtrlError{CodeMissingField, t + ".v yok"}
+		return nil, &CtrlError{CodeMissingField, t + ".v is missing"}
 	}
 	v, cerr := intFromRaw(rawV, t+".v")
 	if cerr != nil {
 		return nil, cerr
 	}
 	if v != Version {
-		return nil, &CtrlError{CodeBadField, fmt.Sprintf("hello.v %d olmali, verilen: %d", Version, v)}
+		return nil, &CtrlError{CodeBadField, fmt.Sprintf("hello.v must be %d, got: %d", Version, v)}
 	}
 
 	rawTargets, ok := o["targets"]
 	if !ok {
-		return nil, &CtrlError{CodeMissingField, t + ".targets yok"}
+		return nil, &CtrlError{CodeMissingField, t + ".targets is missing"}
 	}
 	var targets []string
 	if err := json.Unmarshal(rawTargets, &targets); err != nil {
-		return nil, &CtrlError{CodeBadField, "hello.targets string dizisi olmali"}
+		return nil, &CtrlError{CodeBadField, "hello.targets must be an array of strings"}
 	}
 	if len(targets) == 0 {
-		return nil, &CtrlError{CodeBadField, "hello.targets en az bir elemanli dizi olmali"}
+		return nil, &CtrlError{CodeBadField, "hello.targets must be an array with at least one item"}
 	}
 	for _, x := range targets {
 		if x == "" {
-			return nil, &CtrlError{CodeBadField, "hello.targets elemanlari bos olmayan string olmali"}
+			return nil, &CtrlError{CodeBadField, "hello.targets items must be non-empty strings"}
 		}
 	}
 
@@ -556,7 +566,7 @@ func parseHello(o map[string]json.RawMessage, t string) (Msg, error) {
 		return nil, err
 	}
 	if AuthMode(auth) != AuthNone && AuthMode(auth) != AuthRequired {
-		return nil, &CtrlError{CodeBadField, `hello.auth "none" ya da "required" olmali: ` + auth}
+		return nil, &CtrlError{CodeBadField, `hello.auth must be "none" or "required": ` + auth}
 	}
 	return Hello{V: v, Targets: targets, Auth: AuthMode(auth)}, nil
 }
@@ -575,17 +585,17 @@ func parseWSOpen(o map[string]json.RawMessage, t string) (Msg, error) {
 	}
 	rawProtos, ok := o["protos"]
 	if !ok {
-		return nil, &CtrlError{CodeMissingField, t + ".protos yok"}
+		return nil, &CtrlError{CodeMissingField, t + ".protos is missing"}
 	}
 	var protos []string
 	if uerr := json.Unmarshal(rawProtos, &protos); uerr != nil {
-		return nil, &CtrlError{CodeBadField, "ws-open.protos string dizisi olmali"}
+		return nil, &CtrlError{CodeBadField, "ws-open.protos must be an array of strings"}
 	}
 	for _, p := range protos {
 		if !wsProtoRe.MatchString(p) {
 			return nil, &CtrlError{
 				CodeBadField,
-				"ws-open.protos elemanlari token olmali: " + strconv.Quote(p),
+				"ws-open.protos items must be tokens: " + strconv.Quote(p),
 			}
 		}
 	}
@@ -597,13 +607,13 @@ func parseWSOk(o map[string]json.RawMessage, t string) (Msg, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Bos string gecerli: sunucu alt protokol secmemis olabilir.
+	// An empty string is valid: the server may have chosen no subprotocol.
 	proto, err := stringField(o, "proto", t)
 	if err != nil {
 		return nil, err
 	}
 	if proto != "" && !wsProtoRe.MatchString(proto) {
-		return nil, &CtrlError{CodeBadField, "ws-ok.proto token olmali: " + strconv.Quote(proto)}
+		return nil, &CtrlError{CodeBadField, "ws-ok.proto must be a token: " + strconv.Quote(proto)}
 	}
 	return WSOk{ID: id, Proto: proto}, nil
 }
@@ -615,7 +625,7 @@ func parseWSClose(o map[string]json.RawMessage, t string) (Msg, error) {
 	}
 	raw, ok := o["code"]
 	if !ok {
-		return nil, &CtrlError{CodeMissingField, t + ".code yok"}
+		return nil, &CtrlError{CodeMissingField, t + ".code is missing"}
 	}
 	code, cerr := intFromRaw(raw, t+".code")
 	if cerr != nil {
@@ -624,10 +634,10 @@ func parseWSClose(o map[string]json.RawMessage, t string) (Msg, error) {
 	if code < WSCloseMin || code > WSCloseMax {
 		return nil, &CtrlError{
 			CodeBadField,
-			fmt.Sprintf("ws-close.code %d…%d olmali, verilen: %d", WSCloseMin, WSCloseMax, code),
+			fmt.Sprintf("ws-close.code must be %d-%d, got: %d", WSCloseMin, WSCloseMax, code),
 		}
 	}
-	// Bos string gecerli: WebSocket kapanis sebebi opsiyoneldir.
+	// An empty string is valid: a WebSocket close reason is optional.
 	reason, err := stringField(o, "reason", t)
 	if err != nil {
 		return nil, err
@@ -635,33 +645,33 @@ func parseWSClose(o map[string]json.RawMessage, t string) (Msg, error) {
 	if len(reason) > WSCloseReasonMax {
 		return nil, &CtrlError{
 			CodeBadField,
-			fmt.Sprintf("ws-close.reason en fazla %d bayt olmali, verilen: %d",
+			fmt.Sprintf("ws-close.reason may be at most %d bytes, got: %d",
 				WSCloseReasonMax, len(reason)),
 		}
 	}
 	return WSClose{ID: id, Code: code, Reason: reason}, nil
 }
 
-// validatePath istek yolunun ilk katman dogrulamasi. Belirleyici katman
-// internal/target.Resolve (BRIEF ilke 1).
+// validatePath is the first-layer validation of the request path. The
+// deciding layer is internal/target.Resolve (BRIEF principle 1).
 func validatePath(p, t string) *CtrlError {
 	if p == "" {
-		return &CtrlError{CodeBadField, t + ".path bos olamaz"}
+		return &CtrlError{CodeBadField, t + ".path must not be empty"}
 	}
 	if !strings.HasPrefix(p, "/") {
-		return &CtrlError{CodeBadField, t + `.path "/" ile baslamali, verilen: ` + strconv.Quote(p)}
+		return &CtrlError{CodeBadField, t + `.path must start with "/", got: ` + strconv.Quote(p)}
 	}
 	if strings.HasPrefix(p, "//") {
-		return &CtrlError{CodeBadField, t + ".path protokol-goreli olamaz"}
+		return &CtrlError{CodeBadField, t + ".path must not be protocol-relative"}
 	}
 	return nil
 }
 
-// rawIsJSONNumber raw token'in JSON sayisi olup olmadigini soyler.
+// rawIsJSONNumber says whether the raw token is a JSON number.
 //
-// Gerekli cunku json.Number bir string tipi: encoding/json, JSON string'i
-// ("200") de json.Number'a sorunsuz cozer. Bu kontrol olmadan
-// {"status":"200"} gecerli sayilirdi.
+// Needed because json.Number is a string type: encoding/json happily
+// decodes a JSON string ("200") into a json.Number too. Without this check
+// {"status":"200"} would count as valid.
 func rawIsJSONNumber(raw json.RawMessage) bool {
 	t := bytes.TrimLeft(raw, " \t\r\n")
 	if len(t) == 0 {
@@ -672,15 +682,15 @@ func rawIsJSONNumber(raw json.RawMessage) bool {
 
 func intFromRaw(raw json.RawMessage, label string) (int, *CtrlError) {
 	if !rawIsJSONNumber(raw) {
-		return 0, &CtrlError{CodeBadField, label + " tamsayi olmali, verilen: " + string(raw)}
+		return 0, &CtrlError{CodeBadField, label + " must be an integer, got: " + string(raw)}
 	}
 	var n json.Number
 	if err := json.Unmarshal(raw, &n); err != nil {
-		return 0, &CtrlError{CodeBadField, label + " tamsayi olmali, verilen: " + string(raw)}
+		return 0, &CtrlError{CodeBadField, label + " must be an integer, got: " + string(raw)}
 	}
 	v, perr := strconv.ParseInt(n.String(), 10, 64)
 	if perr != nil {
-		return 0, &CtrlError{CodeBadField, label + " tamsayi olmali, verilen: " + n.String()}
+		return 0, &CtrlError{CodeBadField, label + " must be an integer, got: " + n.String()}
 	}
 	return int(v), nil
 }
@@ -688,18 +698,18 @@ func intFromRaw(raw json.RawMessage, label string) (int, *CtrlError) {
 func uint32Field(o map[string]json.RawMessage, k, t string) (uint32, error) {
 	raw, ok := o[k]
 	if !ok {
-		return 0, &CtrlError{CodeMissingField, t + "." + k + " yok"}
+		return 0, &CtrlError{CodeMissingField, t + "." + k + " is missing"}
 	}
 	if !rawIsJSONNumber(raw) {
-		return 0, &CtrlError{CodeBadField, t + "." + k + " uint32 olmali, verilen: " + string(raw)}
+		return 0, &CtrlError{CodeBadField, t + "." + k + " must be a uint32, got: " + string(raw)}
 	}
 	var n json.Number
 	if err := json.Unmarshal(raw, &n); err != nil {
-		return 0, &CtrlError{CodeBadField, t + "." + k + " uint32 olmali, verilen: " + string(raw)}
+		return 0, &CtrlError{CodeBadField, t + "." + k + " must be a uint32, got: " + string(raw)}
 	}
 	v, perr := strconv.ParseUint(n.String(), 10, 32)
 	if perr != nil {
-		return 0, &CtrlError{CodeBadField, t + "." + k + " uint32 olmali, verilen: " + n.String()}
+		return 0, &CtrlError{CodeBadField, t + "." + k + " must be a uint32, got: " + n.String()}
 	}
 	return uint32(v), nil
 }
@@ -707,11 +717,11 @@ func uint32Field(o map[string]json.RawMessage, k, t string) (uint32, error) {
 func stringField(o map[string]json.RawMessage, k, t string) (string, error) {
 	raw, ok := o[k]
 	if !ok {
-		return "", &CtrlError{CodeMissingField, t + "." + k + " yok"}
+		return "", &CtrlError{CodeMissingField, t + "." + k + " is missing"}
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err != nil {
-		return "", &CtrlError{CodeBadField, t + "." + k + " string olmali, verilen: " + string(raw)}
+		return "", &CtrlError{CodeBadField, t + "." + k + " must be a string, got: " + string(raw)}
 	}
 	return s, nil
 }
@@ -722,7 +732,7 @@ func nonEmptyStringField(o map[string]json.RawMessage, k, t string) (string, err
 		return "", err
 	}
 	if s == "" {
-		return "", &CtrlError{CodeBadField, t + "." + k + " bos olamaz"}
+		return "", &CtrlError{CodeBadField, t + "." + k + " must not be empty"}
 	}
 	return s, nil
 }
@@ -730,11 +740,11 @@ func nonEmptyStringField(o map[string]json.RawMessage, k, t string) (string, err
 func boolField(o map[string]json.RawMessage, k, t string) (bool, error) {
 	raw, ok := o[k]
 	if !ok {
-		return false, &CtrlError{CodeMissingField, t + "." + k + " yok"}
+		return false, &CtrlError{CodeMissingField, t + "." + k + " is missing"}
 	}
 	var v bool
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return false, &CtrlError{CodeBadField, t + "." + k + " boolean olmali, verilen: " + string(raw)}
+		return false, &CtrlError{CodeBadField, t + "." + k + " must be a boolean, got: " + string(raw)}
 	}
 	return v, nil
 }
@@ -742,19 +752,19 @@ func boolField(o map[string]json.RawMessage, k, t string) (bool, error) {
 func headersField(o map[string]json.RawMessage, k, t string) (map[string]string, error) {
 	raw, ok := o[k]
 	if !ok {
-		return nil, &CtrlError{CodeMissingField, t + "." + k + " yok"}
+		return nil, &CtrlError{CodeMissingField, t + "." + k + " is missing"}
 	}
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, &CtrlError{CodeBadField, t + "." + k + " nesne olmali"}
+		return nil, &CtrlError{CodeBadField, t + "." + k + " must be an object"}
 	}
 	out := make(map[string]string, len(m))
 	for name, rawVal := range m {
 		var s string
 		if err := json.Unmarshal(rawVal, &s); err != nil {
-			return nil, &CtrlError{CodeBadField, t + "." + k + `["` + name + `"] string olmali`}
+			return nil, &CtrlError{CodeBadField, t + "." + k + `["` + name + `"] must be a string`}
 		}
-		// Baslik adlari kanonik bicimde kucuk harf.
+		// Header names are lowercase in the canonical form.
 		out[strings.ToLower(name)] = s
 	}
 	return out, nil

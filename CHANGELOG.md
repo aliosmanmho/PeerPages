@@ -4,6 +4,29 @@ The format of this file is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Inside a version the
 entries are kept per phase, which is how the project was built.
 
+## [Unreleased]
+
+### After the release - a live end-to-end check
+
+A real tunnel against the published page: `doctor` found 3 of 4 relays
+usable (`relay.damus.io` answers 503) and guessed symmetric NAT, the
+connection went direct over the local network, a small GET ran at a median
+of 0.7-0.9 ms, and a 5 MB body arrived with its headers in 10.9 ms and in
+full in 120 ms (about 42 MB/s). English is the default even with `tr` in
+`navigator.languages`, `?lang=tr` switches, and `?lang=zz` warns in the
+console and falls back instead of throwing.
+
+It also turned up a defect. The metrics list printed
+`Rate 512.5919323304289 B/s` beside `Received 5.00 MB`: the byte counters
+are integers, so `formatBytes`'s sub-KB branch never had to round, but the
+rate is a quotient of bytes over elapsed seconds. The function moved to
+`web/src/ui/format.ts` to be testable at all (`main.ts` calls `main()` at
+import time, so nothing private to it can be reached from a unit test) and
+rounds now. Three cases cover the fractional rate, the whole-byte counters
+and the KB/MB boundaries; 415 TypeScript tests pass. The page was rebuilt
+and published, the live chunk is byte-identical to the local build, and the
+same tunnel now shows `Rate 263 B/s`.
+
 ## [0.1.0] - 2026-10-28
 
 The first release: <https://github.com/aliosmanmho/PeerPages/releases/tag/v0.1.0>

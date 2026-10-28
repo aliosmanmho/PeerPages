@@ -31,8 +31,15 @@ external, all 200), and the repository description, homepage and topics.
 The README images were retaken with the English interface, and the sample
 API items became `alpha`/`beta`/`gamma`.
 
-Still open: the demo GIF (a real screen recording, yours to make) and the
-`v0.1.0` tag.
+`v0.1.0` was then tagged and pushed, and the release built: six archives
+plus `checksums.txt`, opened as a **draft** for review. The generated
+changelog was turned off in `.goreleaser.yaml` — the commit history is
+Turkish up to phase 8 and is not being rewritten (decision 3 below), so a
+generated list would have put Turkish subjects on an English release page.
+The notes are written by hand instead.
+
+Still open: the demo GIF (a real screen recording, yours to make) and
+publishing the draft release.
 
 ### Phase 8 - An English project plus a multilingual page
 

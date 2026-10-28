@@ -248,11 +248,11 @@ decision.
 - [x] The repository description (`gh repo edit --description`) and
       `homepageUrl` are filled in; the topics are added (`webrtc`,
       `nostr`, `tunnel`, `service-worker`, `golang`).
-- [ ] The first-tag decision: launching without a tag means there is no
-      download link, only `go install`. Do you want to push `v0.1.0`?
-      (The "no tag yet" note in `docs/INSTALL.md` goes away then.)
-      The tag text and the release build are ready; pushing it is the
-      step that makes it public.
+- [x] The first-tag decision: `v0.1.0` is pushed and the release is built
+      (six archives plus `checksums.txt`, with notes written by hand —
+      the generated changelog is off, because the commit history is
+      Turkish up to phase 8). It is a **draft**: publishing it is yours,
+      and the download links in `docs/INSTALL.md` start working then.
 - [ ] Set aside 2–3 hours for launch day: not answering the questions that
       arrive in the first hour kills a Show HN post.
 

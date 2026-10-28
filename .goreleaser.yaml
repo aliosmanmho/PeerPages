@@ -2,8 +2,10 @@
 #
 # The agent is a nested module (`agent/go.mod`); there is NO go.mod at the
 # repo root. That is why builds[].dir points at the module directory and
-# the main package sits at the module root (agent/main.go) — the same
-# reason `go install .../agent@latest` works.
+# the main package sits at the module root (agent/main.go). The documented
+# install path is `.../agent/cmd/peerpages@latest`, because `go install`
+# names the binary after the last element of the path; the module root
+# stays a main package so the older `.../agent@latest` still works.
 #
 # Local verification (it does not publish):
 #   goreleaser check
@@ -57,12 +59,11 @@ snapshot:
   version_template: "{{ incpatch .Version }}-snapshot"
 
 changelog:
-  use: git
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
+  # No generated changelog. The commit history is Turkish up to phase 8
+  # (CHANGELOG.md, phase 8, decision 3) and it is not being rewritten, so a
+  # generated list would put Turkish subjects on an English release page.
+  # The notes are written by hand on the draft instead.
+  disable: true
 
 release:
   # Opened as a draft: pushing a tag should not publish by accident, and

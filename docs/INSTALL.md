@@ -6,9 +6,10 @@ PeerPages has two parts, and **you only have to install the agent**:
 - **The web app** — a static page sitting on GitHub Pages. The visitor
   installs nothing, they just open the URL.
 
-> The project has no version yet and no tag has been pushed (see
-> `CHANGELOG.md`). The download addresses below will work **after the
-> first release**; for now use the build-from-source path.
+> `v0.1.0` is tagged and the release is prepared, but it is still a
+> **draft** pending review. The download addresses below start working the
+> moment that release is published; until then use `go install` or the
+> build-from-source path.
 
 ## 1. Download a binary (recommended)
 

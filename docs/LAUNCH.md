@@ -102,7 +102,8 @@ the first comment)
 >   visitor when traffic is relayed.
 > - Only Chromium is verified by the test suite. Socket.IO works in manual
 >   testing but isn't covered.
-> - No tags yet, so `go install` is the only install path today.
+> - Only `v0.1.0` exists so far, and it has had no use beyond my own
+>   machines.
 >
 > Threat model: https://github.com/aliosmanmho/PeerPages/blob/main/docs/SECURITY.md
 > Measurements (latency, throughput, bundle size, per phase):
@@ -248,11 +249,11 @@ decision.
 - [x] The repository description (`gh repo edit --description`) and
       `homepageUrl` are filled in; the topics are added (`webrtc`,
       `nostr`, `tunnel`, `service-worker`, `golang`).
-- [x] The first-tag decision: `v0.1.0` is pushed and the release is built
-      (six archives plus `checksums.txt`, with notes written by hand —
-      the generated changelog is off, because the commit history is
-      Turkish up to phase 8). It is a **draft**: publishing it is yours,
-      and the download links in `docs/INSTALL.md` start working then.
+- [x] The first-tag decision: `v0.1.0` is tagged, released and published —
+      six archives plus `checksums.txt`, with notes written by hand (the
+      generated changelog is off, because the commit history is Turkish up
+      to phase 8). The published archive was downloaded again and checked
+      against `checksums.txt`.
 - [ ] Set aside 2–3 hours for launch day: not answering the questions that
       arrive in the first hour kills a Show HN post.
 

@@ -745,12 +745,13 @@ branch (26 s), because Actions is still billing-locked.
   branch-based publish: every update has to be built and pushed to
   `gh-pages` by hand.
 
-- **(Measured in phase 7) The acceptance criterion is met, but there is no
-  binary download path.** The live chain worked (8.6 s,
-  `docs/MEASUREMENTS.md`). Against that, with no tag or release the only
-  installation path is `go install`: for someone without Go installed the
-  "3 minutes" claim is **not valid yet**. Pushing the `v0.1.0` tag (once
-  release.yml can run) closes that.
+- **(Measured in phase 7, CLOSED after phase 8) The acceptance criterion
+  was met, but there was no binary download path.** The live chain worked
+  (8.6 s, `docs/MEASUREMENTS.md`). Against that, with no tag or release the
+  only installation path was `go install`: for someone without Go installed
+  the "3 minutes" claim was not valid. `v0.1.0` closes it — the tag was
+  pushed and goreleaser was run locally (Actions is still locked), and it
+  published six archives plus `checksums.txt`.
 
 - **(Decided in phase 7, CLOSED in phase 8) The interface and the
   documents stayed Turkish.** In phase 7 only the public README and

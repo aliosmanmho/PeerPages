@@ -1,10 +1,12 @@
 # Changelog
 
 The format of this file is based on
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The project is not
-versioned yet; entries are kept per phase.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Inside a version the
+entries are kept per phase, which is how the project was built.
 
-## [Unreleased]
+## [0.1.0] - 2026-10-28
+
+The first release: <https://github.com/aliosmanmho/PeerPages/releases/tag/v0.1.0>
 
 ### After phase 8 - the pre-launch checklist
 
@@ -31,15 +33,17 @@ external, all 200), and the repository description, homepage and topics.
 The README images were retaken with the English interface, and the sample
 API items became `alpha`/`beta`/`gamma`.
 
-`v0.1.0` was then tagged and pushed, and the release built: six archives
-plus `checksums.txt`, opened as a **draft** for review. The generated
-changelog was turned off in `.goreleaser.yaml` — the commit history is
-Turkish up to phase 8 and is not being rewritten (decision 3 below), so a
-generated list would have put Turkish subjects on an English release page.
-The notes are written by hand instead.
+`v0.1.0` was then tagged and released: six archives plus `checksums.txt`,
+built by goreleaser and published. The generated changelog was turned off
+in `.goreleaser.yaml` — the commit history is Turkish up to phase 8 and is
+not being rewritten (decision 3 below), so a generated list would have put
+Turkish subjects on an English release page. The notes are written by hand
+instead. The tag was cut a second time, on the commit that fixes the
+"no tag has been pushed" line, so the `INSTALL.md` inside the archives is
+not the stale one; the published archive was then downloaded again and
+checked against `checksums.txt`.
 
-Still open: the demo GIF (a real screen recording, yours to make) and
-publishing the draft release.
+Still open: the demo GIF (a real screen recording, yours to make).
 
 ### Phase 8 - An English project plus a multilingual page
 

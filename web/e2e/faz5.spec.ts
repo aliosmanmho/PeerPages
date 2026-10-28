@@ -140,7 +140,7 @@ test.describe("Faz 5 — TURN uzerinden baglanma", () => {
       await page.waitForFunction(
         () => {
           const r = window.__peerpages?.iceRoute();
-          return r !== undefined && r !== "bilinmiyor";
+          return r !== undefined && r !== "unknown";
         },
         null,
         { timeout: 60_000 },

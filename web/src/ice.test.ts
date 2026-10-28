@@ -172,14 +172,14 @@ describe("routeFromStats", () => {
       },
       { id: "l", type: "local-candidate", candidateType: "relay" },
     ]);
-    expect(routeFromStats(stats)).toBe("bilinmiyor");
+    expect(routeFromStats(stats)).toBe("unknown");
   });
 
-  it("bos raporda bilinmiyor doner", () => {
-    expect(routeFromStats(fakeStats([]))).toBe("bilinmiyor");
+  it("bos raporda unknown doner", () => {
+    expect(routeFromStats(fakeStats([]))).toBe("unknown");
   });
 
-  it("aday kaydi eksikse bilinmiyor doner", () => {
+  it("aday kaydi eksikse unknown doner", () => {
     const stats = fakeStats([
       {
         id: "p",
@@ -189,7 +189,7 @@ describe("routeFromStats", () => {
         remoteCandidateId: "yok2",
       },
     ]);
-    expect(routeFromStats(stats)).toBe("bilinmiyor");
+    expect(routeFromStats(stats)).toBe("unknown");
   });
 });
 
@@ -199,7 +199,7 @@ describe("routeLabel", () => {
   });
 
   it("her yol icin metin var", () => {
-    for (const r of ["host", "srflx", "prflx", "relay", "bilinmiyor"] as const) {
+    for (const r of ["host", "srflx", "prflx", "relay", "unknown"] as const) {
       expect(routeLabel(r).length).toBeGreaterThan(0);
     }
   });

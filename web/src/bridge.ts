@@ -1,27 +1,27 @@
 /**
- * Service Worker <-> tunel sayfasi arasindaki mesaj bicimi.
+ * Message format between the Service Worker and the tunnel page.
  *
- * Service Worker icinde WebRTC YOK (BRIEF §2): WebRTC baglantisini sayfa
- * tutar. SW yakaladigi her `fetch` istegini bir `MessageChannel` uzerinden
- * sayfaya yollar, sayfa cevabi parca parca geri gonderir ve SW bunu
- * `ReadableStream` ile servis eder.
+ * There is NO WebRTC inside a Service Worker (BRIEF section 2): the page
+ * holds the connection. The SW forwards every `fetch` it catches to the
+ * page over a `MessageChannel`, the page sends the response back chunk by
+ * chunk, and the SW serves it as a `ReadableStream`.
  *
- * Bu dosya hem app (DOM) hem SW (WebWorker) tarafindan import edilir, bu
- * yuzden ortama ozgu hicbir tip kullanmaz.
+ * This file is imported by both the app (DOM) and the SW (WebWorker), so
+ * it uses no environment-specific types.
  */
 
-/** SW'nin sayfadan istek yapmasi. `port` uzerinden cevap beklenir. */
+/** The SW asking the page for a request. The reply comes over `port`. */
 export interface BridgeRequest {
   readonly type: "bridge-req";
   readonly method: string;
-  /** Yerel sunucuya gidecek yol: scope oneki cikarilmis, "/" ile baslar. */
+  /** Path for the local server: scope prefix stripped, starts with "/". */
   readonly path: string;
   readonly headers: Record<string, string>;
-  /** Istek govdesi; yoksa null. Faz 1'de SW govdeyi tamponlar. */
+  /** Request body, or null. In phase 1 the SW buffers the body. */
   readonly body: ArrayBuffer | null;
 }
 
-/** Sayfanin "tunelin sende mi" sorusuna cevabi. */
+/** The page answering "do you have the tunnel". */
 export interface BridgeProbe {
   readonly type: "bridge-probe";
 }
@@ -31,50 +31,51 @@ export interface BridgeProbeReply {
   readonly hasTunnel: boolean;
 }
 
-/** Sayfanin kendini tunel sahibi olarak kaydetmesi. */
+/** The page registering itself as the tunnel owner. */
 export interface BridgeTunnelReady {
   readonly type: "bridge-tunnel-ready";
 }
 
-/** Sayfanin tunelin kapandigini bildirmesi. */
+/** The page reporting that the tunnel closed. */
 export interface BridgeTunnelGone {
   readonly type: "bridge-tunnel-gone";
 }
 
 /**
- * Sayfanin "tunel koptu ama yeniden baglaniyorum" demesi (Faz 4).
+ * The page saying "the tunnel dropped but I am reconnecting" (phase 4).
  *
- * SW bu haberden sonra istegi aninda 503'lemek yerine kisa bir sure
- * tunelin donmesini bekler: uyku/uyanmadan sonra ziyaretcinin gezdigi site
- * kirilmak yerine yavaslamis gorunur.
+ * After this news the SW waits a short while for the tunnel to come back
+ * instead of 503-ing immediately: after sleep/wake the site the visitor is
+ * browsing looks slow rather than broken.
  */
 export interface BridgeTunnelReconnecting {
   readonly type: "bridge-tunnel-reconnecting";
 }
 
 /**
- * Shim'in WebSocket acma istegi (Faz 6): ziyaretci sayfasindan SW'ye.
+ * The shim asking to open a WebSocket (phase 6): visitor page to SW.
  *
- * Shim ziyaretci sekmesinde kosar, tunel ise BASKA sekmededir. SW yalnizca
- * EL SIKISMADA araya girer: tunel sahibini bulur ve shim'in gonderdigi
- * `MessagePort`'u ona oldugu gibi aktarir. Sonrasi sayfa <-> sayfa, cunku SW
- * bosta oldurulebilir ve uzun yasayan bir soket ona dayanamaz.
+ * The shim runs in the visitor tab while the tunnel lives in ANOTHER tab.
+ * The SW only steps in for the HANDSHAKE: it finds the tunnel owner and
+ * passes the shim's `MessagePort` along untouched. After that it is page
+ * to page, because the SW can be killed while idle and a long-lived
+ * socket cannot depend on it.
  */
 export interface BridgeWsOpen {
   readonly type: "bridge-ws-open";
-  /** Yerel sunucuya gidecek yol: scope oneki cikarilmis, "/" ile baslar. */
+  /** Path for the local server: scope prefix stripped, starts with "/". */
   readonly path: string;
   readonly protos: readonly string[];
 }
 
-/** SW'nin ayni istegi tunel sahibi sayfaya iletmesi. */
+/** The SW forwarding that same request to the tunnel-owner page. */
 export interface BridgeWsOpenForward {
   readonly type: "bridge-ws-open-forward";
   readonly path: string;
   readonly protos: readonly string[];
 }
 
-/** Soket portu uzerindeki mesajlar (shim <-> tunel sahibi sayfa). */
+/** Messages on the socket port (shim <-> tunnel-owner page). */
 export interface WsPortOpened {
   readonly type: "ws-opened";
   readonly protocol: string;
@@ -93,16 +94,16 @@ export interface WsPortClose {
   readonly reason: string;
 }
 
-/** Shim'den gelen gonderim istegi. */
+/** A send request coming from the shim. */
 export interface WsPortSend {
   readonly type: "ws-send";
   readonly binary: boolean;
   readonly data: ArrayBuffer;
 }
 
-/** Sayfadan shim'e giden mesajlar. */
+/** Messages going from the page to the shim. */
 export type WsPortToShim = WsPortOpened | WsPortMessage | WsPortClose;
-/** Shim'den sayfaya giden mesajlar. */
+/** Messages going from the shim to the page. */
 export type WsPortToPage = WsPortSend | WsPortClose;
 
 export type BridgeToPage = BridgeRequest | BridgeProbe | BridgeWsOpenForward;
@@ -113,34 +114,35 @@ export type BridgeToWorker =
   | BridgeProbeReply
   | BridgeWsOpen;
 
-/** Cevap basligi. */
+/** Response head. */
 export interface BridgeResponseHead {
   readonly type: "res";
   readonly status: number;
   readonly headers: Record<string, string>;
 }
 
-/** Cevap govdesinden bir parca. `data` transfer edilir, kopyalanmaz. */
+/** A chunk of the response body. `data` is transferred, not copied. */
 export interface BridgeResponseChunk {
   readonly type: "chunk";
   readonly data: ArrayBuffer;
 }
 
-/** Govde bitti. */
+/** Body finished. */
 export interface BridgeResponseEnd {
   readonly type: "end";
 }
 
-/** Istek basarisiz. */
+/** The request failed. */
 export interface BridgeResponseError {
   readonly type: "error";
   readonly message: string;
   /**
-   * Hata "tunel su an yok" demek: istek hedefe HIC gitmedi (Faz 4).
+   * The error means "there is no tunnel right now": the request never
+   * reached the target (phase 4).
    *
-   * SW bunu gorunce — ve istek idempotent ise — yeniden baglanmayi kisa
-   * sure bekleyip BIR KEZ tekrar dener. Ayrim onemli: hedeften gelen bir
-   * hata tekrar denenmemeli.
+   * Seeing this — and only for an idempotent request — the SW waits
+   * briefly for the reconnect and retries ONCE. The distinction matters:
+   * an error from the target must not be retried.
    */
   readonly retryable?: boolean;
 }
@@ -152,54 +154,54 @@ export type BridgeResponse =
   | BridgeResponseError;
 
 /**
- * SW'nin tamponlayacagi en buyuk istek govdesi.
+ * Largest request body the SW will buffer.
  *
- * Faz 1 sinirlamasi: istek govdesi akitilmiyor, SW'de tamamen tamponlaniyor.
- * Ajanin --max-body varsayilani 50MB; SW tarafinda daha dusuk bir sinir
- * tutuyoruz cunku govde tarayici belleginde duruyor.
+ * A phase 1 limitation: request bodies are not streamed, the SW buffers
+ * them whole. The agent's --max-body default is 50MB; we keep a lower
+ * ceiling here because the body sits in browser memory.
  */
 export const MAX_BUFFERED_REQUEST_BODY = 16 * 1024 * 1024;
 
-/** Sayfanin probe'a cevap vermesi icin beklenecek sure. */
+/** How long to wait for the page to answer a probe. */
 export const PROBE_TIMEOUT_MS = 1000;
 
 /**
- * Yeniden baglanma boslugunda bir istegin bekletilecegi en uzun sure
- * (Faz 4).
+ * Longest a request is held during a reconnect gap (phase 4).
  *
- * Ust sinir ZORUNLU: aksi halde ajan gercekten kapandiginda istekler
- * askida kalir ve sekme donmus gorunur.
+ * An upper bound is REQUIRED: without it, requests hang forever once the
+ * agent is really gone and the tab looks frozen.
  */
 export const RECONNECT_WAIT_MS = 10_000;
 
 /**
- * Gezinme istekleri daha kisa bekler: bos bir sekmeye bakmak, durumu ve
- * geri sayimi gosteren baglanti ekranina donmekten kotudur.
+ * Navigation requests wait less: staring at a blank tab is worse than
+ * landing back on the connect screen with its status and countdown.
  */
 export const RECONNECT_WAIT_NAVIGATE_MS = 3_000;
 
 /**
- * "Yeniden baglaniyorum" haberinin gecerlilik suresi.
+ * How long the "I am reconnecting" news stays valid.
  *
- * Sayfa her denemede yeniden haber verir; bu sure dolduktan sonra SW
- * bekletmeyi birakir, cunku sayfa olmus de olabilir (cokme ya da isletim
- * sisteminin sekmeyi atmasi durumunda "vazgectim" haberi hic gelmez).
+ * The page repeats the news on every attempt; once this window expires
+ * the SW stops holding requests, because the page may be dead (after a
+ * crash, or the OS discarding the tab, the "I gave up" news never comes).
  */
 export const RECONNECT_WINDOW_MS = 60_000;
 
 /**
- * Shim'in yuklenecegi yol (scope koku altinda).
+ * Path the shim is served from (under the scope root).
  *
- * Ajan tarafiyla AYNI olmak zorunda degil: ajan yalnizca
- * `x-peerpages-ws-shim` basligini ekler, yolu SW uretir. Ama `isAppShellPath`
- * bu adi tanimak zorunda, aksi halde shim'in kendi istegi tunele girer.
+ * It does NOT have to match the agent: the agent only adds the
+ * `x-peerpages-ws-shim` header, the SW decides the path. But
+ * `isAppShellPath` has to know this name, or the shim's own request goes
+ * into the tunnel.
  */
 export const WS_SHIM_FILE = "ws-shim.js";
 
 /**
- * Ajanin HTML cevaplarina ekledigi isaret (Faz 6).
+ * The marker the agent adds to HTML responses (phase 6).
  *
- * Go tarafindaki `protocol.HeaderWSShim` ile AYNI olmak zorunda
+ * Must be IDENTICAL to `protocol.HeaderWSShim` on the Go side
  * (protocol/README.md).
  */
 export const WS_SHIM_HEADER = "x-peerpages-ws-shim";

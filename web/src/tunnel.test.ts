@@ -269,14 +269,14 @@ describe("Tunnel", () => {
   it("kanal kapaninca bekleyen istekler hata verir", async () => {
     const promise = tunnel.request({ method: "GET", path: "/", headers: {} });
     data.close();
-    await expect(promise).rejects.toThrow(/tunel kapandi/);
+    await expect(promise).rejects.toThrow(/tunnel closed/);
     expect(tunnel.isOpen).toBe(false);
   });
 
   it("kapali tunelde istek yapilmaz", async () => {
     tunnel.close();
     await expect(tunnel.request({ method: "GET", path: "/", headers: {} })).rejects.toThrow(
-      /acik degil/,
+      /not open/,
     );
   });
 
@@ -290,7 +290,7 @@ describe("Tunnel", () => {
     });
     ac.abort();
 
-    await expect(promise).rejects.toThrow(/iptal/);
+    await expect(promise).rejects.toThrow(/aborted/);
     const aborts = ctrl.ctrlMessages().filter((m) => m.t === "abort");
     expect(aborts[0]).toMatchObject({ reason: "client-cancel" });
   });

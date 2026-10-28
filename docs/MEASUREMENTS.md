@@ -1,285 +1,300 @@
-# Ölçümler
+# Measurements
 
-## Faz 1 — 2026-10-26
+## Phase 1 — 2026-10-26
 
-Hepsi **tek makinede (loopback)** alındı: tarayıcı, ajan ve yayınlanan site
-aynı bilgisayarda. Yani bunlar **ağ gecikmesi içermeyen taban değerler**:
-protokolün ve zincirin kendi maliyetini gösterir, gerçek dünyadaki
-laptop↔telefon rakamlarını değil. Ağ üstünden ölçüm Faz 2'de (Nostr
-signaling ile iki gerçek cihaz) yapılacak.
+All of it was taken **on one machine (loopback)**: the browser, the agent
+and the site being shared are on the same computer. So these are **baseline
+numbers with no network latency in them**: they show the cost of the
+protocol and the chain itself, not real-world laptop↔phone figures. The
+over-the-network measurement comes in phase 2 (two real devices with Nostr
+signaling).
 
-**Ortam:** Windows 11, Go 1.27.0, Node 22.12.0, Chromium (Playwright 1.64),
-pion/webrtc v4.2.25.
+**The environment:** Windows 11, Go 1.27.0, Node 22.12.0, Chromium
+(Playwright 1.64), pion/webrtc v4.2.25.
 
-### Zincirin iki yarısı ayrı ayrı ölçüldü
+### The two halves of the chain were measured separately
 
-**1) Yalnızca ajan yarısı** — gerçek WebRTC bağlantısı + gerçek HTTP sunucusu,
-tarayıcı yok (`agent/internal/proxy` entegrasyon testi):
+**1) The agent half only** — a real WebRTC connection plus a real HTTP
+server, with no browser (the `agent/internal/proxy` integration test):
 
-| Ölçüm | Değer |
+| Measurement | Value |
 |---|---|
-| 5 MB indirme | 63 ms (~79 MB/s) |
-| 5 MB'da ilk bayta kadar | < 1 ms |
-| `ctrl` ping RTT | ortalama 80 µs, en kötü 0.5 ms (n=20) |
-| Küçük GET (`/api/items`, 290 bayt) | ortalama 0.18–0.32 ms (n=20) |
+| A 5 MB download | 63 ms (about 79 MB/s) |
+| Time to the first byte on 5 MB | < 1 ms |
+| `ctrl` ping RTT | mean 80 µs, worst 0.5 ms (n=20) |
+| A small GET (`/api/items`, 290 bytes) | mean 0.18–0.32 ms (n=20) |
 
-**2) Tam zincir** — tarayıcı → Service Worker → tünel sayfası → WebRTC → ajan
-→ localhost (Playwright e2e, üç ayrı koşum):
+**2) The whole chain** — browser → Service Worker → tunnel page → WebRTC →
+agent → localhost (Playwright e2e, three separate runs):
 
-| Ölçüm | Değer |
+| Measurement | Value |
 |---|---|
-| 5 MB indirme | 101 / 107 / 100 ms → **~47–50 MB/s** |
-| `ctrl` ping RTT (sayfadan) | medyan 0.2–0.3 ms (n=10) |
-| Küçük GET (SW + tünel) | medyan 1.15–1.35 ms, p95 2.3–2.4 ms (n=20) |
+| A 5 MB download | 101 / 107 / 100 ms → **about 47–50 MB/s** |
+| `ctrl` ping RTT (from the page) | median 0.2–0.3 ms (n=10) |
+| A small GET (SW + tunnel) | median 1.15–1.35 ms, p95 2.3–2.4 ms (n=20) |
 
-### Okunuşu
+### How to read it
 
-- **Service Worker köprüsünün maliyeti belirgin ama kabul edilebilir.**
-  5 MB'da ajan yarısı 63 ms, tam zincir ~103 ms: aradaki ~40 ms
-  `postMessage` + `ReadableStream` katmanının bedeli. Throughput 79 MB/s'den
-  ~48 MB/s'ye düşüyor. Bir geliştirme sitesini paylaşmak için fazlasıyla
-  yeterli; darboğaz gerçek kullanımda ağ olacak.
-- **Küçük istekte ek gecikme ~1 ms.** Ajan yarısı ~0.2 ms, tam zincir ~1.2 ms.
-  Yani SW köprüsü istek başına yaklaşık 1 ms ekliyor. Sayfa başına 50 istek
-  için ~50 ms; fark edilmez.
-- **İlk bayt hemen geliyor** (< 1 ms): gövde akıtılıyor, tam yanıt
-  beklenmiyor. 5 MB'lık indirmede bellekte tüm gövde birikmiyor.
-- **Backpressure çalışıyor:** 5 MB, 320 çerçeve (16 KiB) olarak gidiyor ve
-  `bufferedAmount` 1 MiB eşiğinin üstüne çıkınca gönderim bekliyor. Çerçeve
-  kaybı ya da sıra bozulması gözlenmedi.
+- **The Service Worker bridge has a visible but acceptable cost.** On
+  5 MB the agent half takes 63 ms and the whole chain about 103 ms: the
+  roughly 40 ms in between is what the `postMessage` plus `ReadableStream`
+  layer costs. Throughput drops from 79 MB/s to about 48 MB/s. That is
+  more than enough for sharing a development site; in real use the
+  bottleneck will be the network.
+- **A small request gains about 1 ms.** The agent half is about 0.2 ms and
+  the whole chain about 1.2 ms. So the SW bridge adds roughly 1 ms per
+  request. For 50 requests a page, about 50 ms; unnoticeable.
+- **The first byte arrives right away** (< 1 ms): the body streams and the
+  full response is never awaited. On a 5 MB download the whole body never
+  piles up in memory.
+- **Backpressure works:** 5 MB goes out as 320 frames (16 KiB), and once
+  `bufferedAmount` passes the 1 MiB threshold sending waits. No lost
+  frames and no broken order were observed.
 
-### Henüz ölçülmeyenler (dürüstçe)
+### Not measured yet (honestly)
 
-- **Firefox ve Safari.** BRIEF §8'deki "SW `ReadableStream` yanıtları ve
-  `postMessage` performansı" sorusu **Chromium'da** yanıtlandı; Firefox ve
-  Safari ölçülmedi. Faz 1 e2e'si yalnızca Chromium çalıştırıyor. Elle matris
-  (BRIEF §7) Faz 4 öncesinde yapılacak; Safari'de streaming yanıtların
-  davranışı ayrıca kontrol edilmeli.
-- **Gerçek ağ.** İki cihaz, farklı ağlar, STUN/TURN ile gecikme ve throughput:
-  Faz 2'nin kabul kriteriyle birlikte ölçülecek.
-- **Eşzamanlı yük.** Tek sayfanın onlarca paralel isteği (gerçek bir SPA
-  yüklenmesi) ölçülmedi; `--max-concurrent` varsayılanı 64.
-- **Uzun süreli oturum.** Bellek sızıntısı ve uyku/uyanma Faz 4 konusu.
+- **Firefox and Safari.** The question in BRIEF section 8 about "SW
+  `ReadableStream` responses and `postMessage` performance" was answered
+  **in Chromium**; Firefox and Safari were not measured. The phase 1 e2e
+  suite only runs Chromium. The manual matrix (BRIEF section 7) will be
+  done before phase 4; the behaviour of streaming responses in Safari
+  needs a separate check.
+- **A real network.** Two devices, different networks, latency and
+  throughput with STUN/TURN: to be measured together with phase 2's
+  acceptance criterion.
+- **Concurrent load.** Dozens of parallel requests from one page (loading
+  a real SPA) was not measured; the `--max-concurrent` default is 64.
+- **A long-lived session.** Memory leaks and sleep/wake are a phase 4
+  subject.
 
-### Ölçümü yeniden üretme
+### Reproducing the measurement
 
 ```bash
-# Ajan yarısı (tarayıcı yok)
-cd agent && go test ./internal/proxy/ -run TestIntegration -v 2>&1 | grep OLCUM
+# The agent half (no browser)
+cd agent && go test ./internal/proxy/ -run TestIntegration -v 2>&1 | grep MEASURED
 
-# Tam zincir (Chromium)
-cd web && npx playwright test 2>&1 | grep OLCUM
+# The whole chain (Chromium)
+cd web && npx playwright test 2>&1 | grep MEASURED
 ```
 
 ---
 
-## Faz 2 — 2026-10-26 (Nostr signaling)
+## Phase 2 — 2026-10-26 (Nostr signaling)
 
-### Relay sağlığı (`peerpages doctor`, gerçek relay'ler)
+### Relay health (`peerpages doctor`, real relays)
 
-Bu geliştirme ağından, gerçek public relay'lere karşı:
+From this development network, against the real public relays:
 
-| Relay | Durum | Bağlantı | Yayın | Yankı |
+| Relay | Verdict | Connect | Publish | Echo |
 |---|---|---|---|---|
-| `wss://nos.lol` | uygun | 142 ms | 50 ms | 72 ms |
-| `wss://relay.primal.net` | uygun | 238 ms | 83 ms | 78 ms |
-| `wss://nostr.mom` | uygun | 137 ms | 47 ms | 101 ms |
-| `wss://relay.damus.io` | uygun | 319 ms | 196 ms | 103 ms |
-| `wss://relay.nostr.band` | **ulaşılamadı** | — | — | — |
+| `wss://nos.lol` | usable | 142 ms | 50 ms | 72 ms |
+| `wss://relay.primal.net` | usable | 238 ms | 83 ms | 78 ms |
+| `wss://nostr.mom` | usable | 137 ms | 47 ms | 101 ms |
+| `wss://relay.damus.io` | usable | 319 ms | 196 ms | 103 ms |
+| `wss://relay.nostr.band` | **unreachable** | — | — | — |
 
-"Yankı" = yayınlanan ephemeral event'in aboneye geri gelmesi. Bu adım en
-önemlisi: relay event'i "OK" ile kabul edip sessizce düşürebilir.
+"Echo" = a published ephemeral event coming back to the subscriber. That
+step matters most: a relay can accept an event with "OK" and drop it
+silently.
 
 ### NAT / STUN
 
-| | Görülen dış adres |
+| | The external address seen |
 |---|---|
 | `stun.l.google.com:19302` | `91.93.232.50:18450` |
 | `stun1.l.google.com:19302` | `91.93.232.50:18836` |
 
-**Farklı portlar → simetrik NAT.** Bu makine karşı tarafı da simetrik NAT
-arkasındaysa doğrudan bağlanamaz; TURN gerekir (Faz 5). Tek makinede ve aynı
-ağda sorun değil.
+**Different ports → symmetric NAT.** If the other side is behind symmetric
+NAT too, this machine cannot connect directly; TURN is needed (phase 5).
+On one machine and on the same network it does not matter.
 
-### URL'den açık tünele kadar
+### From the URL to an open tunnel
 
-| Kurulum | Süre |
+| Setup | Time |
 |---|---|
-| Sahte relay (loopback) | **356 ms** |
-| Gerçek relay'ler (nos.lol + primal + nostr.mom) | **979 ms** |
+| A fake relay (loopback) | **356 ms** |
+| Real relays (nos.lol + primal + nostr.mom) | **979 ms** |
 
-Yani ziyaretçi URL'yi açtıktan ~1 saniye sonra site geliyor. Bu süre
-signaling'in gidiş-dönüşü + ICE kurulumu; relay gecikmesi baskın.
+So the site appears about a second after the visitor opens the URL. That
+time is signaling's round trip plus the ICE setup; the relay latency
+dominates.
 
-### Nostr ile kurulan tünelden veri
+### Data over a tunnel built with Nostr
 
-| Ölçüm | Değer |
+| Measurement | Value |
 |---|---|
-| 5 MB indirme | 88–93 ms (~54–57 MB/s) |
-| `ctrl` ping RTT | medyan 0.20 ms |
-| Küçük GET (SW + tünel) | medyan 1.2–1.4 ms |
+| A 5 MB download | 88–93 ms (about 54–57 MB/s) |
+| `ctrl` ping RTT | median 0.20 ms |
+| A small GET (SW + tunnel) | median 1.2–1.4 ms |
 
-**Signaling yolu veri yolunu etkilemiyor** — beklenen davranış: signaling
-yalnızca bağlantıyı kurar, veri doğrudan WebRTC üzerinden akar. Faz 1'deki
-loopback değerleriyle aynı mertebede.
+**The signaling path does not affect the data path** — the expected
+behaviour: signaling only builds the connection, and the data flows
+directly over WebRTC. The same order of magnitude as the phase 1 loopback
+values.
 
-### Bundle boyutu
+### The bundle size
 
 | | gzip |
 |---|---|
-| Faz 1 (Nostr yok) | 6.8 KB |
-| Faz 2 (Nostr dahil) | **35.8 KB** |
+| Phase 1 (no Nostr) | 6.8 KB |
+| Phase 2 (Nostr included) | **35.8 KB** |
 
-+29 KB: tarayıcıda Nostr kriptosunun dürüst maliyeti (secp256k1 schnorr,
-ChaCha20-Poly1305, HKDF, bech32). Kaynak haritasından doğrulandı: bundle'da
-yalnızca `@noble/hashes`, `@noble/curves`, `@noble/ciphers`, `@scure/base` ve
-`nostr-tools` var; `@scure/bip32`/`bip39`, wordlist ve `nostr-wasm`
-**girmedi** (alt yol import'ları sayesinde).
++29 KB: the honest cost of Nostr crypto in the browser (secp256k1
+schnorr, ChaCha20-Poly1305, HKDF, bech32). Verified from the source map:
+the bundle holds only `@noble/hashes`, `@noble/curves`, `@noble/ciphers`,
+`@scure/base` and `nostr-tools`; `@scure/bip32`/`bip39`, the wordlist and
+`nostr-wasm` **did not get in** (thanks to the subpath imports).
 
-### Henüz ölçülmeyenler (dürüstçe)
+### Not measured yet (honestly)
 
-- **İki cihaz / iki ağ.** Faz 2'nin asıl kabul kriteri. Tek makineden
-  doğrulanamaz; `docs/MANUAL-TEST.md` → "İki cihaz" bölümü. Bu ağda NAT
-  simetrik olduğu için karşı taraf da simetrikse TURN (Faz 5) gerekebilir.
-- **Firefox ve Safari.** Hâlâ ölçülmedi; e2e yalnızca Chromium koşuyor.
-- **Relay dayanıklılığı.** Oturum ortasında relay düşmesi, yeniden bağlanma
-  (Faz 4 konusu).
-- **Eşzamanlı ziyaretçi.** `--max-sessions` varsayılanı 4; gerçek yük altında
-  ölçülmedi.
+- **Two devices / two networks.** Phase 2's real acceptance criterion. It
+  cannot be verified from one machine; `docs/MANUAL-TEST.md` → the "two
+  devices" section. Because the NAT on this network is symmetric, TURN
+  (phase 5) may be needed if the other side is symmetric too.
+- **Firefox and Safari.** Still unmeasured; the e2e suite only runs
+  Chromium.
+- **Relay resilience.** A relay going down mid-session and reconnecting (a
+  phase 4 subject).
+- **Concurrent visitors.** The `--max-sessions` default is 4; it was not
+  measured under real load.
 
-### Ölçümü yeniden üretme
+### Reproducing the measurement
 
 ```bash
-# Relay sağlığı ve NAT
+# Relay health and NAT
 cd agent && go run . doctor
 
-# Sahte relay ile (deterministik)
-cd web && npx playwright test nostr.spec.ts 2>&1 | grep OLCUM
+# With the fake relay (deterministic)
+cd web && npx playwright test nostr.spec.ts 2>&1 | grep MEASURED
 
-# Gerçek relay'lerle
+# With real relays
 cd web && PEERPAGES_E2E_RELAYS="wss://nos.lol,wss://nostr.mom" npx playwright test nostr.spec.ts
 ```
 
 ---
 
-## Faz 3 — 2026-10-26 (çoklu hedef ve ziyaretçi deneyimi)
+## Phase 3 — 2026-10-26 (several targets and the visitor experience)
 
-### Bundle boyutu
+### The bundle size
 
 | | gzip |
 |---|---|
-| Faz 1 (Nostr yok) | 6.8 KB |
-| Faz 2 (Nostr dahil) | 35.8 KB |
-| Faz 3 (+ QR kodlayıcı) | **39.7 KB** |
+| Phase 1 (no Nostr) | 6.8 KB |
+| Phase 2 (Nostr included) | 35.8 KB |
+| Phase 3 (+ the QR encoder) | **39.7 KB** |
 
-+3.9 KB: elle yazılan QR kodlayıcı (byte modu, seviye M, sürüm 1–10).
-Hazır paket (`qrcode`) ayrı bir chunk olarak ~15–20 KB gzip gelirdi ve
-ikinci bir çalışma zamanı bağımlılığı demekti.
++3.9 KB: the hand-written QR encoder (byte mode, level M, versions 1–10).
+A ready-made package (`qrcode`) would have come as a separate chunk at
+about 15–20 KB gzip and meant a second runtime dependency.
 
-### Veri yolu değişmedi
+### The data path did not change
 
-| Ölçüm | Faz 2 | Faz 3 |
+| Measurement | Phase 2 | Phase 3 |
 |---|---|---|
-| URL'den açık tünele (sahte relay) | 356 ms | 357 ms |
-| URL'den açık tünele (gerçek relay) | 979 ms | 962–987 ms |
-| 5 MB indirme (Nostr yolu) | 88–93 ms | 86–106 ms |
-| 5 MB indirme (elle yol) | ~100 ms | 95 ms |
+| URL to an open tunnel (fake relay) | 356 ms | 357 ms |
+| URL to an open tunnel (real relays) | 979 ms | 962–987 ms |
+| A 5 MB download (the Nostr path) | 88–93 ms | 86–106 ms |
+| A 5 MB download (the manual path) | about 100 ms | 95 ms |
 | `ctrl` ping RTT | 0.20 ms | 0.20 ms |
-| Küçük GET (SW + tünel) | 1.2–1.4 ms | medyan 1.25 ms, p95 1.90 ms |
+| A small GET (SW + tunnel) | 1.2–1.4 ms | median 1.25 ms, p95 1.90 ms |
 
-Beklenen sonuç: Faz 3 hedef seçimi ve ekran işi yaptı, veri yoluna
-dokunmadı. Ajanın 10 saniyede bir yolladığı canlılık ping'i ölçülebilir bir
-etki yapmıyor.
+The expected result: phase 3 did the target selection and the screen work
+and never touched the data path. The liveness ping the agent sends every 10
+seconds has no measurable effect.
 
 ### QR
 
-| | Değer |
+| | Value |
 |---|---|
-| Ziyaretçi URL'si (npub + hedef) | 100 karakter → sürüm 5 |
-| Canvas | 228 px (modül başına 4 px + 4 modül sessiz bölge) |
-| Koyu modül oranı | 0.378–0.388 |
+| The visitor URL (npub plus a target) | 100 characters → version 5 |
+| The canvas | 228 px (4 px per module plus a 4-module quiet zone) |
+| The dark module ratio | 0.378–0.388 |
 
-Koyu oran e2e'de kontrol ediliyor: boş ya da tamamen siyah bir canvas da
-böyle yakalanır.
+The dark ratio is checked in e2e: that also catches an empty or all-black
+canvas.
 
-### Ajan sayaçları
+### The agent's counters
 
-`peerpages serve` stdout'una 5 saniyede bir, **yalnızca değiştiğinde** durum
-satırı basıyor:
+`peerpages serve` prints a status line to stdout every 5 seconds, **only
+when something changes**:
 
 ```
-[durum] oturum 1 | istek 42 (basari 42, hata 0) | gelen 1.2 KB | giden 5.0 MB
+[status] sessions 1 | requests 42 (success 42, errors 0) | in 1.2 KB | out 5.0 MB
 ```
 
-Giden bayt yalnızca **gövde**: ctrl JSON ve çerçeve başlıkları sayılmıyor,
-gerçek tel trafiği bundan biraz fazla.
+The outgoing bytes are the **body** only: the ctrl JSON and the frame
+headers are not counted, so the real traffic on the wire is somewhat more.
 
-### Boşta kalma denetimi
+### The idle check
 
-| | Değer |
+| | Value |
 |---|---|
-| Canlılık ping aralığı | 10 sn |
-| Boşta kalma sınırı | 30 sn |
-| SW'de tünel sahibine güven süresi | 5 sn (sonra yeniden yoklama) |
+| The liveness ping interval | 10 s |
+| The idle limit | 30 s |
+| How long the SW trusts a tunnel owner | 5 s (then it re-probes) |
 
-Go testleri bu süreleri enjekte edilmiş kısa değerlerle doğruluyor
-(`agent/internal/tunnel/idle_test.go`); e2e'de sekme kapanınca ajanın
-oturumu bıraktığı kontrol ediliyor.
+The Go tests verify these durations with short injected values
+(`agent/internal/tunnel/idle_test.go`); in e2e it is checked that the
+agent releases the session when the tab closes.
 
-### Henüz ölçülmeyenler (dürüstçe)
+### Not measured yet (honestly)
 
-- **İki cihaz / iki ağ ve QR'ın gerçekten okunması.** Tek makineden
-  doğrulanamaz; `docs/MANUAL-TEST.md` → "İki cihazla deneme".
-- **Tarayıcıdan öldürülen sekme.** Testlerde sekme düzgün kapanıyor, yani
-  sayfa `bye` yolluyor. 30 saniyelik denetimin TEK koruma olduğu durum
-  (tarayıcı çökmesi) elle denenmeli.
-- **Firefox ve Safari.** Hâlâ ölçülmedi; e2e yalnızca Chromium koşuyor.
-- **Eşzamanlı çok hedef yükü.** İki hedefe aynı anda ağır trafik ölçülmedi.
+- **Two devices / two networks, and that the QR really scans.** It cannot
+  be verified from one machine; `docs/MANUAL-TEST.md` → "Trying it with
+  two devices".
+- **A tab killed by the browser.** In the tests the tab closes properly,
+  so the page sends a `bye`. The case where the 30-second check is the
+  ONLY protection (a browser crash) has to be tried by hand.
+- **Firefox and Safari.** Still unmeasured; the e2e suite only runs
+  Chromium.
+- **Concurrent load across targets.** Heavy traffic to two targets at once
+  was not measured.
 
-### Ölçümü yeniden üretme
+### Reproducing the measurement
 
 ```bash
-# Faz 3 e2e (coklu hedef, ekran, QR, bosta kalma)
-cd web && npx playwright test phase3.spec.ts 2>&1 | grep OLCUM
+# The phase 3 e2e suite (several targets, the screen, the QR, the idle check)
+cd web && npx playwright test phase3.spec.ts 2>&1 | grep MEASURED
 
-# Bundle boyutu
+# The bundle size
 cd web && MSYS_NO_PATHCONV=1 node scripts/build.mjs /PeerPages/
 
-# Gercek relay'lerle (TEK relay ver: ust uste ajan baslatinca public
-# relay'ler hizli tekrar baglantilari reddediyor)
+# With real relays (pass ONE relay: starting agents back to back makes
+# public relays refuse rapid repeat connections)
 cd web && PEERPAGES_E2E_RELAYS="wss://nos.lol" npx playwright test nostr.spec.ts
 ```
 
 ---
 
-## Faz 4 — 2026-10-27 (dağıtım ve dayanıklılık)
+## Phase 4 — 2026-10-27 (distribution and resilience)
 
-### Yeniden bağlanma süresi
+### The reconnect time
 
-Ajan öldürülüp **aynı anahtarla** yeniden başlatıldı; ziyaretçi sekmesinde
-hiçbir şeye tıklanmadı (`web/e2e/phase4.spec.ts`).
+The agent was killed and restarted **with the same key**; nothing was
+clicked in the visitor tab (`web/e2e/phase4.spec.ts`).
 
-| Ne | Süre |
+| What | Time |
 |---|---|
-| Ajan yeniden başlayınca tünelin geri gelmesi | **6.3 sn** (iki koşumda 6.26 / 6.33 sn) |
-| İlk geri sayım adımı | 1 sn |
-| Ajanın "hazır" demesi (sahte relay) | ~0.3 sn |
+| The tunnel coming back after the agent restarts | **6.3 s** (6.26 / 6.33 s in two runs) |
+| The first backoff step | 1 s |
+| The agent saying "ready" (fake relay) | about 0.3 s |
 
-6.3 saniyenin büyük kısmı geri sayımın ikinci adımı: ilk deneme ajan daha
-dinlemeye başlamadan yapılıyor ve boşa gidiyor (ephemeral event saklanmaz),
-ikinci deneme tutuyor. Gerçek relay'lerde bu süre relay gecikmesi kadar
-uzar (Faz 2 ölçümü: URL'den tünele ~1 sn).
+Most of those 6.3 seconds is the second backoff step: the first attempt
+happens before the agent starts listening and is wasted (ephemeral events
+are not stored), and the second attempt lands. With real relays that time
+grows by the relay latency (the phase 2 measurement: URL to tunnel about
+1 s).
 
-### Kopma boşluğunda istek
+### A request during the drop
 
-Tünel tam istek sırasında koparken ziyaretçi sekmesinden `GET /api/items`:
-**200** döndü (önceki davranış: 502). Service Worker yeniden bağlanmayı
-bekleyip isteği bir kez tekrar deniyor; bekleme üst sınırı alt kaynaklar
-için 10 sn, gezinmeler için 3 sn.
+A `GET /api/items` from the visitor tab while the tunnel dropped
+mid-request: it returned **200** (the previous behaviour: 502). The
+Service Worker waits for the reconnect and retries the request once; the
+waiting bound is 10 s for subresources and 3 s for navigations.
 
-### Üç platform binary'si (goreleaser, yerel anlık derleme)
+### Binaries for three platforms (goreleaser, a local snapshot build)
 
-| Platform | Arşiv |
+| Platform | Archive |
 |---|---|
 | linux/amd64 | 7.1 MB |
 | linux/arm64 | 6.5 MB |
@@ -288,269 +303,322 @@ için 10 sn, gezinmeler için 3 sn.
 | windows/amd64 | 7.3 MB |
 | windows/arm64 | 6.5 MB |
 
-Altı arşiv + `checksums.txt`. Derleme süresi (altı hedef, soğuk önbellek):
-**1 dk 32 sn**; sıcak önbellekle 11 sn. `-trimpath`, `CGO_ENABLED=0`,
-`-s -w`.
+Six archives plus `checksums.txt`. The build time (six targets, a cold
+cache): **1 min 32 s**; 11 s with a warm cache. `-trimpath`,
+`CGO_ENABLED=0`, `-s -w`.
 
-### Bundle boyutu
+### The bundle size
 
 | | gzip |
 |---|---|
-| Faz 3 | 39.7 KB |
-| Faz 4 (+ yeniden bağlanma denetleyicisi) | **40.7 KB** |
+| Phase 3 | 39.7 KB |
+| Phase 4 (+ the reconnect supervisor) | **40.7 KB** |
 
-+1.0 KB: `src/reconnect.ts` ve durum ekranındaki yeni satırlar.
++1.0 KB: `src/reconnect.ts` and the new rows on the status screen.
 
-### Veri yolu değişmedi
+### The data path did not change
 
-Ping RTT medyan 0.30 ms, küçük GET medyan 1.50 ms / p95 2.50 ms,
-5 MB indirme 260 ms — Faz 1–3 aralıklarının içinde. Yeni denetimlerin
-(canlılık ping'i, relay sağlık yoklaması) ölçülebilir etkisi yok.
+Ping RTT median 0.30 ms, a small GET median 1.50 ms / p95 2.50 ms, a 5 MB
+download 260 ms — inside the phase 1–3 ranges. The new checks (the
+liveness ping, the relay health poll) have no measurable effect.
 
-### Henüz ölçülmeyenler (dürüstçe)
+### Not measured yet (honestly)
 
-- **Gerçek uyku/uyanma.** Laptop kapağı kapatılıp açılmadı; otomatik testler
-  ajanı yeniden başlatarak aynı sonucu üretiyor ama aynı şey değil.
-  Yöntem: `docs/MANUAL-TEST.md` → "Uyku/uyanma (Faz 4)".
-- **Release workflow'unun GitHub Actions'ta koşması.** Hiç push yapılmadı,
-  hiç etiket atılmadı. Yerelde `goreleaser check` + `--snapshot` doğrulandı;
-  workflow'un kendisi **çalıştırılmadı**.
-- **Uzun süreli relay dayanıklılığı.** Saatler boyunca açık kalan bir ajanın
-  relay bağlantılarını kaç kez kaybettiği ölçülmedi.
-- **Firefox ve Safari.** Hâlâ ölçülmedi (BRIEF §7 elle matris).
+- **A real sleep/wake.** The laptop lid was not closed and opened; the
+  automated tests produce the same result by restarting the agent, but it
+  is not the same thing. The method: `docs/MANUAL-TEST.md` →
+  "Sleep/wake (phase 4)".
+- **The release workflow running on GitHub Actions.** Nothing was pushed
+  and nothing was tagged. Locally `goreleaser check` plus `--snapshot`
+  were verified; the workflow itself **was not run**.
+- **Long-term relay resilience.** How many times an agent left open for
+  hours loses its relay connections was not measured.
+- **Firefox and Safari.** Still unmeasured (the BRIEF section 7 manual
+  matrix).
 
-### Ölçümü yeniden üretme
+### Reproducing the measurement
 
 ```bash
-# Faz 4 e2e (yeniden baglanma, relay dusmesi, SW bekleme penceresi)
-cd web && npx playwright test phase4.spec.ts 2>&1 | grep OLCUM
+# The phase 4 e2e suite (the reconnect, a relay going down, the SW waiting window)
+cd web && npx playwright test phase4.spec.ts 2>&1 | grep MEASURED
 
-# Uc platform binary'si (yayin YAPMAZ)
+# Binaries for three platforms (it DOES NOT PUBLISH)
 goreleaser check && goreleaser release --snapshot --clean
 ls -la dist/
 ```
 
 ---
 
-## Faz 5 — 2026-10-27 (TURN fallback)
+## Phase 5 — 2026-10-27 (the TURN fallback)
 
-### TURN'ün bedeli: doğrudan yol ile karşılaştırma
+### What TURN costs: compared with the direct path
 
-Aynı makinede, sahte TURN sunucusuyla (`peerpages faketurn`), aynı test
-sitesinden. `relayOnly=true` ajanı yalnızca relay adayı toplamaya zorluyor,
-yani doğrudan yol **imkânsız**.
+On one machine, with the fake TURN server (`peerpages faketurn`), from the
+same test site. `relayOnly=true` forces the agent to gather relay
+candidates only, so the direct path is **impossible**.
 
-| | Seçilen yol | Ping RTT (medyan) | 5 MB indirme | Küçük GET (medyan / p95) |
+| | The chosen route | Ping RTT (median) | A 5 MB download | A small GET (median / p95) |
 |---|---|---|---|---|
-| Doğrudan | `prflx` | 0.30 ms | **96 ms** (52.2 MB/s) | 1.70 / 2.20 ms |
-| TURN üzerinden | `relay` | 0.30 ms | **114 ms** (43.8 MB/s) | 1.60 / 2.10 ms |
+| Direct | `prflx` | 0.30 ms | **96 ms** (52.2 MB/s) | 1.70 / 2.20 ms |
+| Over TURN | `relay` | 0.30 ms | **114 ms** (43.8 MB/s) | 1.60 / 2.10 ms |
 
-**Okunuşu:** loopback'te TURN'ün ek sıçraması 5 MB'da ~%16 (18 ms) maliyet
-çıkardı; ping ve küçük istekler ölçüm gürültüsünün içinde kaldı. Gerçek ağda
-bedel bundan büyük olur: her paket TURN sunucusunun bulunduğu yere kadar
-gidip döner, yani gecikmeye o mesafenin bir gidiş-dönüşü eklenir. Kota da
-gerçek: 5 MB'lık indirme sağlayıcının kotasından 5 MB yer.
+**How to read it:** over loopback TURN's extra hop cost about 16% (18 ms)
+on 5 MB, while the ping and the small requests stayed inside the
+measurement noise. On a real network the cost is larger: every packet
+travels to wherever the TURN server is and back, so one round trip of that
+distance is added to the latency. The quota is real too: a 5 MB download
+takes 5 MB of the provider's quota.
 
-### TURN ile tünel kurulma süresi
+### The time to build a tunnel over TURN
 
-| Ne | Süre |
+| What | Time |
 |---|---|
-| URL'den açık tünele (yalnızca TURN, sahte relay) | **306 ms** |
-| Aynı yol, Go tarafı (tarayıcısız) | 3.1 sn |
-| TURN allocation (`doctor`) | 52–57 ms |
+| URL to an open tunnel (TURN only, fake relay) | **306 ms** |
+| The same path on the Go side (no browser) | 3.1 s |
+| A TURN allocation (`doctor`) | 52–57 ms |
 
-Go testinin daha uzun sürmesi ICE değil kurulum: sahte relay aboneliğinin
-oturması için beklenen 500 ms ve pion'un aday toplaması.
+The Go test taking longer is not ICE but setup: the 500 ms waited for the
+fake relay subscription to settle, plus pion gathering candidates.
 
-### ICE doğrudan yolu tercih ediyor
+### ICE prefers the direct path
 
-TURN verildiği hâlde `--ice-relay-only` olmadan koşulduğunda seçilen yol
-`prflx` (doğrudan) çıktı. Yani TURN tanımlamak kotayı boşa harcamıyor;
-relay yalnızca başka yol kalmadığında kullanılıyor.
+Run with TURN given but without `--ice-relay-only`, the chosen route came
+out `prflx` (direct). So defining TURN does not waste the quota; the relay
+is only used when there is no other way.
 
-### NAT / STUN (değişmedi)
+### NAT / STUN (unchanged)
 
-Bu ağda `doctor` hâlâ **simetrik NAT** görüyor (iki STUN farklı dış port:
-Faz 2 ölçümü). Faz 5'in tavsiye satırı artık bunu TURN durumuyla birleştirip
-tek cümlede söylüyor: "NAT simetrik ama TURN hazır".
+On this network `doctor` still sees **symmetric NAT** (two STUN servers see
+different external ports: the phase 2 measurement). Phase 5's advice line
+now joins that with the TURN state in one sentence: "The NAT is symmetric
+but TURN is ready".
 
-### Bundle boyutu
+### The bundle size
 
 | | gzip |
 |---|---|
-| Faz 3 | 39.7 KB |
-| Faz 4 | 40.7 KB |
-| Faz 5 (+ ICE yapılandırması ve yol göstergesi) | **41.6 KB** |
+| Phase 3 | 39.7 KB |
+| Phase 4 | 40.7 KB |
+| Phase 5 (+ the ICE configuration and the route indicator) | **41.6 KB** |
 
-+0.9 KB: `src/ice.ts` (STUN listesi, URL ayrıştırma, `getStats` okuması) ve
-`#metrics`'teki yeni satır.
++0.9 KB: `src/ice.ts` (the STUN list, URL parsing, reading `getStats`) and
+the new row in `#metrics`.
 
-### Henüz ölçülmeyenler (dürüstçe)
+### Not measured yet (honestly)
 
-- **Gerçek TURN sunucusu.** Tüm ölçümler süreç içi sahte sunucuyla; gerçek
-  bir coturn ya da Cloudflare TURN üzerinden gecikme/throughput ölçülmedi.
-- **Cloudflare Realtime TURN.** Gerçek hesaba karşı hiç çalıştırılmadı
+- **A real TURN server.** Every measurement used the in-process fake
+  server; latency and throughput over a real coturn or Cloudflare TURN
+  were not measured.
+- **Cloudflare Realtime TURN.** It was never run against a real account
   (`docs/TURN.md`).
-- **İki ağ (hotspot ↔ Wi-Fi).** Faz 5'in asıl kabul denemesi; tek makineden
-  yapılamaz, yöntem `docs/MANUAL-TEST.md`.
-- **`turns:` (TLS) yolu.** Ajana verilebiliyor ama ölçülmedi; `doctor`'ın
-  allocation denemesi TLS'i atlayıp UDP deniyor.
+- **Two networks (a hotspot ↔ Wi-Fi).** Phase 5's real acceptance
+  attempt; it cannot be done from one machine, and the method is in
+  `docs/MANUAL-TEST.md`.
+- **The `turns:` (TLS) path.** It can be given to the agent but was not
+  measured; `doctor`'s allocation attempt skips TLS and tries UDP.
 
-### Ölçümü yeniden üretme
+### Reproducing the measurement
 
 ```bash
-# Faz 5 e2e (TURN uzerinden tunel, negatif kontrol, doctor raporu)
-cd web && npx playwright test phase5.spec.ts 2>&1 | grep OLCUM
+# The phase 5 e2e suite (a tunnel over TURN, the negative control, the doctor report)
+cd web && npx playwright test phase5.spec.ts 2>&1 | grep MEASURED
 
-# Go tarafi (tarayicisiz): relay-only + faketurn
+# The Go side (no browser): relay-only plus faketurn
 cd agent && go test ./internal/connect/ -run TURN -v
 
-# doctor TURN kontrolu (sahte sunucuya karsi)
-cd agent && go run . faketurn --port 0 --user u --pass p   # 1. terminal
+# The doctor TURN check (against the fake server)
+cd agent && go run . faketurn --port 0 --user u --pass p   # terminal 1
 cd agent && go run . doctor --turn turn:127.0.0.1:PORT --turn-user u --turn-pass p
 ```
 
-## Faz 6 — 2026-10-27 (WebSocket ve SSE köprüsü)
+## Phase 6 — 2026-10-27 (the WebSocket and SSE bridge)
 
-Ölçümler aynı makinede (Windows 11, Chromium, loopback): ziyaretçi sekmesi,
-tünel sahibi sekme ve ajan hepsi aynı bilgisayarda.
+The measurements are on one machine (Windows 11, Chromium, loopback): the
+visitor tab, the tunnel-owner tab and the agent are all on the same
+computer.
 
-### WebSocket köprüsü
+### The WebSocket bridge
 
-| Ne | Değer |
+| What | Value |
 |---|---|
-| Küçük mesaj gidiş-dönüş (medyan, n=20) | **0.40 ms** |
-| 1 MB mesaj gidiş-dönüş (yani 2 MB tünel trafiği) | **40 ms** |
-| Metin + ikili + 40 KB mesaj + kapanış turu | 10 ms |
+| A small message round trip (median, n=20) | **0.40 ms** |
+| A 1 MB message round trip (so 2 MB of tunnel traffic) | **40 ms** |
+| Text plus binary plus a 40 KB message plus a close round | 10 ms |
 
-Okunuşu: küçük bir ws mesajının turu, `ctrl` ping RTT'si (0.25 ms, Faz 1) ile
-aynı mertebede — yani köprünün kendi maliyeti ölçüm gürültüsünün içinde. Yol
-şu: ziyaretçi sekmesi → `MessagePort` → tünel sahibi sekme → data channel →
-ajan → yerel ws sunucusu ve geri. 1 MB'lık mesaj iki yönde 64 çerçeveye
-bölünüyor (16 KiB - 1 bayrak baytı).
+How to read it: a small ws message's round trip is the same order as the
+`ctrl` ping RTT (0.25 ms, phase 1) — so the bridge's own cost sits inside
+the measurement noise. The path: visitor tab → `MessagePort` →
+tunnel-owner tab → data channel → agent → the local ws server and back. A
+1 MB message is split into 64 frames in each direction (16 KiB minus the
+1 flag byte).
 
-### Vite HMR (kabul kriteri)
+### Vite HMR (the acceptance criterion)
 
-| Ne | Değer |
+| What | Value |
 |---|---|
-| Kaynak dosya değişiminden sayfanın güncellenmesine | **38 ms** |
-| Sayfa yenilendi mi | **hayır** (window işareti duruyor) |
+| From a source file changing to the page updating | **38 ms** |
+| Did the page reload | **no** (the window marker is still there) |
 
-Hiçbir HMR ayarı verilmedi: Vite'ın istemcisi ws adresini sayfanın kendi
-origin'inden türetiyor, shim de o adresi tünele alıyor. Alt protokol
-(`vite-hmr`) ve token olduğu gibi geçiyor.
+No HMR setting was given: Vite's client derives the ws address from the
+page's own origin and the shim takes that address into the tunnel. The
+subprotocol (`vite-hmr`) and the token pass through as they are.
 
-### SSE artımlı teslim
+### SSE incremental delivery
 
-| Ne | Değer |
+| What | Value |
 |---|---|
-| İlk olay | **2 ms** |
-| Üçüncü olay (sunucu 400 ms bekliyor) | 804 ms |
+| The first event | **2 ms** |
+| The third event (the server waits 400 ms) | 804 ms |
 
-Bu, Faz 1'deki SSE testinin **ölçemediği** şey: o test `res.text()` ile tüm
-gövdeyi bekliyordu, yani üç olay tek çerçevede gelse de geçerdi. İlk olayın
-üçüncüden 800 ms önce gelmesi akışın gerçekten artımlı olduğunu gösteriyor.
+This is what the phase 1 SSE test **could not measure**: that test awaited
+the whole body with `res.text()`, so it would have passed even if all
+three events arrived in one frame. The first event arriving 800 ms before
+the third shows the stream really is incremental.
 
-### Zaman aşımı düzeltmesi
+### The timeout fix
 
-Faz 6'ya kadar `internal/proxy` istek bağlamını 60 saniyelik bir süreyle
-sarıyordu ve bu **tüm cevabı** kapsıyordu: 60 saniyeden uzun yaşayan her akış
-sessizce kesiliyordu. Artık sınır yalnızca başlık fazında. Go testleri bunu
-hızlı bir şekilde sabitliyor (300 ms'lik bir sınırla, 4 katı kadar susan bir
-upstream):
+Until phase 6 `internal/proxy` wrapped the request context in a 60-second
+deadline and that covered **the whole response**: every stream living
+longer than 60 seconds was cut off silently. The bound now covers the
+header phase only. The Go tests pin that down quickly (with a 300 ms bound
+and an upstream that stays quiet for four times as long):
 
-| Test | Ne kanıtlıyor |
+| Test | What it proves |
 |---|---|
-| `TestServeBodyHasNoDeadline` | Gövde akarken süre sınırı yok |
-| `TestServeHeaderPhaseStillTimesOut` | Cevapsız hedef isteği askıda tutamıyor (0.30 s) |
-| `TestServeStreamStopsOnCancel` | Ziyaretçi vazgeçince akış hemen duruyor |
+| `TestServeBodyHasNoDeadline` | There is no deadline while the body streams |
+| `TestServeHeaderPhaseStillTimesOut` | A target that never answers cannot hold a request (0.30 s) |
+| `TestServeStreamStopsOnCancel` | The stream stops right away when the visitor gives up |
 
-### Bundle boyutu
+### The bundle size
 
 | | gzip |
 |---|---|
-| Faz 4 | 40.7 KB |
-| Faz 5 | 41.6 KB |
-| Faz 6 (+ soket API'si, enjektör, köprü tipleri) | **43.2 KB** |
-| `ws-shim.js` (ayrı dosya, yalnızca bayrak açıkken yüklenir) | **1.9 KB** |
+| Phase 4 | 40.7 KB |
+| Phase 5 | 41.6 KB |
+| Phase 6 (+ the socket API, the injector, the bridge types) | **43.2 KB** |
+| `ws-shim.js` (a separate file, loaded only when the flag is on) | **1.9 KB** |
 | `sw.js` | 2.7 KB |
 
-Shim ayrı bir dosya ve app shell'in bundle'ına girmiyor: bayrak kapalıyken
-ziyaretçi onu hiç indirmiyor.
+The shim is a separate file and does not enter the app shell's bundle:
+with the flag off the visitor never downloads it.
 
-### Henüz ölçülmeyenler (dürüstçe)
+### Not measured yet (honestly)
 
-- **Socket.IO.** Otomatik test edilmedi (iki yeni bağımlılık); elle doğrulama
-  `docs/MANUAL-TEST.md`'de. Yani "Socket.IO çalışıyor" iddiası ölçülmedi.
-- **Gerçek ağda ws gecikmesi.** Tüm ws ölçümleri loopback; farklı ağlarda
-  mesaj turu, bağlantının kendi gidiş-dönüş süresine ek olarak data channel
-  üzerinden geçer.
-- **Uzun süreli soket dayanıklılığı.** Dakikalar/saatler boyunca açık kalan
-  bir soketin davranışı (uyku/uyanma, relay düşmesi) ölçülmedi; tünel
-  koparsa soketler 1006 ile düşüyor ve yeniden bağlanmayı sayfanın kendi
-  kütüphanesi yapıyor.
-- **Firefox/Safari.** Shim ve `TransformStream` enjeksiyonu yalnızca
-  Chromium'da koştu (e2e matrisi Chromium).
+- **Socket.IO.** Not tested automatically (two new dependencies); the
+  manual verification is in `docs/MANUAL-TEST.md`. So the claim "Socket.IO
+  works" has not been measured.
+- **ws latency on a real network.** Every ws measurement is loopback; on
+  different networks a message round trip goes over the data channel on
+  top of the connection's own round trip.
+- **Long-term socket resilience.** The behaviour of a socket left open for
+  minutes or hours (sleep/wake, a relay going down) was not measured; if
+  the tunnel drops, the sockets go down with 1006 and the reconnect is
+  left to the page's own library.
+- **Firefox/Safari.** The shim and the `TransformStream` injection only
+  ran in Chromium (the e2e matrix is Chromium).
 
-### Ölçümü yeniden üretme
+### Reproducing the measurement
 
 ```bash
-# Faz 6 e2e (ws echo + olcumler, SSE, Vite HMR)
-cd web && npx playwright test phase6.spec.ts 2>&1 | grep OLCUM
+# The phase 6 e2e suite (the ws echo plus its measurements, SSE, Vite HMR)
+cd web && npx playwright test phase6.spec.ts 2>&1 | grep MEASURED
 
-# Zaman asimi davranisi (Go, tarayicisiz)
+# The timeout behaviour (Go, no browser)
 cd agent && go test ./internal/proxy/ -run "Stream|Deadline|HeaderPhase" -v
 
-# ws koprusu (Go, pion loopback)
+# The ws bridge (Go, pion loopback)
 cd agent && go test ./internal/tunnel/ -run TestWS -v
 
-# Bundle boyutu
+# The bundle size
 cd web && node scripts/build.mjs /PeerPages/
 ```
 
-## Faz 7 — 2026-10-27 (yayın ve lansman)
+## Phase 7 — 2026-10-27 (publishing and the launch)
 
-Bu fazda **yeni bir performans ölçümü yok**: kod yolu değişmedi, yalnızca
-`DefaultAppURL` sabiti ve belgeler değişti. Kayda geçen iki sayı:
+This phase has **no new performance measurement**: the code path did not
+change, only the `DefaultAppURL` constant and the documents did. The two
+numbers worth recording:
 
-| Ne | Değer |
+| What | Value |
 |---|---|
-| Ekran görüntüleri (`docs/img/`, gerçek tünelden) | 52 KB (36 + 16 KB) |
-| Bundle (değişmedi) | 43.2 KB gzip + ayrı 1.9 KB shim |
+| The screenshots (`docs/img/`, from a real tunnel) | 52 KB (36 + 16 KB) |
+| The bundle (unchanged) | 43.2 KB gzip plus the separate 1.9 KB shim |
 
-### Kabul kriteri — CANLI ölçüldü
+### The acceptance criterion — measured LIVE
 
-Site yayında: <https://aliosmanmho.github.io/PeerPages/>. Ölçüm gerçek
-zincirde yapıldı — GitHub Pages'teki sayfa, **gerçek** public Nostr relay'leri
-(3/4 bağlı; `relay.damus.io` 503 verdi) ve yerel ajan.
+The site is up: <https://aliosmanmho.github.io/PeerPages/>. The
+measurement was taken on the real chain — the page on GitHub Pages,
+**real** public Nostr relays (3/4 connected; `relay.damus.io` answered
+503) and the local agent.
 
-| Ne | Değer |
+| What | Value |
 |---|---|
-| Pages derlemesi (dal tabanlı yayın) | **27 s** |
-| Sayfa yenilemesinden açık tünele | **8.6 s** |
-| Küçük istek (medyan, n=10) | **2 ms** |
-| 5 MB indirme | **114 ms** (44 MB/s) |
-| Seçilen ICE yolu | `host` (iki uç aynı makinede) |
+| The Pages build (the branch-based publish) | **27 s** |
+| From the page refresh to an open tunnel | **8.6 s** |
+| A small request (median, n=10) | **2 ms** |
+| A 5 MB download | **114 ms** (44 MB/s) |
+| The chosen ICE route | `host` (both ends on one machine) |
 
-Okunuşu: **8.6 saniye**, sahte relay'li e2e'deki 300 ms'in yirmi katı ve fark
-tamamen signaling'de — gerçek relay'lere WebSocket açmak, event yayınlamak ve
-ajanın onu görmesi. Tünel bir kez kurulduktan sonra veri yolu yereldeki kadar
-hızlı (2 ms / 44 MB/s), çünkü trafik zaten iki makine arasında doğrudan
-gidiyor; GitHub Pages yalnızca sayfayı servis etti.
+How to read it: **8.6 seconds** is twenty times the 300 ms of the
+fake-relay e2e run, and the whole difference is in signaling — opening
+WebSockets to real relays, publishing the event, and the agent seeing it.
+Once the tunnel is up the data path is as fast as it is locally (2 ms /
+44 MB/s), because the traffic already goes directly between the two
+machines; GitHub Pages only served the page.
 
-Zincirin doğrulandığı şey: ajan **bayraksız** çalıştırıldı, bastığı URL
-(`DefaultAppURL`) olduğu gibi tarayıcıya yapıştırıldı, bağlantı ekranı kuruldu
-ve `https://aliosmanmho.github.io/PeerPages/` adresinde yerel site göründü —
-CSS, görsel ve JS'in doldurduğu API listesiyle birlikte.
+What the chain verified: the agent was run **with no flags**, the URL it
+printed (`DefaultAppURL`) was pasted into the browser as it was, the
+connect screen came up, and the local site appeared at
+`https://aliosmanmho.github.io/PeerPages/` — with its CSS, its image and
+the API list the JS filled in.
 
-### Ölçülemeyen: Actions
+### What could not be measured: Actions
 
-`main` push edildi ama **Pages ve CI workflow'ları başlayamadı**: hesapta bir
-faturalandırma kilidi var (*"The job was not started because your account is
-locked due to a billing issue"*). Site bu yüzden **dal tabanlı** Pages yolundan
-yayınlandı (`gh-pages` dalı, GitHub'ın kendi Pages derleyicisi — Actions
-kullanmıyor ve kilide takılmıyor).
+`main` was pushed but **the Pages and CI workflows could not start**:
+there is a billing lock on the account (*"The job was not started because
+your account is locked due to a billing issue"*). So the site was
+published through the **branch-based** Pages path (the `gh-pages` branch
+and GitHub's own Pages builder — it does not use Actions and does not hit
+the lock).
 
-Hâlâ doğrulanmamış olan: `.github/workflows/pages.yml` ve `ci.yml` GitHub
-runner'ında hiç koşmadı, yani `-race` ve CI sürümü `golangci-lint` yalnızca
-yerelde denendi (BRIEF §8).
+Still unverified: `.github/workflows/pages.yml` and `ci.yml` have never
+run on a GitHub runner, so `-race` and the CI version of `golangci-lint`
+have only been tried locally (BRIEF section 8).
+
+## Phase 8 — 2026-10-28 (an English project plus a multilingual page)
+
+This phase has **no new performance measurement** either: nothing on the
+data path changed. What was measured is the dictionary's cost and that the
+test suites stayed green.
+
+| What | Value |
+|---|---|
+| Phase 7 bundle | 43.2 KB gzip |
+| Phase 8 bundle (+ the i18n dictionary, two languages) | **46.8 KB gzip** |
+| Unit tests (web) | 412 |
+| E2E tests (Playwright) | 39 (35 + 4 new i18n tests) |
+| Go packages | the whole suite green, `-race` locally |
+
++3.6 KB for the two dictionaries together (about 110 keys each) plus the
+language picker. The dictionary is part of the app shell bundle: it is not
+a separate request, and it is not lazily loaded either, because a language
+switch has to redraw the screen synchronously. `sw.js` stayed 2.71 KB and
+`ws-shim.js` 1.88 KB — neither of them carries the dictionary.
+
+### Not measured (honestly)
+
+- **The bundle cost per language.** Both dictionaries are always in the
+  bundle; splitting them per language was not tried, because at this size
+  it would buy a round trip rather than save one.
+- **The CI run.** The billing lock from phase 7 is still there, so the
+  numbers above are local.
+
+### Reproducing the measurement
+
+```bash
+cd web && npm test                       # the unit tests
+cd web && npx playwright test            # the whole e2e suite
+cd web && npx playwright test i18n       # the language tests only
+cd agent && go test ./... -race          # the Go suite
+cd web && node scripts/build.mjs /PeerPages/   # the bundle size
+```

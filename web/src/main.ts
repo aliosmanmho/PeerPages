@@ -30,6 +30,7 @@ import {
 import { Supervisor, type SupervisorInfo, type SupervisorState } from "./reconnect";
 import { decodeSDP, encodeSDP } from "./signal";
 import { Tunnel } from "./tunnel";
+import { formatBytes } from "./ui/format";
 import { encode, type QRCode } from "./ui/qr";
 import { StatusView, type Tone } from "./ui/status";
 
@@ -587,12 +588,6 @@ function renderMetrics(): void {
     dd.textContent = value;
     el.metrics.append(dt, dd);
   }
-}
-
-function formatBytes(n: number): string {
-  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(2)} MB`;
-  if (n >= 1 << 10) return `${(n / (1 << 10)).toFixed(1)} KB`;
-  return `${n} B`;
 }
 
 function wireUI(): void {

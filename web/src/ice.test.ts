@@ -42,7 +42,7 @@ describe("normalizeStunURL", () => {
   });
 
   it("a path and a query are refused", () => {
-    expect(() => normalizeStunURL("stun:example.com:3478/yol")).toThrow(IceConfigError);
+    expect(() => normalizeStunURL("stun:example.com:3478/path")).toThrow(IceConfigError);
     expect(() => normalizeStunURL("stun:example.com:3478?transport=tcp")).toThrow(IceConfigError);
   });
 });
@@ -187,7 +187,7 @@ describe("routeFromStats", () => {
         id: "p",
         type: "candidate-pair",
         selected: true,
-        localCandidateId: "yok",
+        localCandidateId: "missing",
         remoteCandidateId: "yok2",
       },
     ]);

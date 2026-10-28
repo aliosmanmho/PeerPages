@@ -86,7 +86,7 @@ test.describe("phase 6 — the WebSocket bridge", () => {
           new Promise<MessageEvent>((resolve, reject) => {
             sock.onmessage = resolve;
             sock.onclose = (ev) => reject(new Error(`kapandi: ${ev.code}`));
-            setTimeout(() => reject(new Error("mesaj gelmedi")), 20_000);
+            setTimeout(() => reject(new Error("no message arrived")), 20_000);
           });
 
         sock.send("merhaba");
@@ -232,7 +232,7 @@ test.describe("phase 6 — the WebSocket bridge", () => {
       const code = await visitor.evaluate(
         () =>
           new Promise<number>((resolve) => {
-            const sock = new WebSocket("boyle-bir-uc-yok");
+            const sock = new WebSocket("no-such-endpoint");
             sock.onclose = (ev) => resolve(ev.code);
             sock.onopen = () => resolve(-1);
             setTimeout(() => resolve(-2), 20_000);
@@ -284,7 +284,7 @@ test.describe("phase 6 — SSE as a stream", () => {
             es.onerror = () => {
               if (events.length < 3) {
                 es.close();
-                reject(new Error(`SSE hatasi, gelen: ${events.length}`));
+                reject(new Error(`an SSE error, received: ${events.length}`));
               }
             };
             setTimeout(() => {

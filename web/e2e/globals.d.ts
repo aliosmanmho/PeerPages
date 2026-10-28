@@ -1,6 +1,6 @@
 /**
  * E2E testinin sayfadan okudugu pencere kancasi (src/main.ts sonunda
- * tanimlaniyor). Yalnizca test icin; uretim davranisini etkilemez.
+ * declared). For the tests only; it does not affect production behaviour.
  */
 declare global {
   interface Window {

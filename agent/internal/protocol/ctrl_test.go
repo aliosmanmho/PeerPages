@@ -185,8 +185,8 @@ func TestCanonicalDetails(t *testing.T) {
 	})
 
 	t.Run("non-ASCII characters are not escaped", func(t *testing.T) {
-		m := Abort{ID: 1, Reason: "çğü"}
-		want := `{"t":"abort","id":1,"reason":"çğü"}`
+		m := Abort{ID: 1, Reason: "é✓ß"}
+		want := `{"t":"abort","id":1,"reason":"é✓ß"}`
 		if got := m.Canonical(); got != want {
 			t.Errorf("got %s", got)
 		}

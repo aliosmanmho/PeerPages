@@ -268,8 +268,8 @@
       },
       {
         "name": "ws-close-with-reason",
-        "text": "{\"t\":\"ws-close\",\"id\":7,\"code\":1009,\"reason\":\"mesaj cok buyuk\"}",
-        "canonical": "{\"t\":\"ws-close\",\"id\":7,\"code\":1009,\"reason\":\"mesaj cok buyuk\"}"
+        "text": "{\"t\":\"ws-close\",\"id\":7,\"code\":1009,\"reason\":\"the message is too large\"}",
+        "canonical": "{\"t\":\"ws-close\",\"id\":7,\"code\":1009,\"reason\":\"the message is too large\"}"
       },
       {
         "name": "ws-close-application-code",

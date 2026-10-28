@@ -196,7 +196,7 @@ func TestFilterRefreshedEachEpoch(t *testing.T) {
 func TestResubscribesWhenAllRelaysDown(t *testing.T) {
 	pool := &scriptedPool{}
 	pool.setHealth([]nostr.RelayHealth{
-		{URL: "ws://a", Connected: false, Err: "baglanti koptu"},
+		{URL: "ws://a", Connected: false, Err: "the connection broke"},
 		{URL: "ws://b", Connected: false},
 	})
 	a := superviseAcceptor(t, pool)

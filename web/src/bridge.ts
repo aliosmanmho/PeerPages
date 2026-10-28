@@ -84,7 +84,7 @@ export interface WsPortOpened {
 export interface WsPortMessage {
   readonly type: "ws-message";
   readonly binary: boolean;
-  /** Mesaj govdesi; transfer edilir, kopyalanmaz. */
+  /** The message body; it is transferred, not copied. */
   readonly data: ArrayBuffer;
 }
 

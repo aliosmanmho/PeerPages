@@ -449,7 +449,7 @@ func checkSTUNServer(ctx context.Context, raw string, timeout time.Duration) STU
 	started := time.Now()
 	conn, err := net.DialTimeout("udp4", addr, timeout)
 	if err != nil {
-		report.Err = fmt.Sprintf("baglanti: %v", err)
+		report.Err = fmt.Sprintf("connection: %v", err)
 		return report
 	}
 	defer func() { _ = conn.Close() }()
@@ -542,7 +542,7 @@ func Run(
 	return report
 }
 
-// msSince gecen sureyi milisaniye olarak dondurur.
+// msSince returns the elapsed time in milliseconds.
 //
 // Nanosaniye uzerinden hesaplaniyor: sahte relay'e baglanmak 1 mikrosaniyenin
 // altinda surebiliyor ve mikrosaniye tabanli hesap bunu 0'a yuvarliyordu.
@@ -551,6 +551,6 @@ func msSince(t time.Time) float64 {
 }
 
 func randomHex() string {
-	// Event icerigini benzersiz kilmak icin; kriptografik olmasi gerekmiyor.
+	// Only to make the event content unique; it need not be cryptographic.
 	return fmt.Sprintf("%x", time.Now().UnixNano())
 }

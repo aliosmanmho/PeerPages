@@ -148,7 +148,9 @@ test.describe("phase 1 acceptance criteria", () => {
       await expect(visitor.locator("#items .api-item").first()).toHaveText("alfa = 1");
     });
 
-    expect(errors, `sayfada konsol hatasi olmamali: ${errors.join(" | ")}`).toEqual([]);
+    expect(errors, `there should be no console error on the page: ${errors.join(" | ")}`).toEqual(
+      [],
+    );
 
     await visitor.close();
     await tunnelPage.close();
@@ -175,7 +177,7 @@ test.describe("phase 1 acceptance criteria", () => {
       return { bytes: buf.byteLength, sha, elapsedMs: elapsed };
     });
 
-    expect(result.error, `indirme basarisiz: ${result.error}`).toBeUndefined();
+    expect(result.error, `the download failed: ${result.error}`).toBeUndefined();
     expect(result.bytes).toBe(5 * 1024 * 1024);
     expect(result.sha).toBe(expectedSha);
 

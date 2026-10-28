@@ -40,7 +40,7 @@ func TestSanitizeRequestHeadersDropsHopByHop(t *testing.T) {
 
 func TestSanitizeRequestHeadersDropsHostAndLength(t *testing.T) {
 	got := SanitizeRequestHeaders(map[string]string{
-		"host":           "kullanici.github.io",
+		"host":           "example.github.io",
 		"content-length": "123",
 		"expect":         "100-continue",
 	})
@@ -151,7 +151,7 @@ func TestRewriteLocation(t *testing.T) {
 		{"", ""},
 		// Another origin: we do not touch it, the decision is in the
 		// visitor's browser.
-		{"https://ornek.com/x", "https://ornek.com/x"},
+		{"https://example.com/x", "https://example.com/x"},
 		{"http://localhost:4000/x", "http://localhost:4000/x"},
 		{"http://baska:3000/x", "http://baska:3000/x"},
 		// A different scheme.
@@ -165,11 +165,11 @@ func TestRewriteLocation(t *testing.T) {
 }
 
 func TestRewriteLocationWithBasePathPrefix(t *testing.T) {
-	base, err := url.Parse("http://localhost:3000/onek")
+	base, err := url.Parse("http://localhost:3000/prefix")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := RewriteLocation("http://localhost:3000/onek/sayfa", base); got != "/sayfa" {
+	if got := RewriteLocation("http://localhost:3000/prefix/page", base); got != "/page" {
 		t.Errorf("the path prefix has to be dropped, got: %q", got)
 	}
 }

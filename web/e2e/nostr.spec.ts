@@ -52,7 +52,7 @@ test.beforeAll(async () => {
   site = await startTestSite();
   if (USING_REAL_RELAYS) {
     relayURLs = REAL_RELAYS;
-    console.log(`GERCEK RELAY'LER kullaniliyor: ${relayURLs.join(" ")}`);
+    console.log(`USING REAL RELAYS: ${relayURLs.join(" ")}`);
   } else {
     relay = await startFakeRelay();
     relayURLs = [relay.url];
@@ -109,7 +109,7 @@ test.describe("phase 2 acceptance criteria — connecting over Nostr", () => {
       // NO copy-paste: the tunnel has to open on its own.
       await expectTunnelOpen(tunnelPage);
       const elapsed = Date.now() - started;
-      const relayKind = USING_REAL_RELAYS ? "gercek relay" : "sahte relay, loopback";
+      const relayKind = USING_REAL_RELAYS ? "a real relay" : "a fake relay, loopback";
       console.log(`MEASURED from URL to tunnel: ${elapsed} ms (${relayKind})`);
 
       // The peer-id is shown shortened on screen.
@@ -235,7 +235,7 @@ test.describe("phase 2 acceptance criteria — connecting over Nostr", () => {
       appURL: APP_URL,
     });
     const visitorURL = agent.visitorURL;
-    agent.stop(); // ajan artik yok
+    agent.stop(); // the agent is gone now
 
     const page = await context.newPage();
     const hash = visitorURL.slice(visitorURL.indexOf("#"));
@@ -290,7 +290,7 @@ test.describe("phase 2 acceptance criteria — connecting over Nostr", () => {
   // never forwarded. The visitor sees that as "the agent did not answer";
   // `doctor` says why (BRIEF section 8).
   test("no connection is made through a relay that drops ephemeral events", async ({ context }) => {
-    test.skip(USING_REAL_RELAYS, "bu test sahte relay'in davranisini tasiyor");
+    test.skip(USING_REAL_RELAYS, "this test leans on the fake relay's behaviour");
     const dropper = await startFakeRelay(["--drop-ephemeral"]);
 
     try {

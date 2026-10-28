@@ -94,7 +94,7 @@ func TestRelaysData(t *testing.T) {
 
 	// The reverse direction: the peer sends to the relay address and the
 	// client receives.
-	if _, err := peer.WriteTo([]byte("cevap"), relayConn.LocalAddr()); err != nil {
+	if _, err := peer.WriteTo([]byte("answer"), relayConn.LocalAddr()); err != nil {
 		t.Fatal(err)
 	}
 	_ = relayConn.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -102,7 +102,7 @@ func TestRelaysData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the client could not read from the relay: %v", err)
 	}
-	if string(buf[:n]) != "cevap" {
+	if string(buf[:n]) != "answer" {
 		t.Errorf("body %q", buf[:n])
 	}
 

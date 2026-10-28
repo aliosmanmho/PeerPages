@@ -42,7 +42,7 @@ function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
     const started = Date.now();
     const tick = () => {
       if (cond()) return resolve();
-      if (Date.now() - started > timeoutMs) return reject(new Error("zaman asimi"));
+      if (Date.now() - started > timeoutMs) return reject(new Error("a timeout"));
       setTimeout(tick, 5);
     };
     tick();
@@ -68,7 +68,7 @@ describe("Supervisor", () => {
     expect(sup.currentState).toBe("connected");
     expect(sup.reconnects).toBe(0);
 
-    sup.markLost("baglanti-koptu");
+    sup.markLost("connection-lost");
     expect(sup.currentState).toBe("reconnecting");
 
     await waitFor(() => sup.currentState === "connected");
@@ -83,7 +83,7 @@ describe("Supervisor", () => {
     const sup = new Supervisor({
       connect: async () => {
         attempts += 1;
-        if (attempts < 3) throw new Error("ajan yok");
+        if (attempts < 3) throw new Error("no agent");
         sup.markConnected();
       },
       backoffMs: [5, 5, 5],

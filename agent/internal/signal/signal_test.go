@@ -59,8 +59,8 @@ func TestDecodeRejects(t *testing.T) {
 	cases := map[string]string{
 		"empty":               "",
 		"whitespace only":     "   \n\t ",
-		"base64 degil":        "bu base64 degil!!!",
-		"json degil":          b64("merhaba"),
+		"not base64":          "this is not base64!!!",
+		"not json":            b64("hello"),
 		"json dizi":           b64(`["x"]`),
 		"no sdp field":        b64(`{"type":"offer"}`),
 		"an empty sdp":        b64(`{"type":"offer","sdp":""}`),

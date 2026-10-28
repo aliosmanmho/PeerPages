@@ -256,7 +256,7 @@ export class Tunnel {
     const waiter = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pongWaiters = this.pongWaiters.filter((w) => w !== onPong);
-        reject(new TunnelError("pong zaman asimi"));
+        reject(new TunnelError("the pong timed out"));
       }, timeoutMs);
       const onPong = () => {
         clearTimeout(timer);
@@ -493,7 +493,7 @@ export class Tunnel {
 
   /** Handles an incoming ws frame. */
   private onSocketFrame(state: SocketState, seq: number, payload: Uint8Array<ArrayBuffer>): void {
-    // Kanal ordered: beklenmeyen seq protokol hatasi.
+    // The channel is ordered: an unexpected seq is a protocol error.
     if (seq !== state.recvSeq) {
       this.closeSocket(state, 1002, "bad-seq", true);
       return;
@@ -561,7 +561,7 @@ export class Tunnel {
     try {
       msg = parseCtrl(typeof ev.data === "string" ? ev.data : String(ev.data));
     } catch (err) {
-      // Ajan bozuk mesaj yollamamali; tuneli dusurmeden gecelim.
+      // The agent should not send a malformed message; skip it without dropping the tunnel.
       console.warn("[peerpages] invalid ctrl message:", err);
       return;
     }
@@ -638,7 +638,7 @@ export class Tunnel {
   }
 
   private onAbort(msg: AbortMsg): void {
-    this.failPending(msg.id, new TunnelError(`ajan akisi iptal etti: ${msg.reason}`));
+    this.failPending(msg.id, new TunnelError(`the agent aborted the stream: ${msg.reason}`));
   }
 
   private onData(ev: MessageEvent<ArrayBuffer>): void {
@@ -666,7 +666,7 @@ export class Tunnel {
       return;
     }
 
-    // Kanal ordered: beklenmeyen seq protokol hatasi.
+    // The channel is ordered: an unexpected seq is a protocol error.
     if (frame.seq !== entry.frames) {
       this.abortRequest(frame.id, "bad-seq");
       return;

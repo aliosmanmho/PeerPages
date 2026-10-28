@@ -259,7 +259,7 @@ export async function startNostrAgent(opts: NostrAgentOptions): Promise<NostrAge
       watcher = new LineWatcher();
       proc = spawn(bin, args, { cwd: AGENT_DIR, stdio: ["ignore", "pipe", "pipe"] });
       attach(proc);
-      await watcher.waitFor((l) => l.includes(READY), 40_000, "yeniden baslayan ajan");
+      await watcher.waitFor((l) => l.includes(READY), 40_000, "the restarted agent");
       handle.process = proc;
     },
     stop: () => {

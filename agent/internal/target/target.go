@@ -35,7 +35,7 @@ var (
 // Target is a single local target.
 type Target struct {
 	Name string
-	Base *url.URL // scheme + host (+ opsiyonel yol oneki); query/fragment yok
+	Base *url.URL // scheme + host (+ an optional path prefix); no query or fragment
 }
 
 // Set is the allowlist of named targets.

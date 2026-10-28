@@ -90,8 +90,8 @@ describe("injectScriptStream", () => {
   });
 
   it("with neither head nor body it injects at the start", async () => {
-    const out = await run(["<div>parca</div>"]);
-    expect(out).toBe(`${TAG}<div>parca</div>`);
+    const out = await run(["<div>chunk</div>"]);
+    expect(out).toBe(`${TAG}<div>chunk</div>`);
   });
 
   it("it does not touch the rest of the body", async () => {
@@ -109,8 +109,8 @@ describe("injectScriptStream", () => {
   // The search is ASCII but the body is UTF-8: the byte index differs
   // from the text index, and nothing may shift.
   it("multi-byte characters do not shift the index", async () => {
-    const out = await run(["<html><head><title>çığırtkan ölçüm</title></head>"]);
-    expect(out).toBe("<html><head>" + TAG + "<title>çığırtkan ölçüm</title></head>");
+    const out = await run(["<html><head><title>a loud é✓ß measurement</title></head>"]);
+    expect(out).toBe("<html><head>" + TAG + "<title>a loud é✓ß measurement</title></head>");
   });
 
   it("it does not break an empty body", async () => {

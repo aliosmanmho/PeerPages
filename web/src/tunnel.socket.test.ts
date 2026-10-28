@@ -20,7 +20,7 @@ class FakeChannel extends EventTarget {
   readonly sent: Array<string | Uint8Array> = [];
 
   send(data: string | Uint8Array): void {
-    if (this.readyState !== "open") throw new Error("kanal kapali");
+    if (this.readyState !== "open") throw new Error("the channel is closed");
     this.sent.push(data);
   }
 

@@ -51,7 +51,7 @@ export const MAX_VERSION = 10;
  * `blocks`: [block count, DATA codewords per block] pairs.
  */
 const LEVEL_M: ReadonlyArray<{ ec: number; blocks: ReadonlyArray<[number, number]> }> = [
-  { ec: 10, blocks: [[1, 16]] }, // surum 1
+  { ec: 10, blocks: [[1, 16]] }, // version 1
   { ec: 16, blocks: [[1, 28]] },
   { ec: 26, blocks: [[1, 44]] },
   { ec: 18, blocks: [[2, 32]] },
@@ -78,7 +78,7 @@ const LEVEL_M: ReadonlyArray<{ ec: number; blocks: ReadonlyArray<[number, number
       [4, 43],
       [1, 44],
     ],
-  }, // surum 10
+  }, // version 10
 ];
 
 /** Alignment pattern centres (none in version 1). */

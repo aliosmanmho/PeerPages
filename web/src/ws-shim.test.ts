@@ -20,7 +20,7 @@ describe("scopeFromSrc", () => {
   });
 
   it("it resolves a relative src", () => {
-    expect(scopeFromSrc("ws-shim.js", "https://x.io/PeerPages/sayfa")).toBe("/PeerPages/");
+    expect(scopeFromSrc("ws-shim.js", "https://x.io/PeerPages/page")).toBe("/PeerPages/");
   });
 
   // Inventing a scope from an unexpected src means trimming paths

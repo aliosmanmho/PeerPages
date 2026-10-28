@@ -20,13 +20,13 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
 
-// Bu dosya zincirin AJAN YARISINI uctan uca test eder:
+// This file tests the AGENT HALF of the chain end to end:
 //
-//	ziyaretci (pion) --WebRTC--> tunnel --> proxy --> gercek HTTP test sitesi
+//	visitor (pion) --WebRTC--> tunnel --> proxy --> a real HTTP test site
 //
-// Tarayici tarafi (Service Worker + sayfa) Playwright e2e testinde
-// dogrulaniyor (web/e2e/tunnel.spec.ts). Burada tarayici olmadigi icin
-// testler hizli ve CI'da kararli; throughput olcumu de buradan cikiyor.
+// The browser side (the Service Worker plus the page) is verified in the
+// Playwright e2e tests (web/e2e/tunnel.spec.ts). With no browser here the
+// tests are fast and stable in CI; the throughput measurement comes from here too.
 
 const itTimeout = 30 * time.Second
 
@@ -49,9 +49,9 @@ type itResponse struct {
 	headers map[string]string
 	body    []byte
 	abort   string
-	// ttfb: istek yollandiktan ilk gövde baytina kadar gecen sure.
+	// ttfb: from sending the request to the first body byte.
 	ttfb time.Duration
-	// total: istek yollandiktan govde tamamlanana kadar gecen sure.
+	// total: from sending the request to the body being complete.
 	total time.Duration
 }
 
@@ -92,7 +92,7 @@ func itConnect(t *testing.T, p *Proxy, targets []string) *itVisitor {
 		t.Fatalf("visitor ICE: %v", ctx.Err())
 	}
 
-	// Elle signaling yolunu gercekten kullan: base64 kodlamasindan gecsin.
+	// Really use the manual signaling path, base64 encoding included.
 	offerEnc, err := signal.Encode(*v.pc.LocalDescription())
 	if err != nil {
 		t.Fatalf("the offer could not be encoded: %v", err)
@@ -201,8 +201,8 @@ func newITVisitor(t *testing.T) *itVisitor {
 
 // get bir GET istegi yollar ve cevabi toplar.
 //
-// `end` tek basina govdenin bittigini soylemez (ctrl/data arasinda siralama
-// yok): frames/len sayaclari tamamlanana kadar beklenir.
+// `end` on its own does not mean the body is finished (there is no ordering
+// between ctrl and data): we wait until the frames/len counters are complete.
 func (v *itVisitor) get(t *testing.T, id uint32, path string) itResponse {
 	t.Helper()
 
@@ -302,11 +302,11 @@ func (v *itVisitor) ping(t *testing.T) time.Duration {
 	}
 }
 
-// siteProxy gercek test sitesini servis eden bir proxy kurar.
+// siteProxy sets up a proxy that serves the real test site.
 func siteProxy(t *testing.T) (*Proxy, []string, *httptest.Server) {
 	t.Helper()
 
-	// big.bin repoda yok: uretilmesi gerekiyor.
+	// big.bin is not in the repo: it has to be generated.
 	if _, _, err := testsite.GenerateBig("../../testdata/site"); err != nil {
 		t.Fatalf("the test data could not be generated: %v", err)
 	}
@@ -331,7 +331,7 @@ func siteProxy(t *testing.T) (*Proxy, []string, *httptest.Server) {
 	return p, targets.Names(), srv
 }
 
-// Faz 1 kabul kriterlerinin ajan tarafindaki karsiligi.
+// The agent-side counterpart of the phase 1 acceptance criteria.
 func TestIntegrationTestSiteOverTunnel(t *testing.T) {
 	p, names, _ := siteProxy(t)
 	v := itConnect(t, p, names)
@@ -352,14 +352,14 @@ func TestIntegrationTestSiteOverTunnel(t *testing.T) {
 		if ct := res.headers["content-type"]; !bytes.Contains([]byte(ct), []byte("text/html")) {
 			t.Errorf("content-type: %q", ct)
 		}
-		// Govde cercevelere bolundugu icin content-length gitmemeli.
+		// The body is split into frames, so no content-length should go out.
 		if _, ok := res.headers["content-length"]; ok {
 			t.Error("content-length must not go to the visitor")
 		}
 	})
 
 	// http.FileServer /index.html -> "./" kanoniklestirmesi; Location zaten
-	// goreli oldugu icin oldugu gibi gecer.
+	// it is relative, so it passes through as it is.
 	t.Run("index.html canonicalization", func(t *testing.T) {
 		res := v.get(t, 10, "/index.html")
 		if res.status != 301 {
@@ -442,7 +442,7 @@ func TestIntegrationTestSiteOverTunnel(t *testing.T) {
 		}
 	})
 
-	// BRIEF Faz 1 kabul: 5 MB dosya indirme.
+	// BRIEF phase 1 acceptance: downloading a 5 MB file.
 	t.Run("5 MB file", func(t *testing.T) {
 		res := v.get(t, 9, "/big.bin")
 		if res.abort != "" {
@@ -494,7 +494,7 @@ func TestIntegrationTestSiteOverTunnel(t *testing.T) {
 	})
 }
 
-// Tunel uzerinden de SSRF denemeleri reddedilmeli (uctan uca).
+// SSRF attempts have to be refused over the tunnel too (end to end).
 func TestIntegrationSSRFOverTunnel(t *testing.T) {
 	p, names, _ := siteProxy(t)
 	v := itConnect(t, p, names)

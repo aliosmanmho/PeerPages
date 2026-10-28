@@ -48,7 +48,7 @@ describe("qr-testvectors.json", () => {
 // version information.
 describe("encode — a forced mask, byte for byte", () => {
   for (const vec of V.forced) {
-    it(`${vec.name} (maske ${vec.mask}, surum ${vec.version})`, () => {
+    it(`${vec.name} (mask ${vec.mask}, version ${vec.version})`, () => {
       const got = encode(vec.text, { mask: vec.mask });
       expect(got.version).toBe(vec.version);
       expect(got.size).toBe(vec.size);
@@ -70,7 +70,7 @@ describe("encode — the automatic mask choice", () => {
   }
 
   it("the chosen mask gives the lowest penalty", () => {
-    const text = "https://kullanici.github.io/PeerPages/#npub1deneme";
+    const text = "https://example.github.io/PeerPages/#npub1sample";
     const auto = encode(text);
     const autoScore = penalty(auto.modules);
     for (let mask = 0; mask < 8; mask++) {
@@ -153,8 +153,8 @@ describe("encode — the input checks", () => {
   // faster.
   it("the UTF-8 bytes are counted correctly", () => {
     const ascii = encode("a".repeat(60));
-    const turkce = encode("ç".repeat(60)); // her biri 2 bayt
-    expect(turkce.version).toBeGreaterThan(ascii.version);
+    const twoByte = encode("é".repeat(60)); // 2 bytes each
+    expect(twoByte.version).toBeGreaterThan(ascii.version);
   });
 
   it("the version grows as the text gets longer", () => {

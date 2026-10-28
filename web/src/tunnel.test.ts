@@ -25,7 +25,7 @@ class FakeChannel extends EventTarget {
   }
 
   send(data: string | Uint8Array): void {
-    if (this.readyState !== "open") throw new Error("kanal kapali");
+    if (this.readyState !== "open") throw new Error("the channel is closed");
     this.sent.push(data);
   }
 
@@ -108,7 +108,7 @@ describe("Tunnel", () => {
     expect(msgs[0]).toEqual({
       t: "req",
       id: 1,
-      method: "GET", // buyuk harfe cevrilir
+      method: "GET", // it is upper-cased
       path: "/api/items",
       headers: { accept: "application/json" },
       hasBody: false,
@@ -245,7 +245,7 @@ describe("Tunnel", () => {
   });
 
   it("a malformed ctrl message does not drop the tunnel", async () => {
-    ctrl.deliver("bu json degil");
+    ctrl.deliver("this is not json");
     ctrl.deliver('{"t":"zipzip"}');
     expect(tunnel.isOpen).toBe(true);
 

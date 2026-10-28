@@ -155,7 +155,7 @@ func TestDecodeFrameCopiesPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	frame[HeaderBytes] = 99 // kaynak tamponu bozalim
+	frame[HeaderBytes] = 99 // corrupt the source buffer
 	if !bytes.Equal(got.Payload, []byte{1, 2, 3}) {
 		t.Errorf("DecodeFrame did not copy the payload: %v", got.Payload)
 	}

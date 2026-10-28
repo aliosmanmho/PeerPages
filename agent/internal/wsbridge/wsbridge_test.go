@@ -62,7 +62,7 @@ func echoServer(t *testing.T) *httptest.Server {
 		defer func() { _ = c.CloseNow() }()
 
 		if r.URL.Query().Get("close") != "" {
-			_ = c.Close(4002, "sunucu kapatti")
+			_ = c.Close(4002, "the server closed it")
 			return
 		}
 
@@ -215,7 +215,7 @@ func TestReadCarriesCloseCode(t *testing.T) {
 	if !errors.As(err, &ce) {
 		t.Fatalf("a WSCloseError was expected: %v (%T)", err, err)
 	}
-	if ce.Code != 4002 || ce.Reason != "sunucu kapatti" {
+	if ce.Code != 4002 || ce.Reason != "the server closed it" {
 		t.Errorf("close: %d %q", ce.Code, ce.Reason)
 	}
 }

@@ -161,7 +161,7 @@ func TestRateLimiterPrunesOldBuckets(t *testing.T) {
 		r.allow(string(rune('a' + i)))
 	}
 	now = now.Add(3 * time.Minute)
-	r.allow("yeni")
+	r.allow("fresh")
 
 	r.mu.Lock()
 	size := len(r.buckets)

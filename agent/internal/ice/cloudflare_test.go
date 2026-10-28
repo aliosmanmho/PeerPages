@@ -22,8 +22,8 @@ func quietLogger() *slog.Logger {
 
 const cfBody = `{"iceServers":{
   "urls":["turn:turn.cloudflare.com:3478?transport=udp","turns:turn.cloudflare.com:5349?transport=tcp"],
-  "username":"gecici-kullanici",
-  "credential":"gecici-sifre"}}`
+  "username":"temporary-user",
+  "credential":"temporary-password"}}`
 
 func TestFetchCredentials(t *testing.T) {
 	var gotPath, gotAuth, gotType string
@@ -63,7 +63,7 @@ func TestFetchCredentials(t *testing.T) {
 	if len(creds.URLs) != 2 {
 		t.Fatalf("%d addresses, 2 expected: %v", len(creds.URLs), creds.URLs)
 	}
-	if creds.Username != "gecici-kullanici" || creds.Password != "gecici-sifre" {
+	if creds.Username != "temporary-user" || creds.Password != "temporary-password" {
 		t.Errorf("the credentials could not be read: %+v", creds)
 	}
 	if creds.ExpiresAt.IsZero() {
@@ -164,8 +164,8 @@ func TestProviderMergesCredentials(t *testing.T) {
 		now:  time.Now,
 		creds: Credentials{
 			URLs:      []string{"turn:cf.example.com:3478"},
-			Username:  "cf-kullanici",
-			Password:  "cf-sifre",
+			Username:  "cf-user",
+			Password:  "cf-password",
 			ExpiresAt: time.Now().Add(time.Hour),
 		},
 	}
@@ -174,7 +174,7 @@ func TestProviderMergesCredentials(t *testing.T) {
 	if len(cfg.TURN) != 1 || cfg.TURN[0] != "turn:cf.example.com:3478" {
 		t.Errorf("TURN = %v", cfg.TURN)
 	}
-	if cfg.User != "cf-kullanici" || cfg.Pass != "cf-sifre" {
+	if cfg.User != "cf-user" || cfg.Pass != "cf-password" {
 		t.Errorf("the credentials were not merged: %+v", cfg)
 	}
 
@@ -185,7 +185,7 @@ func TestProviderMergesCredentials(t *testing.T) {
 	if policy.String() != "all" {
 		t.Errorf("politika %v", policy)
 	}
-	if strings.Contains(cfg.Describe(), "cf-sifre") {
+	if strings.Contains(cfg.Describe(), "cf-password") {
 		t.Error("Describe writes the password out")
 	}
 }
@@ -246,7 +246,7 @@ func TestProviderKeepsOldCredentialsOnFailure(t *testing.T) {
 	old := Credentials{
 		URLs:      []string{"turn:eski.example.com:3478"},
 		Username:  "eski",
-		Password:  "eski-sifre",
+		Password:  "old-password",
 		ExpiresAt: time.Now().Add(time.Hour),
 	}
 

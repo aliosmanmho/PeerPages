@@ -132,7 +132,7 @@ describe("decodeFrame — the payload copy", () => {
   it("it keeps no reference to the frame buffer", () => {
     const frame = encodeFrame(1, 0, new Uint8Array([1, 2, 3]));
     const got = decodeFrame(frame);
-    frame[HEADER_BYTES] = 99; // kaynak tamponu bozalim
+    frame[HEADER_BYTES] = 99; // corrupt the source buffer
     expect(Array.from(got.payload)).toEqual([1, 2, 3]);
   });
 });

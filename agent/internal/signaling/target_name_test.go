@@ -20,9 +20,9 @@ func TestTargetNameRulesMatchTargetPackage(t *testing.T) {
 	names := []string{
 		"default", "admin", "a", "A", "0", "web-2_eski",
 		"a-b-c", "ABC_123",
-		"a123456789012345678901234567890b",  // 32: tam sinir
+		"a123456789012345678901234567890b",  // 32: exactly at the limit
 		"a1234567890123456789012345678901b", // 33: asiyor
-		"", "-admin", "_admin", "a/b", "a.b", "a b", "tr-ç",
+		"", "-admin", "_admin", "a/b", "a.b", "a b", "x-é",
 	}
 
 	for _, name := range names {

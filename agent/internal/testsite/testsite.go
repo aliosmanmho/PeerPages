@@ -48,7 +48,7 @@ func GenerateBig(dir string) (path string, created bool, err error) {
 		return "", false, fmt.Errorf("the directory could not be created: %w", err)
 	}
 
-	f, err := os.Create(path) //nolint:gosec // yol cagiran tarafindan verilir (test verisi)
+	f, err := os.Create(path) //nolint:gosec // the path comes from the caller (test data)
 	if err != nil {
 		return "", false, fmt.Errorf("the file could not be created: %w", err)
 	}
@@ -134,7 +134,7 @@ func Handler(root string) http.Handler {
 	mux.HandleFunc("/ws", wsHandler)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// big.bin'i tarayici indirme olarak isaretle.
+		// Mark big.bin as a browser download.
 		if strings.HasSuffix(r.URL.Path, "/"+BigFileName) {
 			w.Header().Set("content-type", "application/octet-stream")
 		}

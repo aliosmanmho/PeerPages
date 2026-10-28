@@ -76,7 +76,7 @@ func startRelayOnlyAgent(t *testing.T, relayURL string, iceCfg ice.Config) *agen
 }
 
 func TestTunnelOverTURNOnly(t *testing.T) {
-	turnSrv, err := faketurn.Start(faketurn.Options{User: "user", Pass: "sifre"})
+	turnSrv, err := faketurn.Start(faketurn.Options{User: "user", Pass: "password"})
 	if err != nil {
 		t.Fatalf("the fake TURN could not be started: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestTunnelOverTURNOnly(t *testing.T) {
 	iceCfg, err := ice.Config{
 		TURN:      []string{turnSrv.URL()},
 		User:      "user",
-		Pass:      "sifre",
+		Pass:      "password",
 		RelayOnly: true,
 	}.Validated()
 	if err != nil {
@@ -128,7 +128,7 @@ func TestRelayOnlyWithoutTURNFails(t *testing.T) {
 		// An address nothing listens on: no allocation can be granted.
 		TURN:      []string{"turn:127.0.0.1:1"},
 		User:      "user",
-		Pass:      "sifre",
+		Pass:      "password",
 		RelayOnly: true,
 	}.Validated()
 	if err != nil {

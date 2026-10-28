@@ -240,7 +240,7 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
-/* Tanitim blogu: peer-id'siz gelen ziyaretci icin (connect/index.html). */
+/* The intro panel: for a visitor arriving with no peer-id (connect/index.html). */
 .intro__lead {
   margin: 0 0 0.75rem;
   font-size: 0.875rem;
@@ -287,7 +287,7 @@ textarea {
 
 /*
  * QR beyaz zeminde kalmali: koyu temada da okunabilsin. Kamera kontrast
- * ister, tema tercihi degil.
+ * wants, not a theme preference.
  */
 .qr canvas {
   display: block;

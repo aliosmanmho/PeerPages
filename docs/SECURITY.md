@@ -28,7 +28,7 @@ talked into doing".
 
 **What they see.** That a public key received an event, when, and how large it
 was. Signaling content is encrypted with **NIP-44** (`protocol/signaling.md`
-§"Taşıma: Nostr event'i"), so the offer, the answer, the ICE candidates and the target name
+§"The transport: a Nostr event"), so the offer, the answer, the ICE candidates and the target name
 are not visible to the relay.
 
 **What they do not see.** Any HTTP traffic. Signaling carries only the WebRTC
@@ -39,7 +39,7 @@ below).
 identifier, so a relay operator can tell *that* your agent is online and *when*
 it receives connection attempts. `--secret` does not hide this — it is
 explicitly documented as protecting authorization, not presence
-(`protocol/signaling.md` §"Paylaşılan sır katmanı").
+(`protocol/signaling.md` §"The shared secret layer").
 
 **Storage.** Events use ephemeral kind **25050** (20000–29999), which relays are
 specified not to store. Relays can misbehave; `peerpages doctor` therefore tests
@@ -66,7 +66,7 @@ no identity to check.
 **Second factor.** `--secret <word>` adds a layer *under* NIP-44: the payload is
 sealed with ChaCha20-Poly1305 using a key derived via HKDF-SHA256 from your
 secret, and an offer that cannot be opened is rejected with `bad-secret`
-(`protocol/signaling.md` §"Paylaşılan sır katmanı"). Someone who knows your
+(`protocol/signaling.md` §"The shared secret layer"). Someone who knows your
 peer-id but not the secret cannot open a session.
 
 **Rotating.** The peer-id comes from `~/.peerpages/key` (an nsec). Delete that
@@ -155,7 +155,7 @@ These are deliberate, documented decisions, not oversights.
 2. **The WebSocket shim modifies HTML.** With `--inject-ws-shim`, the agent
    marks HTML responses and the Service Worker injects a `<script>` tag. It is
    opt-in for exactly this reason. The agent's proxy itself stays byte-exact; it
-   only adds a header (`protocol/README.md` §"Ayrılmış başlıklar").
+   only adds a header (`protocol/README.md` §"Reserved headers").
 3. **TURN is the single exception to "no server in between."** Optional, off by
    default, and the connect screen tells the visitor when traffic is going
    through a relay instead of directly.

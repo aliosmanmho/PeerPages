@@ -290,7 +290,7 @@ func (v *visitor) collect(t *testing.T, id uint32, d time.Duration) collected {
 					return out
 				}
 			case protocol.Hello, protocol.Ping, protocol.Pong:
-				// yok say
+				// ignore it
 			default:
 				t.Errorf("unexpected ctrl message: %s", m.Type())
 			}

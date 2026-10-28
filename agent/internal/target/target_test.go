@@ -37,7 +37,7 @@ func TestParseRejects(t *testing.T) {
 		"file scheme":                {"file:///etc/passwd"},
 		"ftp scheme":                 {"ftp=ftp://localhost"},
 		"no host":                    {"http://"},
-		"kullanici bilgisi":          {"http://user:pass@localhost:3000"},
+		"user information":           {"http://user:pass@localhost:3000"},
 		"query":                      {"http://localhost:3000/?a=1"},
 		"fragment":                   {"http://localhost:3000/#x"},
 		"the same name twice":        {"http://localhost:3000", "http://localhost:4000"},

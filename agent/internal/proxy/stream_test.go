@@ -247,7 +247,7 @@ func TestShimHeaderOnlyWhenEnabled(t *testing.T) {
 func TestShimHeaderOnlyForHTML(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("content-type", r.URL.Query().Get("ct"))
-		_, _ = io.WriteString(w, "govde")
+		_, _ = io.WriteString(w, "body")
 	}))
 	defer srv.Close()
 

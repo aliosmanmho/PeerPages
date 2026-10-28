@@ -122,7 +122,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	if code := q.Get("close"); code != "" {
 		n, perr := strconv.Atoi(code)
 		if perr != nil || n < 1000 || n > 4999 {
-			_ = c.Close(websocket.StatusUnsupportedData, "close kodu gecersiz")
+			_ = c.Close(websocket.StatusUnsupportedData, "the close code is invalid")
 			return
 		}
 		_ = c.Close(websocket.StatusCode(n), q.Get("reason"))

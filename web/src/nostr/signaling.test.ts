@@ -140,7 +140,7 @@ describe("the boundary cases", () => {
   const sid = "0123456789abcdef";
 
   for (const vec of V.messages.generated) {
-    it(`${vec.name} (${vec.len} bayt → ${vec.accept ? "kabul" : "red"})`, () => {
+    it(`${vec.name} (${vec.len} bayt → ${vec.accept ? "accepted" : "refused"})`, () => {
       const filler = "x".repeat(vec.len);
       let msg: SignalingMsg;
       switch (vec.kind) {
@@ -157,7 +157,7 @@ describe("the boundary cases", () => {
           msg = { t: "bye", sid, reason: filler };
           break;
         default:
-          throw new Error(`bilinmeyen sinir vakasi: ${vec.kind}`);
+          throw new Error(`unknown boundary case: ${vec.kind}`);
       }
 
       if (vec.accept) {
@@ -175,8 +175,8 @@ describe("the boundary cases", () => {
   // the sides decide differently about the same message.
   it("the length is measured in bytes (non-ASCII)", () => {
     const sid = "0123456789abcdef";
-    // "ç" is 2 bytes in UTF-8: 33 characters = 66 bytes > the 64 limit.
-    const reason = "ç".repeat(33);
+    // "é" is 2 bytes in UTF-8: 33 characters = 66 bytes > the 64 limit.
+    const reason = "é".repeat(33);
     expect(reason.length).toBeLessThanOrEqual(MAX_REASON);
     expect(new TextEncoder().encode(reason).byteLength).toBeGreaterThan(MAX_REASON);
     expect(() => validateSignaling({ t: "bye", sid, reason })).toThrow();
@@ -199,10 +199,10 @@ describe("sid", () => {
 
   it("validSID validates the form correctly", () => {
     expect(validSID("0123456789abcdef")).toBe(true);
-    expect(validSID("0123456789ABCDEF")).toBe(false); // buyuk harf
+    expect(validSID("0123456789ABCDEF")).toBe(false); // uppercase
     expect(validSID("0123456789abcde")).toBe(false); // kisa
     expect(validSID("0123456789abcdef0")).toBe(false); // uzun
-    expect(validSID("0123456789abcdeg")).toBe(false); // hex degil
+    expect(validSID("0123456789abcdeg")).toBe(false); // not hex
     expect(validSID("")).toBe(false);
   });
 });
@@ -228,7 +228,7 @@ describe("Sealer — the shared secret layer", () => {
     // With the same nonce it has to produce a BYTE-FOR-BYTE identical
     // payload: the proof that the two implementations use the same
     // framing.
-    it(`${vec.name} — ayni nonce ile ayni payload uretiliyor`, () => {
+    it(`${vec.name} — the same nonce produces the same payload`, () => {
       const s = Sealer.fromSecret(vec.secret);
       expect(s.sealWithNonce(hexBytes(vec.nonceHex), vec.plaintext)).toBe(vec.payload);
     });

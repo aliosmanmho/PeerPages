@@ -18,7 +18,7 @@ import (
 
 func startFakeTURN(t *testing.T) *faketurn.Server {
 	t.Helper()
-	srv, err := faketurn.Start(faketurn.Options{User: "user", Pass: "sifre"})
+	srv, err := faketurn.Start(faketurn.Options{User: "user", Pass: "password"})
 	if err != nil {
 		t.Fatalf("the fake TURN could not be started: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestCheckTURNAllocates(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cfg, err := ice.Config{TURN: []string{srv.URL()}, User: "user", Pass: "sifre"}.Validated()
+	cfg, err := ice.Config{TURN: []string{srv.URL()}, User: "user", Pass: "password"}.Validated()
 	if err != nil {
 		t.Fatal(err)
 	}

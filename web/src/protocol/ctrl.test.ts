@@ -61,7 +61,7 @@ describe("parseCtrl — the field details", () => {
       id: 17,
       method: "GET",
       path: "/api/items?x=1",
-      headers: { accept: "text/html" }, // baslik adlari kucuk harfe normalize
+      headers: { accept: "text/html" }, // header names are normalized to lower case
       hasBody: false,
     });
   });
@@ -132,7 +132,7 @@ describe("canonicalCtrl", () => {
   });
 
   it("it does not escape non-ASCII characters", () => {
-    const msg = parseCtrl('{"t":"abort","id":1,"reason":"çğü"}');
-    expect(canonicalCtrl(msg)).toBe('{"t":"abort","id":1,"reason":"çğü"}');
+    const msg = parseCtrl('{"t":"abort","id":1,"reason":"é✓ß"}');
+    expect(canonicalCtrl(msg)).toBe('{"t":"abort","id":1,"reason":"é✓ß"}');
   });
 });

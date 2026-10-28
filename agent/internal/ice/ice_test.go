@@ -51,7 +51,7 @@ func TestParseServerURLRejects(t *testing.T) {
 		{"no host", "turn:"},
 		// Credentials cannot live in the URL: the address is written to
 		// the log and the banner, and must carry no secret.
-		{"kullanici bilgisi", "turn://user:pass@example.com:3478"},
+		{"user information", "turn://user:pass@example.com:3478"},
 		{"tanimsiz query", "turn:example.com:3478?foo=bar"},
 		{"an invalid transport", "turn:example.com:3478?transport=sctp"},
 	}
@@ -79,7 +79,7 @@ func TestValidatedAccepts(t *testing.T) {
 		STUN: []string{"stun:example.com"},
 		TURN: []string{"turn:turn.example.com"},
 		User: "user",
-		Pass: "sifre",
+		Pass: "password",
 	}.Validated()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -125,7 +125,7 @@ func TestServersSeparatesSTUNAndTURN(t *testing.T) {
 		STUN: []string{"stun:a.example.com:3478", "stun:b.example.com:3478"},
 		TURN: []string{"turn:t.example.com:3478"},
 		User: "user",
-		Pass: "sifre",
+		Pass: "password",
 	}.Validated()
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +138,7 @@ func TestServersSeparatesSTUNAndTURN(t *testing.T) {
 	if len(servers[0].URLs) != 2 || servers[0].Username != "" || servers[0].Credential != nil {
 		t.Errorf("a STUN entry must carry no credentials: %+v", servers[0])
 	}
-	if servers[1].Username != "user" || servers[1].Credential != "sifre" {
+	if servers[1].Username != "user" || servers[1].Credential != "password" {
 		t.Errorf("a TURN entry has to carry credentials: %+v", servers[1])
 	}
 	if servers[1].CredentialType != webrtc.ICECredentialTypePassword {

@@ -38,7 +38,7 @@ export function ensureAgentBinary(): string {
     encoding: "utf8",
   });
   if (build.status !== 0) {
-    throw new Error(`ajan derlenemedi: ${build.stderr || build.stdout}`);
+    throw new Error(`the agent could not be built: ${build.stderr || build.stdout}`);
   }
   return binPath;
 }
@@ -215,7 +215,7 @@ export async function startAgent(targetURL: string, extraArgs: string[] = []): P
     exchange: async (offer: string, timeoutMs = 60_000) => {
       proc.stdin.write(`${offer.trim()}\n`);
       // ICE gathering (STUN) can take a few seconds.
-      await watcher.waitFor((l) => l.includes(ANSWER_END), timeoutMs, "ajan answer'i");
+      await watcher.waitFor((l) => l.includes(ANSWER_END), timeoutMs, "the agent's answer");
       const answer = watcher.lineAfter(ANSWER_BEGIN);
       if (!answer || answer.length < 20) {
         throw new Error(`answer okunamadi.\nCikti:\n${watcher.tail()}`);
@@ -223,7 +223,7 @@ export async function startAgent(targetURL: string, extraArgs: string[] = []): P
       return answer.trim();
     },
     waitTunnelOpen: async (timeoutMs = 60_000) => {
-      await watcher.waitFor((l) => l.includes(TUNNEL_OPEN), timeoutMs, "tunel acik isaretcisi");
+      await watcher.waitFor((l) => l.includes(TUNNEL_OPEN), timeoutMs, "the tunnel-open marker");
     },
     output: () => watcher.all(),
     stop: () => {

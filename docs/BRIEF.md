@@ -775,6 +775,17 @@ survives a reload; the guard script reports zero.
   into an error screen would be out of proportion: `resolveLang` falls
   back to English and writes a line to the console.
 
+- **(Found in phase 8, OPEN) Our QR mask choice and python `qrcode`'s do
+  not always agree.** Translating the vector data meant changing the
+  sample visitor URL, and with some hosts of the same length the two
+  implementations pick a different mask for the SAME input, so the `auto`
+  vectors stopped matching. Any mask produces a readable code, so this is
+  quality, not correctness: our penalty scoring disagrees with the
+  reference implementation in some edge case. The vector data was left at
+  a host where the two agree (`localhost.github.io`) rather than chasing
+  it inside a translation phase; a separate phase should compare the four
+  penalty rules against the reference.
+
 - Some relays may drop Nostr ephemeral events → relay health through
   `doctor`; the list is kept current.
 - The GitHub Pages terms of use: fine for a static showcase; do not

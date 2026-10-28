@@ -25,7 +25,7 @@
     "kdf": "HKDF-SHA256",
     "aead": "ChaCha20-Poly1305",
     "nonceBytes": 12,
-    "base64": "url, dolgu yok"
+    "base64": "url, no padding"
   },
   "messages": {
     "valid": [
@@ -56,8 +56,8 @@
       },
       {
         "name": "reason-utf8",
-        "text": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"cok uzun sürdü: çğü\"}",
-        "canonical": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"cok uzun sürdü: çğü\"}"
+        "text": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"took too long: é✓ß\"}",
+        "canonical": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"took too long: é✓ß\"}"
       },
       {
         "name": "reason-html",
@@ -365,10 +365,10 @@
       },
       {
         "name": "utf8-sealed",
-        "secret": "gizli-şifre-çğ",
+        "secret": "secret-é✓ß",
         "nonceHex": "000102030405060708090a0b",
         "plaintext": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"visitor-left\"}",
-        "payload": "pps1.AAECAwQFBgcICQoLg7Em7DEdqPTz3xIdnTMBaRxU_G_uLRoUgIYN0OUyqDPv4X0-h4tjGKBr04Bu0wIDfOmUNV4gehxapBeAA53Ed9RQddhJQFCrOXTWFvw8ITuX7g"
+        "payload": "pps1.AAECAwQFBgcICQoLoAksb9MrJJoFmrK6zYTzu5p8DYbPMtB0klnv26CnjI2rxLMjRh0HhQpZ6NKlyG0n9xrP-nN6AvTSwZ6GXQo1WrtYshlMGk7qEJl3WrOcOPkYZA"
       }
     ],
     "invalid": [

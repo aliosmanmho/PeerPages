@@ -174,7 +174,7 @@ func TestSaveRefusesToOverwrite(t *testing.T) {
 
 func TestSaveUsesRestrictivePermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("Windows'ta POSIX izinleri yok; koruma ACL'lere kaliyor")
+		t.Skip("there are no POSIX permissions on Windows; the ACLs have to carry the protection")
 	}
 	path := filepath.Join(t.TempDir(), "gizli", "key")
 
@@ -326,17 +326,17 @@ func TestVisitorURL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := id.VisitorURL("https://kullanici.github.io/PeerPages/", "", "")
+	got, err := id.VisitorURL("https://example.github.io/PeerPages/", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "https://kullanici.github.io/PeerPages/#" + npub
+	want := "https://example.github.io/PeerPages/#" + npub
 	if got != want {
 		t.Errorf("URL:\n  got:      %s\n  expected: %s", got, want)
 	}
 
 	// A missing trailing slash has to be added.
-	got, err = id.VisitorURL("https://kullanici.github.io/PeerPages", "", "default")
+	got, err = id.VisitorURL("https://example.github.io/PeerPages", "", "default")
 	if err != nil {
 		t.Fatal(err)
 	}

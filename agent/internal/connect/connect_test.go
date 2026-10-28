@@ -49,7 +49,7 @@ type visitor struct {
 	id    identity.Identity
 	pool  *nostr.Pool
 	codec codec
-	agent string // ajan pubkey (hex)
+	agent string // the agent's pubkey (hex)
 	sid   string
 	// target is the target name announced in the offer; when empty the
 	// field is not sent at all.
@@ -478,7 +478,7 @@ func TestRequestOverNostrTunnel(t *testing.T) {
 	}
 
 	req := protocol.Req{
-		ID: 1, Method: "GET", Path: "/deneme",
+		ID: 1, Method: "GET", Path: "/try-me",
 		Headers: map[string]string{}, HasBody: false,
 	}
 	if err := v.ctrl.SendText(req.Canonical()); err != nil {

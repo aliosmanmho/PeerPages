@@ -22,7 +22,7 @@ func runKeyCmd(t *testing.T, args ...string) (stdout, stderr string, err error) 
 func TestKeyCreatesAndShows(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "alt", "key")
 
-	out, _, err := runKeyCmd(t, "--path", path, "--app-url", "https://ornek.github.io/PeerPages/")
+	out, _, err := runKeyCmd(t, "--path", path, "--app-url", "https://example.github.io/PeerPages/")
 	if err != nil {
 		t.Fatalf("key error: %v\n%s", err, out)
 	}
@@ -30,7 +30,7 @@ func TestKeyCreatesAndShows(t *testing.T) {
 	if !strings.Contains(out, "npub1") {
 		t.Errorf("the npub should have been printed:\n%s", out)
 	}
-	if !strings.Contains(out, "https://ornek.github.io/PeerPages/#npub1") {
+	if !strings.Contains(out, "https://example.github.io/PeerPages/#npub1") {
 		t.Errorf("the visitor URL should have been printed:\n%s", out)
 	}
 	if !strings.Contains(out, "short form") {

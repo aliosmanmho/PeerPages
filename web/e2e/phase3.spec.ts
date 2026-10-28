@@ -68,7 +68,9 @@ async function openByURL(
 ): Promise<Page> {
   const printed = agent.urls[targetName];
   if (!printed) {
-    throw new Error(`ajan '${targetName}' icin URL basmadi: ${Object.keys(agent.urls).join(", ")}`);
+    throw new Error(
+      `the agent printed no URL for '${targetName}': ${Object.keys(agent.urls).join(", ")}`,
+    );
   }
   const page = await context.newPage();
   page.on("console", (msg) => {
@@ -177,7 +179,7 @@ test.describe("phase 3 acceptance criteria — several targets", () => {
     agent.stop();
 
     const page = await context.newPage();
-    await page.goto(`${CONNECT}?${relayQuery()}#${npub}/-gecersiz`);
+    await page.goto(`${CONNECT}?${relayQuery()}#${npub}/-invalid`);
     await expect(page.locator("#status-msg")).toContainText("invalid target name", {
       timeout: 30_000,
     });
@@ -294,7 +296,7 @@ test.describe("phase 3 — resources are released once the visitor is gone", () 
         .poll(
           () =>
             agent.output().some((l) => l.includes("tunnel closed") || l.includes("session idle")),
-          { timeout: 60_000, message: "ajan oturumu birakmadi" },
+          { timeout: 60_000, message: "the agent did not release the session" },
         )
         .toBe(true);
     } finally {

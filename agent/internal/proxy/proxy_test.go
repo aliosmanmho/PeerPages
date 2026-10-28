@@ -175,7 +175,7 @@ func TestServeRewritesHost(t *testing.T) {
 	p := newProxyFor(t, srv.URL)
 	p.Serve(context.Background(), protocol.Req{
 		ID: 1, Method: "GET", Path: "/",
-		Headers: map[string]string{"host": "kullanici.github.io"},
+		Headers: map[string]string{"host": "example.github.io"},
 	}, nil, &fakeSink{})
 
 	if strings.Contains(gotHost, "github.io") {
@@ -187,7 +187,7 @@ func TestServeRewritesHost(t *testing.T) {
 }
 
 func TestServePOSTWithBody(t *testing.T) {
-	want := strings.Repeat("govde", 5000)
+	want := strings.Repeat("body", 5000)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got, err := io.ReadAll(r.Body)
 		if err != nil {

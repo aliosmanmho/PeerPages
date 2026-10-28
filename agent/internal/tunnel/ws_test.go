@@ -183,7 +183,7 @@ func (v *visitor) nextWSEvent(t *testing.T, r *wsReader, d time.Duration) (*wsMs
 					return nil, &cp
 				}
 			case protocol.WSOk, protocol.Hello, protocol.Ping, protocol.Pong:
-				// yok say
+				// ignore it
 			default:
 				t.Errorf("unexpected ctrl message: %s", m.Type())
 			}

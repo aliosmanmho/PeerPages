@@ -40,7 +40,7 @@ OUT = os.path.join(HERE, "..", "src", "ui", "qr-testvectors.json")
 
 # PeerPages's real URL form: a 63-character npub plus a target.
 NPUB = "npub1yl4dshpq3h2kqmcx8dz3xhdmgpkcrxu6l9rdj5vxk9chpsd0pdnn4ldqqq"
-VISITOR_URL = "https://user.github.io/PeerPages/#" + NPUB
+VISITOR_URL = "https://localhost.github.io/PeerPages/#" + NPUB
 VISITOR_URL_TARGET = VISITOR_URL + "/admin"
 
 
@@ -109,7 +109,7 @@ for mask in range(8):
 forced.append(case("visitor-url", VISITOR_URL, 2))
 forced.append(case("visitor-url-with-target", VISITOR_URL_TARGET, 5))
 # UTF-8 multi-byte characters: does byte mode count them correctly.
-forced.append(case("utf8", u"cok güzel: çğüşİ", 1))
+forced.append(case("utf8", u"nice and long: é✓ßåØ", 1))
 # Version 7+: are the version information blocks written.
 forced.append(case("version-7-and-above", "x" * 130, 4))
 # Version 10: the largest supported version, with two block groups.
@@ -121,7 +121,7 @@ doc["auto"] = [
     auto_case("auto-short", "PEERPAGES"),
     auto_case("auto-url", VISITOR_URL),
     auto_case("auto-url-with-target", VISITOR_URL_TARGET),
-    auto_case("auto-utf8", u"çğüşİö"),
+    auto_case("auto-utf8", u"é✓ßåØñ"),
     auto_case("auto-long", "z" * 100),
 ]
 

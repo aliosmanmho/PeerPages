@@ -38,10 +38,10 @@ func newProxyWithStats(t *testing.T, serverURL string) (*Proxy, *stats.Registry)
 
 func TestStatsCountsSuccessAndBytes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gelen, _ := io.ReadAll(r.Body)
+		got, _ := io.ReadAll(r.Body)
 		_, _ = w.Write(make([]byte, 1000))
-		if len(gelen) != 7 {
-			t.Errorf("the body that reached the target is %d bytes", len(gelen))
+		if len(got) != 7 {
+			t.Errorf("the body that reached the target is %d bytes", len(got))
 		}
 	}))
 	defer srv.Close()
@@ -87,7 +87,7 @@ func TestStatsCountsErrors(t *testing.T) {
 		_, _ = io.WriteString(w, "ok")
 	}))
 	targetURL := srv.URL
-	srv.Close() // hedef kapali: ulasilamaz
+	srv.Close() // the target is closed: unreachable
 
 	p, reg := newProxyWithStats(t, targetURL)
 

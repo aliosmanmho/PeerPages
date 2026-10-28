@@ -40,7 +40,7 @@ func TestConfigValidate(t *testing.T) {
 		}
 	}
 
-	// ICE sunucusu bos olabilir: yalnizca host adaylari toplanir.
+	// The ICE server list may be empty: only host candidates are gathered.
 	c := ok
 	c.ICEServers = nil
 	if err := c.validate(); err != nil {
@@ -48,7 +48,7 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
-// Baglanti kurulunca ajan hello yollar.
+// Once the connection is up the agent sends hello.
 func TestHelloOnConnect(t *testing.T) {
 	_, v := connect(t, Config{
 		Targets: []string{"default", "admin"},
@@ -89,11 +89,11 @@ func TestPingPong(t *testing.T) {
 }
 
 func TestRequestResponseRoundtrip(t *testing.T) {
-	want := bytes.Repeat([]byte("PeerPages"), 10_000) // ~90 KB, coklu cerceve
+	want := bytes.Repeat([]byte("PeerPages"), 10_000) // ~90 KB, several frames
 
 	_, v := connect(t, Config{
 		Proxy: proxyFunc(func(_ context.Context, req protocol.Req, _ io.Reader, sink ResponseSink) {
-			if req.Path != "/büyük" {
+			if req.Path != "/large" {
 				t.Errorf("path = %q", req.Path)
 			}
 			if err := sink.SendRes(200, map[string]string{"content-type": "text/plain"}); err != nil {
@@ -109,7 +109,7 @@ func TestRequestResponseRoundtrip(t *testing.T) {
 	})
 	v.nextCtrl(t, settle) // hello
 
-	req := protocol.Req{ID: 1, Method: "GET", Path: "/büyük", Headers: map[string]string{}, HasBody: false}
+	req := protocol.Req{ID: 1, Method: "GET", Path: "/large", Headers: map[string]string{}, HasBody: false}
 	if err := v.sendCtrl(req); err != nil {
 		t.Fatal(err)
 	}
@@ -130,12 +130,12 @@ func TestRequestResponseRoundtrip(t *testing.T) {
 	if !bytes.Equal(got.body, want) {
 		t.Errorf("the body differs: %d bytes arrived, %d expected", len(got.body), len(want))
 	}
-	// Kanallar arasinda siralama yok: cerceveler end'den sonra da gelebilir.
-	// Testin gecmesi, alicinin frames/len sayaclarini dogru kullandigini gosterir.
+	// There is no ordering between the channels: frames may arrive after end.
+	// The test passing shows the receiver uses the frames/len counters correctly.
 	t.Logf("frames that arrived after end: %d", got.lateFrames)
 }
 
-// Istek govdesi: ziyaretci data cerceveleri yollar, ajan tarafinda okunur.
+// The request body: the visitor sends data frames and the agent side reads them.
 func TestRequestBodyStreaming(t *testing.T) {
 	body := bytes.Repeat([]byte("x"), protocol.MaxPayload*2+123)
 	gotBody := make(chan []byte, 1)
@@ -188,7 +188,7 @@ func TestRequestBodyStreaming(t *testing.T) {
 	}
 }
 
-// BRIEF ilke 4: govde boyutu tavani.
+// BRIEF principle 4: the body-size ceiling.
 func TestRequestBodyTooLarge(t *testing.T) {
 	_, v := connect(t, Config{
 		MaxBody: 1024,
@@ -206,7 +206,7 @@ func TestRequestBodyTooLarge(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Tavanin uzerinde govde yolla.
+	// Send a body over the ceiling.
 	if err := v.sendFrame(9, 0, bytes.Repeat([]byte("y"), 2048)); err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestRequestBodyTooLarge(t *testing.T) {
 	}
 }
 
-// Kanal ordered: beklenmeyen seq protokol hatasi.
+// The channel is ordered: an unexpected seq is a protocol error.
 func TestBadSeqAborts(t *testing.T) {
 	_, v := connect(t, Config{
 		Proxy: proxyFunc(func(_ context.Context, _ protocol.Req, r io.Reader, sink ResponseSink) {
@@ -236,7 +236,7 @@ func TestBadSeqAborts(t *testing.T) {
 		t.Fatal(err)
 	}
 	// seq 0 atlanip 3 yollaniyor.
-	if err := v.sendFrame(11, 3, []byte("veri")); err != nil {
+	if err := v.sendFrame(11, 3, []byte("data")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -256,7 +256,7 @@ func TestBadSeqAborts(t *testing.T) {
 	}
 }
 
-// Ayni id ile ikinci istek reddedilir.
+// A second request with the same id is refused.
 func TestDuplicateIDAborts(t *testing.T) {
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
@@ -264,7 +264,7 @@ func TestDuplicateIDAborts(t *testing.T) {
 	_, v := connect(t, Config{
 		Proxy: proxyFunc(func(_ context.Context, _ protocol.Req, _ io.Reader, sink ResponseSink) {
 			_ = sink.SendRes(200, map[string]string{})
-			<-release // istek askida kalsin
+			<-release // let the request hang
 			_ = sink.End()
 		}),
 	})
@@ -296,7 +296,7 @@ func TestDuplicateIDAborts(t *testing.T) {
 	}
 }
 
-// BRIEF ilke 4: eszamanli istek tavani.
+// BRIEF principle 4: the concurrent-request ceiling.
 func TestMaxConcurrent(t *testing.T) {
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
@@ -374,7 +374,7 @@ func TestGarbageCtrlDoesNotKillSession(t *testing.T) {
 		}
 	}
 
-	// Oturum hala calisiyor olmali.
+	// The session should still be running.
 	if err := v.sendCtrl(protocol.Req{ID: 4, Method: "GET", Path: "/", Headers: map[string]string{}}); err != nil {
 		t.Fatal(err)
 	}
@@ -404,8 +404,8 @@ func waitForRes(t *testing.T, v *visitor, id uint32) {
 	}
 }
 
-// Kanallar arasinda siralama olmadigi icin govde cerceveleri `req`'ten ONCE
-// gelebilir. Ajan bunlari tamponlayip `req` gelince sirasiyla islemeli.
+// Because there is no ordering between the channels, body frames may arrive
+// BEFORE `req`. The agent has to buffer them and process them in order.
 func TestFramesBeforeReqAreBuffered(t *testing.T) {
 	body := bytes.Repeat([]byte("z"), protocol.MaxPayload+500)
 	gotBody := make(chan []byte, 1)
@@ -424,7 +424,7 @@ func TestFramesBeforeReqAreBuffered(t *testing.T) {
 	})
 	v.nextCtrl(t, settle)
 
-	// ONCE cerceveler ve end, SONRA req.
+	// FIRST the frames and end, THEN req.
 	frames := uint32(0)
 	for off := 0; off < len(body); off += protocol.MaxPayload {
 		end := off + protocol.MaxPayload
@@ -439,10 +439,10 @@ func TestFramesBeforeReqAreBuffered(t *testing.T) {
 	if err := v.sendCtrl(protocol.End{ID: 21, Frames: frames, Len: int64(len(body))}); err != nil {
 		t.Fatal(err)
 	}
-	// Cercevelerin varmasina zaman taniyalim ki req gercekten sonra gelsin.
+	// Give the frames time to arrive so that req really comes afterwards.
 	time.Sleep(150 * time.Millisecond)
 	if err := v.sendCtrl(protocol.Req{
-		ID: 21, Method: "POST", Path: "/sonra", Headers: map[string]string{}, HasBody: true,
+		ID: 21, Method: "POST", Path: "/later", Headers: map[string]string{}, HasBody: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -457,9 +457,9 @@ func TestFramesBeforeReqAreBuffered(t *testing.T) {
 	}
 }
 
-// `end` govde cercevelerinden once gelirse akis erken kapanmamali.
+// If `end` arrives before the body frames the stream must not close early.
 func TestEndBeforeFramesWaitsForCounters(t *testing.T) {
-	body := []byte("gecikmeli govde")
+	body := []byte("a late body")
 	gotBody := make(chan []byte, 1)
 
 	_, v := connect(t, Config{
@@ -482,7 +482,7 @@ func TestEndBeforeFramesWaitsForCounters(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond)
-	// Cerceve SONRA.
+	// The frame comes AFTERWARDS.
 	if err := v.sendFrame(23, 0, body); err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +497,7 @@ func TestEndBeforeFramesWaitsForCounters(t *testing.T) {
 	}
 }
 
-// Bildirilen uzunluktan fazla govde gelirse protokol hatasi.
+// More body than the reported length is a protocol error.
 func TestBodyLengthMismatchAborts(t *testing.T) {
 	_, v := connect(t, Config{
 		Proxy: proxyFunc(func(_ context.Context, _ protocol.Req, r io.Reader, sink ResponseSink) {

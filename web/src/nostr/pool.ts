@@ -1,10 +1,11 @@
 /**
- * Ziyaretci tarafindaki Nostr relay katmani.
+ * The visitor-side Nostr relay layer.
  *
- * Go karsiligi: `agent/internal/nostr`. BRIEF bolum 4'un iki kuralini
- * uyguluyor:
- *  - Ayni mesaj TUM relay'lere yollanir, EN AZ BIRI kabul ederse basarili.
- *  - Bir relay dusse digerleri calismaya devam eder.
+ * Go counterpart: `agent/internal/nostr`. It implements the two rules from
+ * BRIEF section 4:
+ *  - the same message goes to ALL relays, and succeeds if AT LEAST ONE
+ *    accepts it,
+ *  - if one relay goes down the others keep working.
  */
 
 import type { EventTemplate, Event as NostrEvent } from "nostr-tools/core";
@@ -16,18 +17,18 @@ import {
 import { SimplePool } from "nostr-tools/pool";
 import { finalizeEvent } from "nostr-tools/pure";
 
-/** Signaling event turu: ephemeral aralikta (20000-29999), relay'ler saklamaz. */
+/** Signaling event kind: in the ephemeral range (20000-29999), so relays do not store it. */
 export const KIND_SIGNALING = 25050;
 
-/** Alici pubkey'i tasiyan tag adi. */
+/** Name of the tag that carries the recipient pubkey. */
 export const TAG_RECIPIENT = "p";
 
 /**
- * Varsayilan relay listesi.
+ * Default relay list.
  *
- * `peerpages doctor` ile 2026-10-26'da canli dogrulandi: dordu de baglandi,
- * ephemeral kind 25050 event'i kabul etti ve aboneye geri iletti. Go
- * tarafindaki `DefaultRelays` ile AYNI olmali.
+ * Verified live with `peerpages doctor` on 2026-10-26: all four connected,
+ * accepted an ephemeral kind 25050 event and delivered it back to the
+ * subscriber. Must stay the SAME as `DefaultRelays` on the Go side.
  */
 export const DEFAULT_RELAYS = [
   "wss://nos.lol",
@@ -50,17 +51,17 @@ export interface PublishReport {
 
 export interface SignalingPoolOptions {
   readonly relays?: readonly string[];
-  /** Tek bir yayinin tamamlanmasi icin ust sinir. */
+  /** Upper bound for a single publish to complete. */
   readonly publishTimeoutMs?: number;
 }
 
 const DEFAULT_PUBLISH_TIMEOUT = 15_000;
 
 /**
- * Relay havuzu.
+ * The relay pool.
  *
- * `SimplePool` zaten yeniden baglanma ve tekrarlanan event ayiklamasini
- * yapiyor; biz ustune hedged yayini ve NIP-44 katmanini koyuyoruz.
+ * `SimplePool` already handles reconnects and de-duplicating events; on
+ * top of it we add the hedged publish and the NIP-44 layer.
  */
 export class SignalingPool {
   private readonly pool = new SimplePool();
@@ -71,7 +72,7 @@ export class SignalingPool {
   constructor(opts: SignalingPoolOptions = {}) {
     this.relays = [...(opts.relays ?? DEFAULT_RELAYS)];
     if (this.relays.length === 0) {
-      throw new RelayError("en az bir relay gerekli");
+      throw new RelayError("at least one relay is required");
     }
     this.publishTimeoutMs = opts.publishTimeoutMs ?? DEFAULT_PUBLISH_TIMEOUT;
   }
@@ -81,17 +82,17 @@ export class SignalingPool {
   }
 
   /**
-   * Payload'i aliciya sifreleyip tum relay'lere yollar.
+   * Encrypts the payload to the recipient and sends it to every relay.
    *
-   * EN AZ BIR relay kabul ederse basarili sayilir (hedged). Hicbiri kabul
-   * etmezse RelayError atar.
+   * It counts as a success if AT LEAST ONE relay accepts it (hedged). If
+   * none does, it throws RelayError.
    */
   async publish(
     secretKey: Uint8Array,
     recipientPubKey: string,
     payload: string,
   ): Promise<PublishReport> {
-    if (this.closed) throw new RelayError("havuz kapali");
+    if (this.closed) throw new RelayError("the pool is closed");
 
     const content = nip44Encrypt(payload, getConversationKey(secretKey, recipientPubKey));
 
@@ -122,7 +123,7 @@ export class SignalingPool {
 
     if (ok.length === 0) {
       throw new RelayError(
-        `hicbir relay event'i kabul etmedi (${this.relays.length} relay denendi): ` +
+        `no relay accepted the event (${this.relays.length} relays tried): ` +
           failed.map((f) => `${f.relay}: ${f.reason}`).join(" | "),
       );
     }
@@ -130,11 +131,11 @@ export class SignalingPool {
   }
 
   /**
-   * Bize gelen signaling event'lerine abone olur.
+   * Subscribes to the signaling events addressed to us.
    *
-   * Donen fonksiyon abonelikten cikar. `onPayload` NIP-44 cozulmus payload'i
-   * ve gonderen pubkey'i alir; cozulemeyen event'ler sessizce atlanir
-   * (baskasina ait ya da bozuk).
+   * The returned function unsubscribes. `onPayload` gets the NIP-44
+   * decrypted payload and the sender pubkey; events that cannot be
+   * decrypted are skipped silently (someone else's, or malformed).
    */
   subscribe(
     secretKey: Uint8Array,
@@ -142,7 +143,7 @@ export class SignalingPool {
     onPayload: (payload: string, fromPubKey: string) => void,
     onRelayCount?: (connected: number) => void,
   ): () => void {
-    if (this.closed) throw new RelayError("havuz kapali");
+    if (this.closed) throw new RelayError("the pool is closed");
 
     let connected = 0;
     const sub = this.pool.subscribe(
@@ -150,18 +151,19 @@ export class SignalingPool {
       {
         kinds: [KIND_SIGNALING],
         "#p": [ownPubKey],
-        // Ephemeral event'ler saklanmaz; gecmise bakmanin anlami yok.
+        // Ephemeral events are not stored; looking at the past is
+        // pointless.
         since: Math.floor(Date.now() / 1000) - 60,
       },
       {
         onevent: (event: NostrEvent) => {
-          // Kendi yayinimiz geri gelirse yok say.
+          // Ignore our own publish coming back.
           if (event.pubkey === ownPubKey) return;
           let payload: string;
           try {
             payload = nip44Decrypt(event.content, getConversationKey(secretKey, event.pubkey));
           } catch {
-            // Bize sifrelenmemis ya da bozuk: atla.
+            // Not encrypted to us, or malformed: skip.
             return;
           }
           onPayload(payload, event.pubkey);
@@ -187,7 +189,7 @@ export class SignalingPool {
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label}: zaman asimi`)), ms);
+    const timer = setTimeout(() => reject(new Error(`${label}: timed out`)), ms);
     p.then(
       (v) => {
         clearTimeout(timer);

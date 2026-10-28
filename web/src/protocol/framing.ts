@@ -1,24 +1,25 @@
 /**
- * `data` kanalinin ikili cerceve bicimi.
+ * The binary frame format of the `data` channel.
  *
- * `[4B id BE][4B seq BE][payload <= 16384]` — normatif tanim:
- * `protocol/README.md`. Test vektorleri `protocol/testvectors.json` icinde ve
- * Go tarafi (`agent/internal/protocol`) ayni dosyayi okur.
+ * `[4B id BE][4B seq BE][payload <= 16384]` — normative definition:
+ * `protocol/README.md`. The test vectors live in
+ * `protocol/testvectors.json` and the Go side
+ * (`agent/internal/protocol`) reads the same file.
  */
 
-/** Cerceve basligi: id (4) + seq (4). */
+/** Frame header: id (4) + seq (4). */
 export const HEADER_BYTES = 8;
 
-/** En buyuk payload: 16 KiB (tarayici data channel uyumlulugu, BRIEF §3). */
+/** Largest payload: 16 KiB (browser data channel compatibility, BRIEF section 3). */
 export const MAX_PAYLOAD = 16384;
 
-/** En buyuk cerceve: baslik + payload. */
+/** Largest frame: header + payload. */
 export const MAX_FRAME = HEADER_BYTES + MAX_PAYLOAD;
 
-/** Protokol genelinde paylasilan framing hata kodlari. */
+/** Framing error codes shared across the protocol. */
 export type FramingErrorCode = "short-frame" | "payload-too-large";
 
-/** Framing hatasi. `code` iki dilde aynidir; testvectors.json buna gore dogrular. */
+/** A framing error. `code` is the same in both languages; testvectors.json checks against it. */
 export class FramingError extends Error {
   readonly code: FramingErrorCode;
 
@@ -33,31 +34,34 @@ export interface Frame {
   readonly id: number;
   readonly seq: number;
   /**
-   * Govde parcasi. Tampon tipi `ArrayBuffer` olarak sabit: cerceveyi her
-   * zaman yeni bir tamponda uretiyoruz, boylece `RTCDataChannel.send` ve
-   * `postMessage` transfer listesi gibi SharedArrayBuffer kabul etmeyen
-   * API'lere dogrudan verilebiliyor.
+   * A chunk of the body. The buffer type is fixed to `ArrayBuffer`: we
+   * always build the frame in a fresh buffer, so it can go straight into
+   * APIs that do not accept a SharedArrayBuffer, such as
+   * `RTCDataChannel.send` and the `postMessage` transfer list.
    */
   readonly payload: Uint8Array<ArrayBuffer>;
 }
 
 function assertUint32(name: string, v: number): void {
   if (!Number.isInteger(v) || v < 0 || v > 0xffffffff) {
-    throw new RangeError(`${name} uint32 olmali (0…4294967295), verilen: ${v}`);
+    throw new RangeError(`${name} must be a uint32 (0...4294967295), got: ${v}`);
   }
 }
 
 /**
- * Cerceveyi kodlar.
+ * Encodes a frame.
  *
- * @throws {FramingError} payload 16 KiB'dan buyukse (`payload-too-large`)
- * @throws {RangeError} id ya da seq uint32 araliginda degilse
+ * @throws {FramingError} when the payload is larger than 16 KiB (`payload-too-large`)
+ * @throws {RangeError} when id or seq is outside the uint32 range
  */
 export function encodeFrame(id: number, seq: number, payload: Uint8Array): Uint8Array<ArrayBuffer> {
   assertUint32("id", id);
   assertUint32("seq", seq);
   if (payload.byteLength > MAX_PAYLOAD) {
-    throw new FramingError("payload-too-large", `${payload.byteLength} bayt, sinir ${MAX_PAYLOAD}`);
+    throw new FramingError(
+      "payload-too-large",
+      `${payload.byteLength} bytes, limit ${MAX_PAYLOAD}`,
+    );
   }
 
   const out = new Uint8Array(HEADER_BYTES + payload.byteLength);
@@ -69,21 +73,22 @@ export function encodeFrame(id: number, seq: number, payload: Uint8Array): Uint8
 }
 
 /**
- * Cerceveyi cozer. Donen `payload` cerceve tamponunun **kopyasidir**; data
- * channel'in verdigi tamponu tutmayiz (tarayici onu yeniden kullanabilir).
+ * Decodes a frame. The returned `payload` is a **copy** of the frame
+ * buffer; we never hold on to the buffer the data channel handed us (the
+ * browser may reuse it).
  *
- * @throws {FramingError} `short-frame` ya da `payload-too-large`
+ * @throws {FramingError} `short-frame` or `payload-too-large`
  */
 export function decodeFrame(frame: Uint8Array): Frame {
   if (frame.byteLength < HEADER_BYTES) {
     throw new FramingError(
       "short-frame",
-      `${frame.byteLength} bayt, en az ${HEADER_BYTES} gerekli`,
+      `${frame.byteLength} bytes, at least ${HEADER_BYTES} required`,
     );
   }
   const payloadLen = frame.byteLength - HEADER_BYTES;
   if (payloadLen > MAX_PAYLOAD) {
-    throw new FramingError("payload-too-large", `${payloadLen} bayt, sinir ${MAX_PAYLOAD}`);
+    throw new FramingError("payload-too-large", `${payloadLen} bytes, limit ${MAX_PAYLOAD}`);
   }
 
   const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
@@ -95,8 +100,8 @@ export function decodeFrame(frame: Uint8Array): Frame {
 }
 
 /**
- * Gövdeyi 16 KiB'lik parcalara boler ve her biri icin cerceve uretir.
- * `seq` verilen degerden baslayarak artar.
+ * Splits the body into 16 KiB chunks and yields a frame for each.
+ * `seq` starts at the given value and increments.
  */
 export function* frameBody(
   id: number,

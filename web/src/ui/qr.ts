@@ -1,36 +1,36 @@
 /**
- * QR kodlayici — elle yazilmis, bagimlilik yok.
+ * A QR encoder — hand-written, no dependency.
  *
- * Neden paket eklemedik: web tarafinda tek calisma zamani bagimliligi
- * (`nostr-tools`) var ve oyle kalsin istedik. Ihtiyac da dar: ziyaretci
- * URL'sini telefona tasimak icin tek bir QR yetiyor.
+ * Why we did not add a package: the web side has exactly one runtime
+ * dependency (`nostr-tools`) and we wanted to keep it that way. The need
+ * is narrow too: one QR is enough to carry the visitor URL to a phone.
  *
- * Kapsam (bilincli olarak kucuk):
- *  - yalnizca BYTE modu (UTF-8), ki URL'ler icin dogru mod bu
- *  - yalnizca hata duzeltme seviyesi M (~%15 kurtarma)
- *  - surum 1-10 (kenar 21-57 modul), byte modunda 216 bayta kadar
+ * Scope (deliberately small):
+ *  - BYTE mode only (UTF-8), which is the right mode for URLs
+ *  - error correction level M only (~15% recovery)
+ *  - versions 1-10 (21-57 modules per side), up to 216 bytes in byte mode
  *
- * Bu dosya CIZIM YAPMAZ: yalnizca matris dondurur (true = koyu modul).
- * Cizim cagiran tarafta — boylece burasi saf fonksiyon olarak test
- * edilebiliyor (vitest DOM'suz kosuyor).
+ * This file DOES NOT DRAW: it only returns a matrix (true = dark module).
+ * Drawing is the caller's job — which keeps this testable as a pure
+ * function (vitest runs without a DOM).
  *
- * Dogrulama: `qr-testvectors.json` UCUNCU bir bagimsiz uygulama (python
- * `qrcode`) ile uretildi — `scripts/gen-qr-vectors.py`. Protokol
- * vektorlerindeki ayni duzen: kendi uretttigimiz seye karsi test etmek bir
- * sey kanitlamaz.
+ * Verification: `qr-testvectors.json` was produced with a THIRD,
+ * independent implementation (python `qrcode`) —
+ * `scripts/gen-qr-vectors.py`. Same arrangement as the protocol vectors:
+ * testing against something we produced ourselves proves nothing.
  *
- * Tanim: ISO/IEC 18004.
+ * Specification: ISO/IEC 18004.
  */
 
-/** Uretilen QR kodu. */
+/** The generated QR code. */
 export interface QRCode {
-  /** Surum (1-10). */
+  /** Version (1-10). */
   readonly version: number;
-  /** Secilen maske deseni (0-7). */
+  /** The chosen mask pattern (0-7). */
   readonly mask: number;
-  /** Kenar uzunlugu (modul): 4 * surum + 17. */
+  /** Side length in modules: 4 * version + 17. */
   readonly size: number;
-  /** modules[satir][kolon] — true koyu. */
+  /** modules[row][column] — true is dark. */
   readonly modules: readonly boolean[][];
 }
 
@@ -41,14 +41,14 @@ export class QRError extends Error {
   }
 }
 
-/** Desteklenen en buyuk surum. */
+/** Largest supported version. */
 export const MAX_VERSION = 10;
 
 /**
- * Seviye M blok yapisi, surum 1-10.
+ * Level M block structure, versions 1-10.
  *
- * `ec`: blok basina hata duzeltme kod sozcugu.
- * `blocks`: [blok sayisi, blok basina VERI kod sozcugu] ciftleri.
+ * `ec`: error correction codewords per block.
+ * `blocks`: [block count, DATA codewords per block] pairs.
  */
 const LEVEL_M: ReadonlyArray<{ ec: number; blocks: ReadonlyArray<[number, number]> }> = [
   { ec: 10, blocks: [[1, 16]] }, // surum 1
@@ -81,7 +81,7 @@ const LEVEL_M: ReadonlyArray<{ ec: number; blocks: ReadonlyArray<[number, number
   }, // surum 10
 ];
 
-/** Hizalama deseni merkezleri (surum 1'de yok). */
+/** Alignment pattern centres (none in version 1). */
 const ALIGNMENT: ReadonlyArray<readonly number[]> = [
   [],
   [6, 18],
@@ -95,16 +95,16 @@ const ALIGNMENT: ReadonlyArray<readonly number[]> = [
   [6, 28, 50],
 ];
 
-/** Veri+EC akisindan sonra eklenen dolgu biti sayisi. */
+/** Number of remainder bits added after the data+EC stream. */
 function remainderBits(version: number): number {
-  // Surum 1 ve 7-13: 0; surum 2-6: 7.
+  // Versions 1 and 7-13: 0; versions 2-6: 7.
   return version >= 2 && version <= 6 ? 7 : 0;
 }
 
-/** Surumun seviye M blok yapisi. */
+/** A version's level M block structure. */
 function specFor(version: number): { ec: number; blocks: ReadonlyArray<[number, number]> } {
   const spec = LEVEL_M[version - 1];
-  if (!spec) throw new QRError(`desteklenmeyen surum: ${version} (1-${MAX_VERSION})`);
+  if (!spec) throw new QRError(`unsupported version: ${version} (1-${MAX_VERSION})`);
   return spec;
 }
 
@@ -115,11 +115,11 @@ function dataCodewords(version: number): number {
 }
 
 /**
- * Dizi okumasi.
+ * Array read.
  *
- * Proje `noUncheckedIndexedAccess` ile derleniyor, yani her indeksleme
- * `| undefined` doner. Bu dosyadaki tablolar ve polinomlar sinirlari
- * icinde okunuyor; tek tek kontrol yerine tek bir yardimci kullaniyoruz.
+ * The project is built with `noUncheckedIndexedAccess`, so every index
+ * returns `| undefined`. The tables and polynomials in this file are read
+ * within their bounds; instead of checking each site we use one helper.
  */
 function num(arr: ArrayLike<number>, i: number): number {
   return arr[i] ?? 0;
@@ -128,9 +128,9 @@ function num(arr: ArrayLike<number>, i: number): number {
 // ---------------------------------------------------------------- GF(256)
 
 /**
- * Galois alani GF(256) log/antilog tablolari.
+ * GF(256) log/antilog tables.
  *
- * Ilkel polinom 0x11d (QR standardinin kullandigi), uretici 2.
+ * Primitive polynomial 0x11d (the one the QR standard uses), generator 2.
  */
 const EXP = new Uint8Array(512);
 const LOG = new Uint8Array(256);
@@ -150,7 +150,7 @@ function gfMul(a: number, b: number): number {
   return num(EXP, num(LOG, a) + num(LOG, b));
 }
 
-/** Verilen derece icin RS uretici polinomu. */
+/** The RS generator polynomial for a given degree. */
 function generatorPoly(degree: number): number[] {
   let poly = [1];
   for (let i = 0; i < degree; i++) {
@@ -164,7 +164,7 @@ function generatorPoly(degree: number): number[] {
   return poly;
 }
 
-/** Bir veri blogunun hata duzeltme kod sozcuklerini hesaplar. */
+/** Computes the error correction codewords of one data block. */
 function reedSolomon(data: readonly number[], ecCount: number): number[] {
   const gen = generatorPoly(ecCount);
   const res = new Array<number>(ecCount).fill(0);
@@ -180,7 +180,7 @@ function reedSolomon(data: readonly number[], ecCount: number): number[] {
   return res;
 }
 
-// ------------------------------------------------------------- bit akisi
+// ------------------------------------------------------------ bit stream
 
 class BitBuffer {
   private readonly bits: number[] = [];
@@ -195,7 +195,7 @@ class BitBuffer {
     return this.bits.length;
   }
 
-  /** Bayt dizisine cevirir; son bayt eksikse sifirla doldurur. */
+  /** Converts to a byte array; pads the last byte with zeros. */
   toBytes(): number[] {
     const out: number[] = [];
     for (let i = 0; i < this.bits.length; i += 8) {
@@ -209,12 +209,12 @@ class BitBuffer {
   }
 }
 
-/** Karakter sayaci alan genisligi (byte modu). */
+/** Width of the character count field (byte mode). */
 function charCountBits(version: number): number {
   return version <= 9 ? 8 : 16;
 }
 
-/** Verilen bayt uzunlugunu tasiyabilen en kucuk surum. */
+/** Smallest version that can carry the given byte length. */
 function pickVersion(byteLength: number): number {
   for (let v = 1; v <= MAX_VERSION; v++) {
     const capacityBits = dataCodewords(v) * 8;
@@ -222,11 +222,11 @@ function pickVersion(byteLength: number): number {
     if (needed <= capacityBits) return v;
   }
   throw new QRError(
-    `metin cok uzun: ${byteLength} bayt, surum ${MAX_VERSION} byte modunda en fazla ${dataCodewords(MAX_VERSION) - 3} bayt alir`,
+    `text is too long: ${byteLength} bytes, version ${MAX_VERSION} in byte mode holds at most ${dataCodewords(MAX_VERSION) - 3} bytes`,
   );
 }
 
-/** Veri kod sozcuklerini uretir: mod + sayac + veri + sonlandirici + dolgu. */
+/** Builds the data codewords: mode + count + data + terminator + padding. */
 function encodeData(bytes: readonly number[], version: number): number[] {
   const buf = new BitBuffer();
   buf.put(0b0100, 4); // byte modu
@@ -234,13 +234,13 @@ function encodeData(bytes: readonly number[], version: number): number[] {
   for (const b of bytes) buf.put(b, 8);
 
   const capacity = dataCodewords(version) * 8;
-  // Sonlandirici en fazla 4 bit, kalan yer kadar.
+  // The terminator is at most 4 bits, and only as much as fits.
   buf.put(0, Math.min(4, capacity - buf.length));
-  // Bayt sinirina hizala.
+  // Align to a byte boundary.
   if (buf.length % 8 !== 0) buf.put(0, 8 - (buf.length % 8));
 
   const words = buf.toBytes();
-  // Dolgu baytlari standartta sabit ve sirayla: 0xEC, 0x11.
+  // The pad bytes are fixed by the standard and alternate: 0xEC, 0x11.
   const pad = [0xec, 0x11];
   for (let i = 0; words.length < dataCodewords(version); i++) {
     words.push(num(pad, i % 2));
@@ -249,10 +249,12 @@ function encodeData(bytes: readonly number[], version: number): number[] {
 }
 
 /**
- * Bloklara bol, EC hesapla ve standardin istedigi sirada ic ice gecir.
+ * Splits into blocks, computes EC and interleaves in the order the
+ * standard requires.
  *
- * Serpistirme (interleaving) gercek bir gereklilik: hasar bir bolgede
- * yogunlastiginda tek blogu degil tum bloklari az az etkilesin diye.
+ * Interleaving is a real requirement: when damage concentrates in one
+ * area it should touch every block a little rather than ruin a single
+ * one.
  */
 function interleave(words: readonly number[], version: number): number[] {
   const spec = specFor(version);
@@ -282,22 +284,22 @@ function interleave(words: readonly number[], version: number): number[] {
   return out;
 }
 
-// ----------------------------------------------------------------- matris
+// ----------------------------------------------------------------- matrix
 
-/** Modul durumu: null henuz yazilmamis (fonksiyon deseni degil, veri degil). */
+/** Module state: null means not written yet (neither function pattern nor data). */
 type Grid = Array<Array<boolean | null>>;
 
 function emptyGrid(size: number): Grid {
   return Array.from({ length: size }, () => new Array<boolean | null>(size).fill(null));
 }
 
-/** Grid'e tek modul yazar; sinir disi yazim sessizce yok sayilir. */
+/** Writes one module into the grid; out-of-bounds writes are ignored silently. */
 function gset(grid: Grid, r: number, c: number, value: boolean | null): void {
   const row = grid[r];
   if (row) row[c] = value;
 }
 
-/** Grid'den okur; sinir disi icin undefined. */
+/** Reads from the grid; undefined out of bounds. */
 function gget(grid: Grid, r: number, c: number): boolean | null | undefined {
   return grid[r]?.[c];
 }
@@ -319,23 +321,23 @@ function placeFinder(grid: Grid, row: number, col: number): void {
 function placeFunctionPatterns(grid: Grid, version: number): void {
   const size = grid.length;
 
-  // Uc bulucu desen + ayiricilari.
+  // Three finder patterns plus their separators.
   placeFinder(grid, 0, 0);
   placeFinder(grid, 0, size - 7);
   placeFinder(grid, size - 7, 0);
 
-  // Zamanlama desenleri (6. satir ve 6. kolon).
+  // Timing patterns (row 6 and column 6).
   for (let i = 8; i < size - 8; i++) {
     const dark = i % 2 === 0;
     gset(grid, 6, i, dark);
     gset(grid, i, 6, dark);
   }
 
-  // Hizalama desenleri.
+  // Alignment patterns.
   const centers = ALIGNMENT[version - 1] ?? [];
   for (const r of centers) {
     for (const c of centers) {
-      // Bulucu desenlerin uzerine gelenler atlanir.
+      // Those landing on the finder patterns are skipped.
       if ((r === 6 && c === 6) || (r === 6 && c === size - 7) || (r === size - 7 && c === 6)) {
         continue;
       }
@@ -348,13 +350,13 @@ function placeFunctionPatterns(grid: Grid, version: number): void {
     }
   }
 
-  // Koyu modul.
+  // The dark module.
   gset(grid, size - 8, 8, true);
 
-  // Bicim bilgisi alanlarini rezerve et (degerleri sonra yazilir).
+  // Reserve the format information areas (the values come later).
   reserveFormatAreas(grid);
 
-  // Surum bilgisi alanlari (surum 7+).
+  // Version information areas (version 7+).
   if (version >= 7) {
     for (let i = 0; i < 18; i++) {
       const a = Math.floor(i / 3);
@@ -380,10 +382,10 @@ function reserveFormatAreas(grid: Grid): void {
 }
 
 /**
- * Veri bitlerini zikzak yerlestirir.
+ * Places the data bits in a zigzag.
  *
- * Iki modul genisliginde kolonlar, sagdan sola; her kolonda yon degisir.
- * 6. kolon zamanlama deseni oldugu icin atlanir.
+ * Two-module wide columns, right to left; the direction flips in each
+ * column. Column 6 is skipped because it is the timing pattern.
  */
 function placeData(grid: Grid, bits: readonly number[]): void {
   const size = grid.length;
@@ -392,9 +394,9 @@ function placeData(grid: Grid, bits: readonly number[]): void {
 
   let right = size - 1;
   while (right >= 1) {
-    // 6. kolon zamanlama deseni: kolon ciftleri oradan itibaren bir sola
-    // kayar, yani sayaci da kaydirmak gerekir (yoksa sonraki ciftler
-    // birbirinin uzerine biner).
+    // Column 6 is the timing pattern: from there on the column pairs
+    // shift one to the left, so the counter has to shift too (otherwise
+    // the following pairs would overlap).
     if (right === 6) right = 5;
 
     for (let i = 0; i < size; i++) {
@@ -411,7 +413,7 @@ function placeData(grid: Grid, bits: readonly number[]): void {
   }
 }
 
-/** Maske formulleri (ISO/IEC 18004 Tablo 10). */
+/** Mask formulas (ISO/IEC 18004 Table 10). */
 const MASKS: ReadonlyArray<(r: number, c: number) => boolean> = [
   (r, c) => (r + c) % 2 === 0,
   (r) => r % 2 === 0,
@@ -423,11 +425,11 @@ const MASKS: ReadonlyArray<(r: number, c: number) => boolean> = [
   (r, c) => (((r + c) % 2) + ((r * c) % 3)) % 2 === 0,
 ];
 
-/** Fonksiyon deseni olmayan modullere maske uygular. */
+/** Applies the mask to every module that is not a function pattern. */
 function applyMask(grid: Grid, functionMap: boolean[][], mask: number): boolean[][] {
   const size = grid.length;
   const formula = MASKS[mask];
-  if (!formula) throw new QRError(`maske 0-7 arasinda olmali, verilen: ${mask}`);
+  if (!formula) throw new QRError(`mask must be 0-7, got: ${mask}`);
 
   const out: boolean[][] = [];
   for (let r = 0; r < size; r++) {
@@ -443,7 +445,7 @@ function applyMask(grid: Grid, functionMap: boolean[][], mask: number): boolean[
   return out;
 }
 
-/** BCH(15,5) bicim bilgisi; seviye M icin gostergesi 00. */
+/** BCH(15,5) format information; the indicator for level M is 00. */
 function formatBits(mask: number): number {
   const data = (0b00 << 3) | mask;
   let rem = data << 10;
@@ -453,7 +455,7 @@ function formatBits(mask: number): number {
   return ((data << 10) | rem) ^ 0x5412;
 }
 
-/** BCH(18,6) surum bilgisi (surum 7+). */
+/** BCH(18,6) version information (version 7+). */
 function versionBits(version: number): number {
   let rem = version << 12;
   for (let i = 5; i >= 0; i--) {
@@ -462,7 +464,7 @@ function versionBits(version: number): number {
   return (version << 12) | rem;
 }
 
-/** Tek modul yazar; sinir disi yazim sessizce yok sayilir. */
+/** Writes one module; out-of-bounds writes are ignored silently. */
 function put(modules: boolean[][], r: number, c: number, value: boolean): void {
   const row = modules[r];
   if (row) row[c] = value;
@@ -475,20 +477,20 @@ function writeFormatInfo(modules: boolean[][], mask: number): void {
   for (let i = 0; i < 15; i++) {
     const on = ((bits >>> i) & 1) === 1;
 
-    // Sol ust kose: dusuk bitler 8. KOLONDA yukaridan asagi, yuksek bitler
-    // 8. SATIRDA sagdan sola (ISO/IEC 18004 Sekil 19).
+    // Top-left corner: the low bits run down COLUMN 8, the high bits run
+    // right to left along ROW 8 (ISO/IEC 18004 Figure 19).
     if (i < 6) put(modules, i, 8, on);
     else if (i === 6) put(modules, 7, 8, on);
     else if (i === 7) put(modules, 8, 8, on);
     else if (i === 8) put(modules, 8, 7, on);
     else put(modules, 8, 14 - i, on);
 
-    // Kopyasi: dusuk bitler 8. satirda sagdan, yuksek bitler 8. kolonda
-    // asagidan.
+    // The copy: low bits from the right in row 8, high bits from the
+    // bottom in column 8.
     if (i < 8) put(modules, 8, size - 1 - i, on);
     else put(modules, size - 15 + i, 8, on);
   }
-  // Koyu modul maskelenmez.
+  // The dark module is never masked.
   put(modules, size - 8, 8, true);
 }
 
@@ -505,17 +507,17 @@ function writeVersionInfo(modules: boolean[][], version: number): void {
   }
 }
 
-// --------------------------------------------------------------- penalti
+// --------------------------------------------------------------- penalty
 
-/** Maske secimi icin penalti (ISO/IEC 18004 Tablo 11). */
+/** Penalty used to choose the mask (ISO/IEC 18004 Table 11). */
 export function penalty(modules: readonly boolean[][]): number {
   const size = modules.length;
   let score = 0;
 
-  /** Sinir disi okuma acik modul sayilir (kenar penaltilarini bozmasin). */
+  /** An out-of-bounds read counts as a light module (so edge penalties stay sane). */
   const cell = (r: number, c: number): boolean => modules[r]?.[c] === true;
 
-  // Kural 1: 5 ve uzeri ayni renk dizisi.
+  // Rule 1: runs of five or more modules of the same colour.
   const runScore = (run: number) => (run >= 5 ? 3 + (run - 5) : 0);
   for (let r = 0; r < size; r++) {
     let run = 1;
@@ -540,7 +542,7 @@ export function penalty(modules: readonly boolean[][]): number {
     score += runScore(run);
   }
 
-  // Kural 2: 2x2 ayni renk bloklar.
+  // Rule 2: 2x2 blocks of the same colour.
   for (let r = 0; r < size - 1; r++) {
     for (let c = 0; c < size - 1; c++) {
       const v = cell(r, c);
@@ -550,7 +552,8 @@ export function penalty(modules: readonly boolean[][]): number {
     }
   }
 
-  // Kural 3: bulucu desene benzeyen 1:1:3:1:1 dizisi (iki yonde).
+  // Rule 3: the 1:1:3:1:1 run that looks like a finder pattern (both
+  // directions).
   const pattern = [true, false, true, true, true, false, true, false, false, false, false];
   const matches = (get: (i: number) => boolean, start: number): boolean => {
     for (let i = 0; i < 11; i++) {
@@ -578,7 +581,7 @@ export function penalty(modules: readonly boolean[][]): number {
     }
   }
 
-  // Kural 4: koyu modul oraninin %50'den sapmasi.
+  // Rule 4: how far the dark module ratio strays from 50%.
   let dark = 0;
   for (const row of modules) {
     for (const v of row) if (v) dark++;
@@ -589,18 +592,19 @@ export function penalty(modules: readonly boolean[][]): number {
   return score;
 }
 
-// ----------------------------------------------------------------- girdi
+// ----------------------------------------------------------------- input
 
 /**
- * Metni QR koduna cevirir.
+ * Turns text into a QR code.
  *
- * @param text kodlanacak metin (UTF-8 bayta cevrilir)
- * @param opts.mask maskeyi zorlar (0-7). Verilmezse penalti kurallariyla
- *   secilir. Zorlama test vektorleri icin: ucuncu uygulama ile bayt bayt
- *   karsilastirma ancak maske sabitken anlamli olur.
+ * @param text the text to encode (converted to UTF-8 bytes)
+ * @param opts.mask forces the mask (0-7). Chosen by the penalty rules when
+ *   omitted. Forcing it is for the test vectors: a byte-for-byte
+ *   comparison with the third implementation only means something with a
+ *   fixed mask.
  */
 export function encode(text: string, opts?: { readonly mask?: number }): QRCode {
-  if (text === "") throw new QRError("bos metin kodlanamaz");
+  if (text === "") throw new QRError("empty text cannot be encoded");
 
   const bytes = Array.from(new TextEncoder().encode(text));
   const version = pickVersion(bytes.length);
@@ -616,14 +620,14 @@ export function encode(text: string, opts?: { readonly mask?: number }): QRCode 
   const grid = emptyGrid(size);
   placeFunctionPatterns(grid, version);
 
-  // Fonksiyon desenlerinin haritasi: maske yalnizca veri modullerine uygulanir.
+  // Map of the function patterns: the mask only applies to data modules.
   const functionMap = grid.map((row) => row.map((cell) => cell !== null));
 
   placeData(grid, bits);
 
   const forced = opts?.mask;
   if (forced !== undefined && (!Number.isInteger(forced) || forced < 0 || forced > 7)) {
-    throw new QRError(`maske 0-7 arasinda olmali, verilen: ${forced}`);
+    throw new QRError(`mask must be 0-7, got: ${forced}`);
   }
 
   let best: boolean[][] | null = null;
@@ -642,7 +646,7 @@ export function encode(text: string, opts?: { readonly mask?: number }): QRCode 
       best = modules;
     }
   }
-  if (!best) throw new QRError("maske secilemedi");
+  if (!best) throw new QRError("no mask could be chosen");
 
   return { version, mask: bestMask, size, modules: best };
 }

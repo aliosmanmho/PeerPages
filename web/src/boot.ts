@@ -1,13 +1,13 @@
 import { CONNECT_PATH, inBase } from "./base";
 
 /**
- * Scope kokundeki onyukleyici.
+ * Bootloader at the scope root.
  *
- * Service Worker'i kurar, sonra baglanti ekranina gecer. Hash korunur:
- * `#peer-id` Faz 2'de burada tasinacak.
+ * Installs the Service Worker, then moves on to the connect screen. The
+ * hash is preserved, which is how `#peer-id` travels.
  *
- * Tunel acikken bu betik hic calismaz; SW scope kokunu yerel siteye
- * proxy'ler (src/sw.ts).
+ * While the tunnel is open this script never runs: the SW proxies the
+ * scope root to the local site (src/sw.ts).
  */
 async function boot(): Promise<void> {
   const msg = document.getElementById("boot-msg");
@@ -17,7 +17,7 @@ async function boot(): Promise<void> {
       await navigator.serviceWorker.register(inBase("sw.js"), { scope: inBase("") });
     } catch (err) {
       if (msg) {
-        msg.textContent = `Service Worker kurulamadi: ${String(err)}`;
+        msg.textContent = `Service Worker could not be installed: ${String(err)}`;
       }
       return;
     }

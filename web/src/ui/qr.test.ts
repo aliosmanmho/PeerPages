@@ -143,7 +143,7 @@ describe("encode — girdi kontrolleri", () => {
   it("kapasite sinirinda calisir, bir fazlasini reddeder", () => {
     const max = V.limits.maxBytes;
     expect(encode("a".repeat(max)).version).toBe(MAX_VERSION);
-    expect(() => encode("a".repeat(max + 1))).toThrow(/cok uzun/);
+    expect(() => encode("a".repeat(max + 1))).toThrow(/too long/);
   });
 
   // Byte modu BAYT sayar: cok baytli karakterler kapasiteyi daha hizli yer.

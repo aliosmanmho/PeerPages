@@ -1,8 +1,8 @@
 /**
- * `protocol/testvectors.json` icin tip ve yardimcilar.
+ * Types and helpers for `protocol/testvectors.json`.
  *
- * Bu dosya YALNIZCA testlerde kullanilir; uretim bundle'ina girmez.
- * Go tarafindaki karsiligi `agent/internal/protocol/vectors_test.go`.
+ * This file is used ONLY in tests; it never enters the production bundle.
+ * Its Go counterpart is `agent/internal/protocol/vectors_test.go`.
  */
 
 export interface Pattern {
@@ -101,16 +101,16 @@ export interface TestVectors {
   };
 }
 
-/** Hex metni bayta cevirir. Tek haneli ya da gecersiz girdi hata verir. */
+/** Turns hex text into bytes. Odd-length or invalid input throws. */
 export function fromHex(hex: string): Uint8Array {
   if (hex.length % 2 !== 0) {
-    throw new Error(`hex uzunlugu tek: ${hex.length}`);
+    throw new Error(`hex length is odd: ${hex.length}`);
   }
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) {
     const byte = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
     if (Number.isNaN(byte)) {
-      throw new Error(`gecersiz hex: ${hex.slice(i * 2, i * 2 + 2)}`);
+      throw new Error(`invalid hex: ${hex.slice(i * 2, i * 2 + 2)}`);
     }
     out[i] = byte;
   }
@@ -126,15 +126,16 @@ export function toHex(bytes: Uint8Array): string {
 }
 
 /**
- * Vektordeki uretim tarifini bayta cevirir. Go tarafiyla ayni kurallar:
- *  - `repeat`: `byte` degeri `len` kez,
- *  - `counter`: i. bayt `i % 256`.
+ * Turns a vector's generation recipe into bytes. Same rules as the Go
+ * side:
+ *  - `repeat`: the `byte` value `len` times,
+ *  - `counter`: byte i is `i % 256`.
  */
 export function buildPattern(p: Pattern): Uint8Array {
   const out = new Uint8Array(p.len);
   if (p.kind === "repeat") {
     if (p.byte === undefined) {
-      throw new Error("repeat deseni icin byte gerekli");
+      throw new Error("the repeat pattern requires byte");
     }
     out.fill(p.byte);
     return out;

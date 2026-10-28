@@ -1,38 +1,40 @@
 /**
- * Ziyaretci URL'sindeki peer-id'nin ayristirilmasi.
+ * Parsing the peer-id out of the visitor URL.
  *
- * Bicim (dilbilgisi): `#` npub [ "/" hedef ] [ ":" sir ]
+ * Grammar: `#` npub [ "/" target ] [ ":" secret ]
  *
- * Ornekler: `#npub1…`, `#npub1…/admin`, `#npub1…:gizli`, `#npub1…/admin:gizli`
+ * Examples: `#npub1...`, `#npub1.../admin`, `#npub1...:secret`
  *
- * peer-id TAM npub'dir. BRIEF bolum 4 "npub'in kisa formu" diyordu ama
- * NIP-44 sifreleme ve `#p` tag'i tam 32 baytlik pubkey gerektiriyor;
- * kisaltilmis id'den turetilemez. Karar ve gerekcesi BRIEF bolum 8'de.
- * Ekranda kisaltilmis GOSTERIM kullaniliyor (`shortenNpub`).
+ * The peer-id is the FULL npub. BRIEF section 4 said "the short form of
+ * the npub", but NIP-44 encryption and the `#p` tag need the whole
+ * 32-byte pubkey, which cannot be derived from a shortened id. Decision
+ * and reasoning in BRIEF section 8. A shortened form is used for DISPLAY
+ * only (`shortenNpub`).
  *
- * Hash'in sunucuya gitmedigini de not etmek gerek: `#` sonrasi tarayicida
- * kalir, yani paylasilan sir GitHub Pages'e ulasmaz.
+ * Worth noting: the hash never reaches the server. Everything after `#`
+ * stays in the browser, so a shared secret does not reach GitHub Pages.
  */
 
 import { decode } from "nostr-tools/nip19";
 
 export interface PeerTarget {
-  /** Ajanin npub'i (URL'de gorulen hali). */
+  /** The agent npub, as seen in the URL. */
   readonly npub: string;
-  /** Ajanin pubkey'i (32 bayt hex) — NIP-44 ve `#p` tag'i icin. */
+  /** The agent pubkey (32-byte hex) — for NIP-44 and the `#p` tag. */
   readonly pubkey: string;
-  /** Paylasilan sir; yoksa null. */
+  /** Shared secret, or null. */
   readonly secret: string | null;
   /**
-   * Ziyaretcinin istedigi hedef adi; URL'de yoksa null (ajan default'a duser).
+   * Target the visitor asked for; null means the agent falls back to
+   * default.
    *
-   * Coklu hedef: bir ajan birden cok yerel projeyi yayinlayabilir ve
-   * ziyaretci hangisini istedigini URL'de soyler (protocol/signaling.md).
+   * Multi-target: one agent can publish several local projects and the
+   * visitor names the one it wants in the URL (protocol/signaling.md).
    */
   readonly target: string | null;
 }
 
-/** Hedef adi bicimi — Go ve signaling katmanindakiyle ayni kume. */
+/** Target name format — the same set as Go and the signaling layer. */
 const TARGET_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$/;
 
 export class PeerIDError extends Error {
@@ -43,66 +45,65 @@ export class PeerIDError extends Error {
 }
 
 /**
- * URL hash'inden peer hedefini cikarir.
+ * Extracts the peer target from the URL hash.
  *
- * Girdi `#` ile baslayabilir ya da baslamayabilir. Bos/eksik hash icin
- * `null` doner: bu bir hata degil, "ziyaretci henuz bir ajan secmemis"
- * durumudur (baglanti ekrani elle signaling'e duser).
+ * The input may or may not start with `#`. An empty or missing hash
+ * returns `null`: that is not an error but "the visitor has not picked an
+ * agent yet" (the connect screen falls back to manual signaling).
  *
- * @throws {PeerIDError} hash dolu ama gecersizse
+ * @throws {PeerIDError} when the hash is non-empty but invalid
  */
 export function parseHash(hash: string): PeerTarget | null {
   let raw = hash.trim();
   if (raw.startsWith("#")) raw = raw.slice(1);
   if (raw === "") return null;
 
-  // Sir, npub'dan sonra ilk ':' ile ayrilir. npub'in kendisi ':' icermez
-  // (bech32 alfabesinde yok), bu yuzden ilk ':' guvenli bir ayirac.
+  // The secret is separated by the first ':' after the npub. An npub
+  // never contains ':' (not in the bech32 alphabet), so the first one is
+  // a safe separator.
   const colon = raw.indexOf(":");
   const head = colon >= 0 ? raw.slice(0, colon) : raw;
   const secretPart = colon >= 0 ? raw.slice(colon + 1) : "";
 
-  // Hedef, npub parcasindan '/' ile ayrilir ve YALNIZCA ':' oncesinde
-  // aranir. Sira onemli: sir serbest metindir ve icinde '/' bulunabilir,
-  // ama npub'da bulunamaz (bech32 alfabesinde '/' yok). Boylece
-  // `#npub…:a/b` sirri "a/b" olarak kalir, `#npub…/admin:a/b` ise hedefi
-  // admin, sirri "a/b" olur.
+  // The target is separated from the npub part by '/', and is only looked
+  // for BEFORE the ':'. The order matters: a secret is free text and may
+  // contain '/', while an npub cannot (no '/' in bech32). So
+  // `#npub...:a/b` keeps "a/b" as the secret, while `#npub.../admin:a/b`
+  // means target admin and secret "a/b".
   const slash = head.indexOf("/");
   const npub = slash >= 0 ? head.slice(0, slash) : head;
   const targetPart = slash >= 0 ? head.slice(slash + 1) : "";
 
   if (!npub.startsWith("npub1")) {
-    throw new PeerIDError(
-      `peer-id 'npub1' ile baslamali. Adresin '#' sonrasini eksiksiz kopyaladin mi?`,
-    );
+    throw new PeerIDError(`peer-id must start with 'npub1'. Did you copy everything after '#'?`);
   }
 
   let pubkey: string;
   try {
     const decoded = decode(npub);
     if (decoded.type !== "npub" || typeof decoded.data !== "string") {
-      throw new PeerIDError(`npub bekleniyordu, gelen: ${decoded.type}`);
+      throw new PeerIDError(`expected an npub, got: ${decoded.type}`);
     }
     pubkey = decoded.data;
   } catch (err) {
     if (err instanceof PeerIDError) throw err;
-    // bech32 checksum'u tutmadiysa burada duser: yanlis kopyalanmis URL.
-    throw new PeerIDError("peer-id okunamadi (checksum tutmuyor) — adresi eksiksiz kopyala");
+    // A bech32 checksum mismatch lands here: a badly copied URL.
+    throw new PeerIDError("peer-id could not be read (checksum mismatch) — copy the whole address");
   }
 
   if (!/^[0-9a-f]{64}$/.test(pubkey)) {
-    throw new PeerIDError("peer-id gecersiz bir pubkey tasiyor");
+    throw new PeerIDError("peer-id carries an invalid pubkey");
   }
 
   if (colon >= 0 && secretPart === "") {
-    throw new PeerIDError("URL'de ':' var ama sir bos");
+    throw new PeerIDError("the URL has a ':' but the secret is empty");
   }
 
   if (slash >= 0 && !TARGET_NAME_RE.test(targetPart)) {
     throw new PeerIDError(
       targetPart === ""
-        ? "URL'de '/' var ama hedef adi bos"
-        : `hedef adi gecersiz: ${JSON.stringify(targetPart)} (harf/rakam/_/- , en fazla 32)`,
+        ? "the URL has a '/' but the target name is empty"
+        : `invalid target name: ${JSON.stringify(targetPart)} (letters/digits/_/- , 32 max)`,
     );
   }
 
@@ -114,7 +115,7 @@ export function parseHash(hash: string): PeerTarget | null {
   };
 }
 
-/** Ekranda gosterim icin npub'i kisaltir: ilk 12 + son 4 (Go tarafiyla ayni). */
+/** Shortens an npub for display: first 12 + last 4 (same as Go). */
 export function shortenNpub(npub: string): string {
   if (npub.length <= 20) return npub;
   return `${npub.slice(0, 12)}…${npub.slice(-4)}`;

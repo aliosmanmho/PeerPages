@@ -237,7 +237,7 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
     await page.goto(`${CONNECT}?${relayQuery()}${hash}`);
 
     // 30 sn zaman asimi sonunda "ajan yanit vermedi" gorulmeli.
-    await expect(page.locator("#status-msg")).toContainText("Ajan yanit vermedi", {
+    await expect(page.locator("#status-msg")).toContainText("The agent did not answer", {
       timeout: 60_000,
     });
     await expect(page.locator("#btn-retry")).toBeEnabled();
@@ -298,7 +298,7 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
         const hash = agent.visitorURL.slice(agent.visitorURL.indexOf("#"));
         await page.goto(`${CONNECT}?${relayQuery([dropper.url])}${hash}`);
 
-        await expect(page.locator("#status-msg")).toContainText("Ajan yanit vermedi", {
+        await expect(page.locator("#status-msg")).toContainText("The agent did not answer", {
           timeout: 60_000,
         });
         await page.close();

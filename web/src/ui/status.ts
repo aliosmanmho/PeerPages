@@ -3,7 +3,8 @@ export type StepState = "idle" | "active" | "done" | "error";
 export type Tone = "info" | "ok" | "error";
 
 /**
- * Baglanti ekraninin durum satiri. DOM'u yoksa (test ortami) sessizce no-op.
+ * The status line on the connect screen. With no DOM (test environment) it
+ * quietly does nothing.
  */
 export class StatusView {
   private readonly steps = new Map<StepId, HTMLElement>();

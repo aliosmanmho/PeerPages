@@ -118,7 +118,7 @@ describe("parseHash — hedef", () => {
   });
 
   it("bos hedef reddedilir", () => {
-    expect(() => parseHash(`#${NPUB}/`)).toThrow(/hedef adi bos/);
+    expect(() => parseHash(`#${NPUB}/`)).toThrow(/target name is empty/);
   });
 
   it("gecersiz hedef adlari reddedilir", () => {

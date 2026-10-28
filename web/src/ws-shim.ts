@@ -1,17 +1,20 @@
 /**
- * `window.WebSocket` shim'i — tunelden gecen sayfalara enjekte edilir (Faz 6).
+ * The `window.WebSocket` shim, injected into pages served through the
+ * tunnel (phase 6).
  *
- * Neden gerekli: Service Worker yalnizca `fetch` olaylarini yakalar, WebSocket
- * el sikismasi onun kapsaminda DEGIL. Shim olmadan tunelden gecen bir sayfanin
- * `new WebSocket(...)` cagrisi gercek aga gider ve basarisiz olur — yani Vite
- * HMR, Socket.IO ve canli onizleme yapan her dev sunucusu yarim calisir.
+ * Why it is needed: a Service Worker only catches `fetch` events, the
+ * WebSocket handshake is NOT in its reach. Without the shim, a
+ * `new WebSocket(...)` call on a tunneled page goes to the real network
+ * and fails — which means Vite HMR, Socket.IO and every dev server with a
+ * live preview only half works.
  *
- * Yol: shim ziyaretci sekmesinde kosar, tunel BASKA sekmededir. Bir
- * `MessageChannel` kurulup portu SW'ye yollanir, SW onu tunel sahibi sayfaya
- * AKTARIR; sonrasi sayfa <-> sayfa (SW bosta oldurulebilir).
+ * How it works: the shim runs in the visitor's tab, the tunnel lives in
+ * ANOTHER tab. A `MessageChannel` is set up and its port is sent to the
+ * SW, which TRANSFERS it to the tunnel-owner page; from then on it is
+ * page <-> page (the SW may be killed while idle).
  *
- * Bu dosya KLASIK script olarak derlenir (modul degil) ve sayfanin kendi
- * script'lerinden ONCE kosmali.
+ * This file is built as a CLASSIC script (not a module) and must run
+ * BEFORE the page's own scripts.
  */
 
 import { WS_SHIM_FILE, type WsPortToPage, type WsPortToShim } from "./bridge";
@@ -23,17 +26,17 @@ const OPEN = 1 as const;
 const CLOSING = 2 as const;
 const CLOSED = 3 as const;
 
-/** WebSocket.readyState'in tip-guvenli hali. */
+/** A type-safe WebSocket.readyState. */
 type ReadyState = typeof CONNECTING | typeof OPEN | typeof CLOSING | typeof CLOSED;
 
-/** Shim'in zaten kurulu oldugunu isaretler (iki kez enjekte edilebilir). */
+/** Marks the shim as already installed (it can be injected twice). */
 const INSTALLED = "__peerpagesWsShim";
 
 /**
- * Shim'in servis edildigi dizin = app shell'in scope koku.
+ * The directory the shim is served from = the app shell's scope root.
  *
- * `document.currentScript` ile hesapliyoruz: enjekte edilen hicbir deger yok,
- * yani ajanin ya da SW'nin scope onekini bilmesi gerekmiyor.
+ * Computed from `document.currentScript`: no value is injected, so
+ * neither the agent nor the SW has to know the scope prefix.
  */
 export function scopeFromSrc(src: string | undefined, base: string): string {
   if (!src) return "/";
@@ -47,27 +50,28 @@ export function scopeFromSrc(src: string | undefined, base: string): string {
 }
 
 /**
- * Bu URL tunelden mi gecmeli?
+ * Should this URL go through the tunnel?
  *
- * Kural: yalnizca AYNI HOSTNAME (port farkli olabilir). Baska her adres
- * gercek `WebSocket`'e gider — kendi kapsamimizin disina dokunmuyoruz
- * (BRIEF ilke 5'in shim karsiligi).
+ * The rule: only the SAME HOSTNAME (the port may differ). Every other
+ * address goes to the real `WebSocket` — we do not touch anything outside
+ * our own scope (the shim's counterpart of BRIEF principle 5).
  *
- * Port neden onemsiz: Vite HMR adresine kendi portunu koyabiliyor
- * (`wss://host:5173/`), ama o port ziyaretcinin tarayicisinda anlamsiz;
- * hedefi ajandaki allowlist belirler.
+ * Why the port does not matter: Vite HMR can put its own port in the
+ * address (`wss://host:5173/`), but that port is meaningless in the
+ * visitor's browser; the target is decided by the agent's allowlist.
  */
 export function isTunneled(u: URL, hostname: string): boolean {
   return u.hostname === hostname;
 }
 
 /**
- * Yerel sunucuya gidecek yolu uretir.
+ * Builds the path that goes to the local server.
  *
- * Scope oneki varsa cikarilir (`/PeerPages/ws` -> `/ws`). Yoksa yol oldugu
- * gibi kullanilir: kok-mutlak bir ws adresi (`wss://host/`) tunelden gecen
- * sayfanin kendi sitesine aittir — shim yalnizca o sayfalara enjekte edilir.
- * Vite HMR tam bu durumda (`__HMR_BASE__` "/" olur).
+ * A scope prefix, if any, is stripped (`/PeerPages/ws` -> `/ws`).
+ * Otherwise the path is used as is: a root-absolute ws address
+ * (`wss://host/`) belongs to the tunneled page's own site — the shim is
+ * only injected into those pages. Vite HMR is exactly this case
+ * (`__HMR_BASE__` becomes "/").
  */
 export function localPath(u: URL, scope: string): string {
   const full = u.pathname + u.search;
@@ -112,7 +116,7 @@ function install(): void {
     onclose: Listener = null;
 
     private port: MessagePort | null = null;
-    /** Gonderim zinciri: Blob okumasi asenkron, sira bozulmasin. */
+    /** Send chain: reading a Blob is async, keep the order intact. */
     private chain: Promise<void> = Promise.resolve();
 
     constructor(url: string | URL, protocols?: string | string[]) {
@@ -129,9 +133,9 @@ function install(): void {
 
       const controller = navigator.serviceWorker.controller;
       if (!controller) {
-        // SW yoksa tunel de yok: hemen kapan, sayfanin kendi yeniden
-        // denemesi calissin.
-        this.fail(1011, "peerpages: service worker yok");
+        // No SW means no tunnel: close right away and let the page's own
+        // retry take over.
+        this.fail(1011, "peerpages: no service worker");
         return;
       }
       controller.postMessage({ type: "bridge-ws-open", path: localPath(abs, scope), protos }, [
@@ -139,15 +143,15 @@ function install(): void {
       ]);
     }
 
-    /** `bufferedAmount` her zaman 0: gercek tampon tunelin icinde. */
+    /** `bufferedAmount` is always 0: the real buffer is in the tunnel. */
     get bufferedAmount(): number {
       return 0;
     }
 
     send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
       if (this.readyState === CONNECTING) {
-        // Gercek WebSocket de boyle davranir.
-        throw new DOMException("WebSocket henuz acilmadi", "InvalidStateError");
+        // A real WebSocket behaves the same way.
+        throw new DOMException("WebSocket is not open yet", "InvalidStateError");
       }
       if (this.readyState !== OPEN || !this.port) return;
 
@@ -165,8 +169,9 @@ function install(): void {
       if (this.readyState === CLOSING || this.readyState === CLOSED) return;
       this.readyState = CLOSING;
       this.port?.postMessage({ type: "ws-close", code, reason } satisfies WsPortToPage);
-      // Kapanisi ajanin onaylamasini beklemiyoruz: gercek WebSocket de
-      // `close()` sonrasi CLOSING'e gecip onayla CLOSED oluyor.
+      // We do not wait for the agent to confirm the close: a real
+      // WebSocket also goes CLOSING after `close()` and CLOSED on
+      // confirmation.
     }
 
     private handle(msg: WsPortToShim | undefined): void {
@@ -196,10 +201,10 @@ function install(): void {
       return this.binaryType === "arraybuffer" ? buf : new Blob([buf]);
     }
 
-    /** Baglanti hic kurulmadan dustu. */
+    /** The connection died before it was ever established. */
     private fail(code: number, reason: string): void {
-      // Sirali olmasi onemli: gercek WebSocket de error'u close'dan once
-      // yollar ve ikisi de mikrotask sonrasi gelir.
+      // Order matters: a real WebSocket also sends error before close,
+      // and both arrive after a microtask.
       queueMicrotask(() => {
         this.fire(new Event("error"), "onerror");
         this.finish(code, reason);
@@ -221,14 +226,14 @@ function install(): void {
         try {
           fn.call(this, ev);
         } catch (err) {
-          console.error("[peerpages] ws dinleyicisi hata verdi:", err);
+          console.error("[peerpages] a ws listener threw:", err);
         }
       }
       this.dispatchEvent(ev);
     }
   }
 
-  // Tunele girmeyen adresler GERCEK WebSocket'e gider.
+  // Addresses that do not enter the tunnel go to the REAL WebSocket.
   const Wrapper = function WebSocket(
     this: unknown,
     url: string | URL,
@@ -258,7 +263,7 @@ function install(): void {
   w[INSTALLED] = true;
 }
 
-/** Gonderilecek veriyi (binary, ArrayBuffer) ikilisine cevirir. */
+/** Turns outgoing data into a (binary, ArrayBuffer) pair. */
 async function toBuffer(
   data: string | ArrayBufferLike | Blob | ArrayBufferView,
 ): Promise<{ binary: boolean; buffer: ArrayBuffer }> {
@@ -269,8 +274,8 @@ async function toBuffer(
     return { binary: true, buffer: await data.arrayBuffer() };
   }
   if (ArrayBuffer.isView(data)) {
-    // Gorunumun KENDI tamponunu cikar: transfer listesine paylasilan bir
-    // tampon koyulamaz.
+    // Take the view's OWN buffer out: a shared buffer cannot go into the
+    // transfer list.
     return {
       binary: true,
       buffer: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer,
@@ -291,8 +296,8 @@ function originOf(url: string): string {
   }
 }
 
-// Testler bu dosyayi node ortaminda import edebilsin (saf yardimcilar
-// disari aciliyor); tarayicida her zaman kurulur.
+// So tests can import this file in a node environment (the pure helpers
+// are exported); in a browser it always installs.
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   install();
 }

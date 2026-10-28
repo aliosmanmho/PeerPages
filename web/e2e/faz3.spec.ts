@@ -174,7 +174,7 @@ test.describe("Faz 3 kabul kriterleri — coklu hedef", () => {
 
     const page = await context.newPage();
     await page.goto(`${CONNECT}?${relayQuery()}#${npub}/-gecersiz`);
-    await expect(page.locator("#status-msg")).toContainText("hedef adi gecersiz", {
+    await expect(page.locator("#status-msg")).toContainText("invalid target name", {
       timeout: 30_000,
     });
     await expect(page.locator("#panel-connected")).toBeHidden();

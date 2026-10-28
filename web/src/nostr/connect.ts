@@ -1,12 +1,12 @@
 /**
- * Ziyaretci tarafindaki Nostr baglanti akisi.
+ * The visitor-side Nostr connection flow.
  *
- * Akis (protocol/signaling.md): ziyaretci offer yayinlar, ajan answer doner,
- * iki taraf trickle candidate alisverisi yapar. Go karsiligi:
- * `agent/internal/connect`.
+ * The flow (protocol/signaling.md): the visitor publishes an offer, the
+ * agent answers, and the two sides trickle candidates to each other. Go
+ * counterpart: `agent/internal/connect`.
  *
- * Ziyaretci her ziyarette YENI gecici keypair uretir: ajan disinda kimse
- * ziyaretcileri birbirine baglayamaz.
+ * The visitor generates a NEW ephemeral keypair on every visit: nobody but
+ * the agent can link two visitors together.
  */
 
 import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
@@ -24,16 +24,16 @@ import {
   type SignalingMsg,
 } from "./signaling";
 
-/** Ajandan answer beklerken ust sinir (BRIEF Faz 2: 30 sn). */
+/** Upper bound while waiting for the agent's answer (BRIEF phase 2: 30 s). */
 export const ANSWER_TIMEOUT_MS = 30_000;
 
-/** Kanallarin acilmasi icin ust sinir. */
+/** Upper bound for the channels to open. */
 export const CHANNELS_TIMEOUT_MS = 60_000;
 
 export type ConnectStage = "relay" | "offer" | "answer" | "ice" | "open";
 
 export interface ConnectHooks {
-  /** Akisin hangi adimda oldugunu bildirir (durum ekrani icin). */
+  /** Reports which step the flow is on (for the status screen). */
   onStage?: (stage: ConnectStage, detail?: string) => void;
 }
 
@@ -41,9 +41,9 @@ export interface ConnectResult {
   readonly pc: RTCPeerConnection;
   readonly ctrl: RTCDataChannel;
   readonly data: RTCDataChannel;
-  /** Oturum kimligi; `bye` yollamak icin. */
+  /** Session id; used to send `bye`. */
   readonly sid: string;
-  /** Tuneli kapatirken cagrilir: `bye` yollar ve abonelikleri birakir. */
+  /** Called when closing the tunnel: sends `bye` and drops subscriptions. */
   readonly close: (reason: string) => void;
 }
 
@@ -58,27 +58,27 @@ export interface ConnectOptions {
   readonly target: PeerTarget;
   readonly relays?: readonly string[];
   readonly hooks?: ConnectHooks;
-  /** Test icin enjekte edilebilir havuz. */
+  /** Pool that can be injected for tests. */
   readonly pool?: SignalingPool;
   /**
-   * ICE sunuculari; verilmezse varsayilan STUN listesi (src/ice.ts).
+   * ICE servers; the default STUN list (src/ice.ts) when omitted.
    *
-   * Faz 5'e kadar bu alanin tek cagirani yoktu ve sayfa HIC ICE sunucusu
-   * vermiyordu, yani yalnizca host adayi topluyordu.
+   * Until phase 5 this field had no caller and the page passed NO ICE
+   * server at all, so it only gathered host candidates.
    */
   readonly iceServers?: RTCIceServer[];
   /**
-   * Aday politikasi. Ziyaretci tarafinda relay-only ANLAMSIZ (TURN kimlik
-   * bilgisi sayfaya gelmiyor), bu yuzden yalnizca testler icin.
+   * Candidate policy. relay-only is MEANINGLESS on the visitor side (TURN
+   * credentials never reach the page), so this is for tests only.
    */
   readonly iceTransportPolicy?: RTCIceTransportPolicy;
 }
 
 /**
- * Ajana baglanir ve acik data channel'lari dondurur.
+ * Connects to the agent and returns the open data channels.
  *
- * Kanallari BU TARAF acar (rol degisimi, BRIEF bolum 8): `ctrl` ve `data`,
- * ikisi de ordered + reliable.
+ * THIS side opens the channels (role swap, BRIEF section 8): `ctrl` and
+ * `data`, both ordered + reliable.
  */
 export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResult> {
   const { target, hooks } = opts;
@@ -93,7 +93,7 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
     codec = codecFor(target.secret);
   } catch (err) {
     throw new ConnectError(
-      `Paylasilan sir kullanilamadi: ${err instanceof Error ? err.message : String(err)}`,
+      `The shared secret could not be used: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
@@ -109,7 +109,8 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
   const ctrl = pc.createDataChannel("ctrl", { ordered: true });
   const data = pc.createDataChannel("data", { ordered: true });
 
-  // Temizlik: basarisizlikta da abonelik ve baglanti birakilmali.
+  // Cleanup: on failure too, the subscription and connection must be
+  // released.
   let unsubscribe: (() => void) | null = null;
   const cleanup = () => {
     unsubscribe?.();
@@ -126,7 +127,7 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
 
   try {
     unsubscribe = pool.subscribe(secretKey, pubkey, (payload, from) => {
-      // Yalnizca hedef ajandan gelen mesajlari kabul et.
+      // Only accept messages from the target agent.
       if (from !== target.pubkey) return;
 
       let msg: SignalingMsg;
@@ -135,11 +136,13 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
       } catch (err) {
         if (err instanceof SignalingError && err.code === "bad-secret") {
           answerArrived.reject(
-            new ConnectError("Paylasilan sir uyusmuyor: ajan sir bekliyor ya da sir yanlis."),
+            new ConnectError(
+              "The shared secret does not match: the agent expects a secret, or the secret is wrong.",
+            ),
           );
           return;
         }
-        return; // bozuk mesaj: atla
+        return; // malformed message: skip
       }
       if (msg.sid !== sid) return;
 
@@ -149,7 +152,7 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
           break;
         case "candidate": {
           void pc.addIceCandidate({ candidate: msg.cand, sdpMid: msg.mid }).catch(() => {
-            // Gec gelen ya da gecersiz aday: baglantiyi dusurmez.
+            // A late or invalid candidate does not drop the connection.
           });
           break;
         }
@@ -157,13 +160,13 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
           answerArrived.reject(new ConnectError(byeMessage(msg.reason, target.target)));
           break;
         case "offer":
-          // Ajan offer yollamaz.
+          // The agent never sends an offer.
           break;
       }
     });
 
-    // Yerel adaylari ajana yolla (trickle). Aday sonunu BILDIRMIYORUZ:
-    // sadece gondermeyi birakiyoruz (protocol/signaling.md).
+    // Send local candidates to the agent (trickle). We do NOT signal the
+    // end of candidates: we simply stop sending (protocol/signaling.md).
     pc.onicecandidate = (ev) => {
       if (!ev.candidate) return;
       const cand = ev.candidate.candidate;
@@ -174,7 +177,7 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
         cand,
         mid: ev.candidate.sdpMid ?? "0",
       }).catch(() => {
-        // Tek bir adayin yayinlanamamasi olumcul degil.
+        // Failing to publish a single candidate is not fatal.
       });
     };
 
@@ -182,10 +185,11 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     const localSDP = pc.localDescription?.sdp;
-    if (!localSDP) throw new ConnectError("yerel SDP olusturulamadi");
+    if (!localSDP) throw new ConnectError("the local SDP could not be created");
 
-    // Hedef adi varsa offer'da tasinir; yoksa alan hic gonderilmez ve ajan
-    // default'a duser (protocol/signaling.md).
+    // A target name, if there is one, rides in the offer; otherwise the
+    // field is not sent at all and the agent falls back to its default
+    // (protocol/signaling.md).
     await send(
       target.target
         ? { t: "offer", sid, sdp: localSDP, target: target.target }
@@ -196,7 +200,9 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
     const answerSDP = await withDeadline(
       answerArrived.promise,
       ANSWER_TIMEOUT_MS,
-      new ConnectError("Ajan yanit vermedi. Ajan calisiyor mu? (ya da relay'lere ulasilamiyor)"),
+      new ConnectError(
+        "The agent did not answer. Is the agent running? (or the relays are unreachable)",
+      ),
     );
     await pc.setRemoteDescription({ type: "answer", sdp: answerSDP });
 
@@ -210,7 +216,7 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
       data,
       sid,
       close: (reason: string) => {
-        // bye "en iyi gayret": yayinlanamazsa da kapatmaya devam ederiz.
+        // bye is best effort: if it cannot be published we close anyway.
         void send({ t: "bye", sid, reason: reason.slice(0, 64) }).catch(() => {});
         cleanup();
         pc.close();
@@ -223,22 +229,22 @@ export async function connectToAgent(opts: ConnectOptions): Promise<ConnectResul
   }
 }
 
-/** Ajandan gelen `bye` nedenini kullaniciya anlasilir hale getirir. */
+/** Turns the agent's `bye` reason into something a user can act on. */
 function byeMessage(reason: string, targetName: string | null): string {
   switch (reason) {
     case "unknown-target":
-      // Sessizce default'a dusmuyoruz: ziyaretci yanlis projeyi gezdigini
-      // fark etmeyebilir.
+      // We do not fall back to the default silently: the visitor may not
+      // notice they are browsing the wrong project.
       return targetName
-        ? `Bu ajanda '${targetName}' hedefi yok. URL'deki '/${targetName}' kismini kontrol et ` +
-            "ya da ajani yayinlayan kisiden dogru adresi iste."
-        : "Ajan istenen hedefi tanimadi.";
+        ? `This agent has no '${targetName}' target. Check the '/${targetName}' part of the URL ` +
+            "or ask whoever published the agent for the right address."
+        : "The agent did not recognise the requested target.";
     case "too-many-sessions":
-      return "Ajan su an baska ziyaretcilerle mesgul (oturum tavani dolu).";
+      return "The agent is busy with other visitors right now (session limit reached).";
     case "setup-failed":
-      return "Ajan baglantiyi kuramadi.";
+      return "The agent could not set up the connection.";
     default:
-      return `Ajan baglantiyi kapatti: ${reason}`;
+      return `The agent closed the connection: ${reason}`;
   }
 }
 
@@ -257,8 +263,8 @@ function waitForChannels(
     const timer = setTimeout(() => {
       reject(
         new ConnectError(
-          "Veri kanallari acilmadi. Ag WebRTC'yi engelliyor olabilir " +
-            "(simetrik NAT ise TURN gerekir).",
+          "The data channels did not open. The network may be blocking WebRTC " +
+            "(with symmetric NAT you need TURN).",
         ),
       );
     }, timeoutMs);
@@ -301,6 +307,6 @@ function withDeadline<T>(p: Promise<T>, ms: number, onTimeout: Error): Promise<T
   });
 }
 
-// parseSignaling dogrudan kullanilmiyor ama codec'in duz yolu onu cagiriyor;
-// re-export ederek testlerin tek yerden import etmesini kolaylastiriyoruz.
+// parseSignaling is not used directly here, but the codec's plain path
+// calls it; re-exporting keeps tests importing from one place.
 export { parseSignaling };

@@ -1,14 +1,15 @@
 /**
- * `ctrl` kanalinin JSON mesajlari.
+ * The JSON messages of the `ctrl` channel.
  *
- * Normatif tanim: `protocol/README.md`. Dogrulama ve kanonik serilestirme
- * kurallari Go tarafiyla (`agent/internal/protocol`) birebir aynidir ve
- * `protocol/testvectors.json` ile iki tarafta ayni vektorlerle test edilir.
+ * Normative definition: `protocol/README.md`. The validation and canonical
+ * serialization rules are identical to the Go side
+ * (`agent/internal/protocol`), and both sides are tested against the same
+ * vectors in `protocol/testvectors.json`.
  */
 
 export const PROTOCOL_VERSION = 1;
 
-/** `ctrl` hata kodlari — iki dilde ayni. */
+/** `ctrl` error codes — the same in both languages. */
 export type CtrlErrorCode = "bad-json" | "unknown-type" | "missing-field" | "bad-field";
 
 export class CtrlError extends Error {
@@ -43,14 +44,14 @@ export interface EndMsg {
   readonly t: "end";
   readonly id: number;
   /**
-   * Bu yonde gonderilen govde cercevesi sayisi.
+   * Number of body frames sent in this direction.
    *
-   * Gerekli cunku `ctrl` ve `data` ayri SCTP stream'leri: `end`, govde
-   * cercevelerinden ONCE varabilir. Alici bu sayiya ulasana kadar `data`
-   * dinlemeye devam eder (protocol/README.md).
+   * Needed because `ctrl` and `data` are separate SCTP streams: `end` can
+   * arrive BEFORE the body frames. The receiver keeps listening on `data`
+   * until it reaches this count (protocol/README.md).
    */
   readonly frames: number;
-  /** Govdenin toplam bayt sayisi. */
+  /** Total byte count of the body. */
   readonly len: number;
 }
 
@@ -76,32 +77,33 @@ export interface HelloMsg {
 }
 
 /**
- * WebSocket acma istegi (Faz 6) — ziyaretciden ajana.
+ * A WebSocket open request (phase 6), visitor to agent.
  *
- * Yuk `data` kanalindan gider (`wsframe.ts`); bu mesaj yalnizca el sikismadir.
- * `id`, HTTP istekleriyle AYNI id uzayindan gelir.
+ * The payload travels on the `data` channel (`wsframe.ts`); this message
+ * is only the handshake. `id` comes from the SAME id space as HTTP
+ * requests.
  */
 export interface WsOpenMsg {
   readonly t: "ws-open";
   readonly id: number;
   readonly path: string;
-  /** Istenen alt protokoller; bos olabilir. */
+  /** Requested subprotocols; may be empty. */
   readonly protos: readonly string[];
 }
 
-/** Ajanin kabul ettigi WebSocket baglantisi. */
+/** A WebSocket connection the agent accepted. */
 export interface WsOkMsg {
   readonly t: "ws-ok";
   readonly id: number;
-  /** Sunucunun sectigi alt protokol; yoksa bos string. */
+  /** The subprotocol the server chose; empty string when there is none. */
   readonly proto: string;
 }
 
 /**
- * WebSocket oturumunun kapandigini bildirir (iki yonde de).
+ * Reports that a WebSocket session closed (in either direction).
  *
- * HTTP'nin end/abort ikilisi ws icin kullanilmaz: kod ve sebep dogrudan
- * ziyaretcinin `onclose`'una gecer.
+ * HTTP's end/abort pair is not used for ws: the code and reason go
+ * straight into the visitor's `onclose`.
  */
 export interface WsCloseMsg {
   readonly t: "ws-close";
@@ -125,14 +127,15 @@ export type CtrlMsg =
 const MAX_UINT32 = 0xffffffff;
 const METHOD_RE = /^[A-Z]+$/;
 
-/** Alt protokol adi: RFC 6455 token'i (bos olamaz). Go tarafiyla ayni. */
+/** Subprotocol name: an RFC 6455 token (may not be empty). Same as the Go side. */
 const WS_PROTO_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 /**
- * WebSocket kapanis kodu sinirlari — Go tarafiyla AYNI.
+ * WebSocket close code bounds — the SAME as the Go side.
  *
- * 1005/1006 araligin icinde: WebSocket protokolu bunlari telde yasaklar ama
- * bir kopru olarak anormal kapanisi ziyaretciye bildirmemiz gerekiyor.
+ * 1005/1006 are inside the range: the WebSocket protocol forbids them on
+ * the wire, but as a bridge we have to report an abnormal close to the
+ * visitor.
  */
 export const WS_CLOSE_MIN = 1000;
 export const WS_CLOSE_MAX = 4999;
@@ -146,7 +149,7 @@ function has(o: Raw, k: string): boolean {
 
 function reqField(o: Raw, k: string, t: string): unknown {
   if (!has(o, k)) {
-    throw new CtrlError("missing-field", `${t}.${k} yok`);
+    throw new CtrlError("missing-field", `${t}.${k} is missing`);
   }
   return o[k];
 }
@@ -154,7 +157,7 @@ function reqField(o: Raw, k: string, t: string): unknown {
 function uint32Field(o: Raw, k: string, t: string): number {
   const v = reqField(o, k, t);
   if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > MAX_UINT32) {
-    throw new CtrlError("bad-field", `${t}.${k} uint32 olmali, verilen: ${JSON.stringify(v)}`);
+    throw new CtrlError("bad-field", `${t}.${k} must be a uint32, got: ${JSON.stringify(v)}`);
   }
   return v;
 }
@@ -162,7 +165,7 @@ function uint32Field(o: Raw, k: string, t: string): number {
 function stringField(o: Raw, k: string, t: string): string {
   const v = reqField(o, k, t);
   if (typeof v !== "string") {
-    throw new CtrlError("bad-field", `${t}.${k} string olmali, verilen: ${JSON.stringify(v)}`);
+    throw new CtrlError("bad-field", `${t}.${k} must be a string, got: ${JSON.stringify(v)}`);
   }
   return v;
 }
@@ -170,7 +173,7 @@ function stringField(o: Raw, k: string, t: string): string {
 function nonEmptyStringField(o: Raw, k: string, t: string): string {
   const v = stringField(o, k, t);
   if (v === "") {
-    throw new CtrlError("bad-field", `${t}.${k} bos olamaz`);
+    throw new CtrlError("bad-field", `${t}.${k} must not be empty`);
   }
   return v;
 }
@@ -178,7 +181,7 @@ function nonEmptyStringField(o: Raw, k: string, t: string): string {
 function boolField(o: Raw, k: string, t: string): boolean {
   const v = reqField(o, k, t);
   if (typeof v !== "boolean") {
-    throw new CtrlError("bad-field", `${t}.${k} boolean olmali, verilen: ${JSON.stringify(v)}`);
+    throw new CtrlError("bad-field", `${t}.${k} must be a boolean, got: ${JSON.stringify(v)}`);
   }
   return v;
 }
@@ -186,40 +189,41 @@ function boolField(o: Raw, k: string, t: string): boolean {
 function headersField(o: Raw, k: string, t: string): Record<string, string> {
   const v = reqField(o, k, t);
   if (typeof v !== "object" || v === null || Array.isArray(v)) {
-    throw new CtrlError("bad-field", `${t}.${k} nesne olmali`);
+    throw new CtrlError("bad-field", `${t}.${k} must be an object`);
   }
   const out: Record<string, string> = {};
   for (const [name, value] of Object.entries(v as Raw)) {
     if (typeof value !== "string") {
-      throw new CtrlError("bad-field", `${t}.${k}["${name}"] string olmali`);
+      throw new CtrlError("bad-field", `${t}.${k}["${name}"] must be a string`);
     }
-    // Baslik adlari kanonik bicimde kucuk harf (protocol/README.md).
+    // Header names are lowercase in the canonical form
+    // (protocol/README.md).
     out[name.toLowerCase()] = value;
   }
   return out;
 }
 
 /**
- * Istek yolunun ilk katman dogrulamasi.
+ * First-layer validation of the request path.
  *
- * Belirleyici katman ajandaki `internal/target.Resolve`'dur (BRIEF ilke 1);
- * burada yalnizca bariz gecersizleri reddediyoruz.
+ * The deciding layer is `internal/target.Resolve` in the agent (BRIEF
+ * principle 1); here we only reject the obviously invalid.
  */
 function validatePath(p: string, t: string): string {
   if (p === "") {
-    throw new CtrlError("bad-field", `${t}.path bos olamaz`);
+    throw new CtrlError("bad-field", `${t}.path must not be empty`);
   }
   if (!p.startsWith("/")) {
-    throw new CtrlError("bad-field", `${t}.path "/" ile baslamali, verilen: ${JSON.stringify(p)}`);
+    throw new CtrlError("bad-field", `${t}.path must start with "/", got: ${JSON.stringify(p)}`);
   }
   if (p.startsWith("//")) {
-    throw new CtrlError("bad-field", `${t}.path protokol-goreli olamaz`);
+    throw new CtrlError("bad-field", `${t}.path must not be protocol-relative`);
   }
   return p;
 }
 
 /**
- * `ctrl` kanalindan gelen metni ayristirip dogrular.
+ * Parses and validates text arriving on the `ctrl` channel.
  *
  * @throws {CtrlError} `bad-json` | `unknown-type` | `missing-field` | `bad-field`
  */
@@ -231,23 +235,23 @@ export function parseCtrl(text: string): CtrlMsg {
     throw new CtrlError("bad-json", String(err));
   }
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    throw new CtrlError("bad-json", "en ust duzey bir JSON nesnesi olmali");
+    throw new CtrlError("bad-json", "the top level must be a JSON object");
   }
   const o = raw as Raw;
 
   if (!has(o, "t")) {
-    throw new CtrlError("missing-field", "t yok");
+    throw new CtrlError("missing-field", "t is missing");
   }
   const t = o.t;
   if (typeof t !== "string") {
-    throw new CtrlError("bad-field", `t string olmali, verilen: ${JSON.stringify(t)}`);
+    throw new CtrlError("bad-field", `t must be a string, got: ${JSON.stringify(t)}`);
   }
 
   switch (t) {
     case "req": {
       const method = nonEmptyStringField(o, "method", t);
       if (!METHOD_RE.test(method)) {
-        throw new CtrlError("bad-field", `req.method buyuk harf HTTP token'i olmali: ${method}`);
+        throw new CtrlError("bad-field", `req.method must be an uppercase HTTP token: ${method}`);
       }
       return {
         t: "req",
@@ -262,7 +266,7 @@ export function parseCtrl(text: string): CtrlMsg {
       const id = uint32Field(o, "id", t);
       const status = reqField(o, "status", t);
       if (typeof status !== "number" || !Number.isInteger(status) || status < 100 || status > 599) {
-        throw new CtrlError("bad-field", `res.status 100…599 olmali, verilen: ${String(status)}`);
+        throw new CtrlError("bad-field", `res.status must be 100-599, got: ${String(status)}`);
       }
       return { t: "res", id, status, headers: headersField(o, "headers", t) };
     }
@@ -271,11 +275,14 @@ export function parseCtrl(text: string): CtrlMsg {
       const frames = uint32Field(o, "frames", t);
       const len = reqField(o, "len", t);
       if (typeof len !== "number" || !Number.isInteger(len) || len < 0) {
-        throw new CtrlError("bad-field", `end.len negatif olmayan tamsayi olmali: ${String(len)}`);
+        throw new CtrlError("bad-field", `end.len must be a non-negative integer: ${String(len)}`);
       }
-      // frames ve len tutarli olmali: biri 0 ise digeri de 0.
+      // frames and len must agree: if one is 0 so is the other.
       if ((frames === 0) !== (len === 0)) {
-        throw new CtrlError("bad-field", `end.frames=${frames} ile end.len=${len} tutarsiz`);
+        throw new CtrlError(
+          "bad-field",
+          `end.frames=${frames} is inconsistent with end.len=${len}`,
+        );
       }
       return { t: "end", id, frames, len };
     }
@@ -292,22 +299,22 @@ export function parseCtrl(text: string): CtrlMsg {
     case "hello": {
       const v = uint32Field(o, "v", t);
       if (v !== PROTOCOL_VERSION) {
-        throw new CtrlError("bad-field", `hello.v ${PROTOCOL_VERSION} olmali, verilen: ${v}`);
+        throw new CtrlError("bad-field", `hello.v must be ${PROTOCOL_VERSION}, got: ${v}`);
       }
       const targetsRaw = reqField(o, "targets", t);
       if (!Array.isArray(targetsRaw) || targetsRaw.length === 0) {
-        throw new CtrlError("bad-field", "hello.targets en az bir elemanli dizi olmali");
+        throw new CtrlError("bad-field", "hello.targets must be an array with at least one item");
       }
       const targets: string[] = [];
       for (const item of targetsRaw) {
         if (typeof item !== "string" || item === "") {
-          throw new CtrlError("bad-field", "hello.targets elemanlari bos olmayan string olmali");
+          throw new CtrlError("bad-field", "hello.targets items must be non-empty strings");
         }
         targets.push(item);
       }
       const auth = stringField(o, "auth", t);
       if (auth !== "none" && auth !== "required") {
-        throw new CtrlError("bad-field", `hello.auth "none" ya da "required" olmali: ${auth}`);
+        throw new CtrlError("bad-field", `hello.auth must be "none" or "required": ${auth}`);
       }
       return { t: "hello", v, targets, auth };
     }
@@ -316,14 +323,14 @@ export function parseCtrl(text: string): CtrlMsg {
       const path = validatePath(stringField(o, "path", t), t);
       const protosRaw = reqField(o, "protos", t);
       if (!Array.isArray(protosRaw)) {
-        throw new CtrlError("bad-field", "ws-open.protos string dizisi olmali");
+        throw new CtrlError("bad-field", "ws-open.protos must be an array of strings");
       }
       const protos: string[] = [];
       for (const item of protosRaw) {
         if (typeof item !== "string" || !WS_PROTO_RE.test(item)) {
           throw new CtrlError(
             "bad-field",
-            `ws-open.protos elemanlari token olmali: ${JSON.stringify(item)}`,
+            `ws-open.protos items must be tokens: ${JSON.stringify(item)}`,
           );
         }
         protos.push(item);
@@ -332,10 +339,11 @@ export function parseCtrl(text: string): CtrlMsg {
     }
     case "ws-ok": {
       const id = uint32Field(o, "id", t);
-      // Bos string gecerli: sunucu alt protokol secmemis olabilir.
+      // An empty string is valid: the server may have chosen no
+      // subprotocol.
       const proto = stringField(o, "proto", t);
       if (proto !== "" && !WS_PROTO_RE.test(proto)) {
-        throw new CtrlError("bad-field", `ws-ok.proto token olmali: ${JSON.stringify(proto)}`);
+        throw new CtrlError("bad-field", `ws-ok.proto must be a token: ${JSON.stringify(proto)}`);
       }
       return { t: "ws-ok", id, proto };
     }
@@ -343,21 +351,21 @@ export function parseCtrl(text: string): CtrlMsg {
       const id = uint32Field(o, "id", t);
       const code = reqField(o, "code", t);
       if (typeof code !== "number" || !Number.isInteger(code)) {
-        throw new CtrlError("bad-field", `ws-close.code tamsayi olmali, verilen: ${String(code)}`);
+        throw new CtrlError("bad-field", `ws-close.code must be an integer, got: ${String(code)}`);
       }
       if (code < WS_CLOSE_MIN || code > WS_CLOSE_MAX) {
         throw new CtrlError(
           "bad-field",
-          `ws-close.code ${WS_CLOSE_MIN}…${WS_CLOSE_MAX} olmali, verilen: ${code}`,
+          `ws-close.code must be ${WS_CLOSE_MIN}-${WS_CLOSE_MAX}, got: ${code}`,
         );
       }
-      // Bos string gecerli: WebSocket kapanis sebebi opsiyoneldir.
+      // An empty string is valid: a WebSocket close reason is optional.
       const reason = stringField(o, "reason", t);
       const bytes = new TextEncoder().encode(reason).length;
       if (bytes > WS_CLOSE_REASON_MAX) {
         throw new CtrlError(
           "bad-field",
-          `ws-close.reason en fazla ${WS_CLOSE_REASON_MAX} bayt olmali, verilen: ${bytes}`,
+          `ws-close.reason may be at most ${WS_CLOSE_REASON_MAX} bytes, got: ${bytes}`,
         );
       }
       return { t: "ws-close", id, code, reason };
@@ -374,11 +382,11 @@ function canonicalHeaders(h: Readonly<Record<string, string>>): string {
 }
 
 /**
- * Mesaji kanonik bicimde serilestirir: bosluksuz, tipe gore sabit anahtar
- * sirasi, `headers` kucuk harf ve sozluk siralı (protocol/README.md).
+ * Serializes a message in canonical form: no whitespace, key order fixed
+ * per type, `headers` lowercase and sorted (protocol/README.md).
  *
- * Go tarafindaki `Canonical` ile **bayt bayt ayni** cikti uretir; paylasilan
- * test vektorleri bunu dogrular.
+ * Produces **byte-for-byte the same** output as `Canonical` on the Go
+ * side; the shared test vectors check that.
  */
 export function canonicalCtrl(msg: CtrlMsg): string {
   switch (msg.t) {

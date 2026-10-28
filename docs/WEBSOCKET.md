@@ -1,166 +1,182 @@
-# WebSocket ve SSE (Faz 6)
+# WebSocket and SSE (phase 6)
 
-## Kısa cevap
+## The short answer
 
-- **SSE (`text/event-stream`) kutudan çalışır**, bayrak gerekmez.
-- **WebSocket için tek bayrak:** `--inject-ws-shim`. Varsayılan **kapalı**,
-  çünkü sayfanın HTML'ine müdahale ediyor.
+- **SSE (`text/event-stream`) works out of the box**, no flag needed.
+- **WebSocket takes one flag:** `--inject-ws-shim`. It is **off** by
+  default, because it interferes with the page's HTML.
 
 ```bash
 peerpages serve --target http://localhost:5173 --inject-ws-shim
 ```
 
-## Neden ayrı bir köprü gerekti
+## Why a separate bridge was needed
 
-Service Worker yalnızca `fetch` olaylarını yakalar; **WebSocket el sıkışması
-onun kapsamında değil**. Yani shim olmadan, tünelden geçen bir sayfanın
-`new WebSocket(...)` çağrısı gerçek ağa gider ve başarısız olur. Vite HMR,
-Socket.IO ve canlı önizleme yapan her dev sunucusu tünelde sessizce yarım
-çalışır: sayfa görünür ama canlı güncelleme gelmez.
+A Service Worker only catches `fetch` events; **the WebSocket handshake is
+not in its reach**. So without the shim, a `new WebSocket(...)` call on a
+tunneled page goes to the real network and fails. Vite HMR, Socket.IO and
+every dev server with a live preview quietly half-work over the tunnel:
+the page shows up but no live update arrives.
 
-## Nasıl çalışıyor
+## How it works
 
 ```
-ziyaretçi sekmesi                         tünel sahibi sekme        senin makinen
+visitor tab                               tunnel-owner tab          your machine
 ┌───────────────────────┐                 ┌──────────────┐          ┌───────────┐
-│ sayfa + ws-shim.js    │ MessageChannel  │ RTCPeerConn. │  ws-open │ localhost │
+│ page + ws-shim.js     │ MessageChannel  │ RTCPeerConn. │  ws-open │ localhost │
 │  new WebSocket(...) ──┼──► SW ──port──► │  data channel├─────────►│   :5173   │
-└───────────────────────┘                 └──────────────┘  ws yükü └───────────┘
+└───────────────────────┘                 └──────────────┘  ws load └───────────┘
 ```
 
-1. Ajan `--inject-ws-shim` ile çalışıyorsa HTML cevaplarına
-   `x-peerpages-ws-shim: 1` başlığını ekler. **Gövdeye dokunmaz.**
-2. Service Worker bu başlığı görünce HTML akışına `<head>`'den sonra
-   `<script src="…/ws-shim.js">` sokar ve o dosyayı kendi paketinden
-   servis eder (tünelden geçmez).
-3. Shim `window.WebSocket`'i sarar. Tünele aldığı adresler için bir
-   `MessageChannel` kurup portu SW'ye yollar; SW tünel sahibi sekmeyi bulup
-   portu ona **aktarır**. Sonrası sekme ↔ sekme: SW boşta öldürülebilir ve
-   uzun yaşayan bir soket ona dayanamaz.
-4. Tünelde üç kontrol mesajı var (`ws-open`, `ws-ok`, `ws-close`); yük
-   `data` kanalından, çerçeve gövdesinde bir bayrak baytıyla gider
-   (metin/ikili + son-parça). Ayrıntı: `protocol/README.md`.
+1. When the agent runs with `--inject-ws-shim` it adds an
+   `x-peerpages-ws-shim: 1` header to HTML responses. **It does not touch
+   the body.**
+2. When the Service Worker sees that header it injects
+   `<script src="…/ws-shim.js">` into the HTML stream after `<head>` and
+   serves that file from its own bundle (it never goes through the
+   tunnel).
+3. The shim wraps `window.WebSocket`. For the addresses it takes into the
+   tunnel it sets up a `MessageChannel` and sends the port to the SW; the
+   SW finds the tunnel-owner tab and **transfers** the port to it. From
+   then on it is tab ↔ tab: the SW may be killed while idle, and a
+   long-lived socket cannot depend on it.
+4. There are three control messages in the tunnel (`ws-open`, `ws-ok`,
+   `ws-close`); the payload travels on the `data` channel with a flag byte
+   in the frame body (text/binary plus last-chunk). Details:
+   `protocol/README.md`.
 
-> **Enjeksiyonu neden ajan değil SW yapıyor?** README'nin ilk planı HTML'i
-> ajanın yeniden yazmasını öngörüyordu. Kapsam önekini (`/PeerPages/`) bilen
-> taraf SW, ajan değil; ayrıca bu seçim `internal/proxy`'nin **bayt bayt
-> geçirgen** kalmasını ve protokol sürümünün kırılmamasını sağlıyor. Politika
-> ajanda (bayrak), mekanik SW'de. BRIEF'ten sapma; gerekçesi BRIEF §8.
+> **Why does the SW do the injection rather than the agent?** The README's
+> first plan had the agent rewriting the HTML. The side that knows the
+> scope prefix (`/PeerPages/`) is the SW, not the agent; and this choice
+> also keeps `internal/proxy` **byte-for-byte transparent** and the
+> protocol version unbroken. The policy lives in the agent (the flag), the
+> mechanics in the SW. A departure from BRIEF; the reasoning is in BRIEF
+> section 8.
 
-## Shim hangi adresleri tünele alır
+## Which addresses the shim takes into the tunnel
 
-| Adres | Ne olur |
+| Address | What happens |
 |---|---|
-| `new WebSocket("ws")` (göreli) | tünelden geçer |
-| `wss://<senin-sayfan>/yol` (aynı hostname) | tünelden geçer |
-| `wss://<senin-sayfan>:5173/` (aynı hostname, farklı port) | tünelden geçer |
-| `wss://baska-site.example/` | **gerçek** `WebSocket`'e gider |
+| `new WebSocket("ws")` (relative) | goes through the tunnel |
+| `wss://<your-page>/path` (the same hostname) | goes through the tunnel |
+| `wss://<your-page>:5173/` (the same hostname, a different port) | goes through the tunnel |
+| `wss://another-site.example/` | goes to the **real** `WebSocket` |
 
-Port neden önemsiz: Vite HMR adresine kendi portunu koyabiliyor, ama o port
-ziyaretçinin tarayıcısında anlamsız — hedefi ajandaki allowlist belirler
-(BRIEF ilke 1). Başka hostname'lere hiç dokunmuyoruz (ilke 5'in shim
-karşılığı).
+Why the port does not matter: Vite HMR can put its own port in the
+address, but that port is meaningless in the visitor's browser — the
+target is decided by the agent's allowlist (BRIEF principle 1). We never
+touch other hostnames (the shim's counterpart of principle 5).
 
 ## Vite HMR
 
-Çalışması için **hiçbir ayar gerekmez**: Vite'ın istemcisi ws adresini
-sayfanın kendi origin'inden türetir, shim de o adresi tünele alır. E2E
-testinde doğrulanıyor (`web/e2e/phase6.spec.ts`): kaynak dosya değişince sayfa
-**yenilenmeden** güncelleniyor.
+It needs **no configuration at all**: Vite's client derives the ws address
+from the page's own origin, and the shim takes that address into the
+tunnel. It is verified in the e2e test (`web/e2e/phase6.spec.ts`): when a
+source file changes the page updates **without reloading**.
 
-Yine de iki şey bilmeye değer:
+Two things are still worth knowing:
 
-- **`base` hizalaması.** Dev sunucunun ürettiği **kök-mutlak** yollar
-  (`/src/main.js`) GitHub Pages proje sayfasında kapsam dışına düşer ve SW
-  onları yakalamaz (BRIEF §8'deki yapısal sınır). Çaresi: dev sunucunun
-  `base` değerini kapsam köküyle aynı yapıp ajan hedefine de o öneki vermek:
+- **Lining up `base`.** The **root-absolute** paths the dev server
+  produces (`/src/main.js`) fall outside the scope on a GitHub Pages
+  project page, and the SW does not catch them (the structural boundary in
+  BRIEF section 8). The remedy: make the dev server's `base` the same as
+  the scope root and give the agent's target that prefix too:
 
   ```bash
   # vite.config.js: base: "/PeerPages/"
   peerpages serve --target http://localhost:5173/PeerPages/ --inject-ws-shim
   ```
 
-  Custom domain ya da kullanıcı sayfasında (`kullanici.github.io/`) kapsam
-  kök olduğu için bu gerekmez.
-- **`hmr.clientPort`.** Vite ws adresine kendi portunu koyarsa shim yine
-  tünele alır (aynı hostname kuralı). Bir sorun çıkarsa
-  `server.hmr.clientPort: 443` bunu kesinleştirir.
+  On a custom domain or a user page (`user.github.io/`) the scope is the
+  root, so this is not needed.
+- **`hmr.clientPort`.** If Vite puts its own port in the ws address the
+  shim still takes it into the tunnel (the same-hostname rule). If
+  something goes wrong, `server.hmr.clientPort: 443` settles it.
 
 ## Socket.IO
 
-Çalışır ama **otomatik test edilmedi** (iki yeni bağımlılık getireceği için):
+It works but is **not tested automatically** (it would bring two new
+dependencies):
 
-- Uzun yoklama (`polling`) aşaması normal HTTP olduğu için tünelden zaten
-  geçiyor; Faz 6'dan önce 60 saniyelik zaman aşımı buna da takılıyordu, artık
-  takılmıyor.
-- WebSocket yükseltmesi shim üzerinden geçer. İkili yükler (`binaryType`)
-  destekli.
-- Sunucu istemciyi `io(location.origin)` ile aynı origin'den bağlıyorsa hiçbir
-  ayar gerekmez.
+- The long-polling (`polling`) phase is ordinary HTTP, so it already went
+  through the tunnel; before phase 6 the 60-second timeout caught that too,
+  and it no longer does.
+- The WebSocket upgrade goes through the shim. Binary payloads
+  (`binaryType`) are supported.
+- If the server connects the client from the same origin with
+  `io(location.origin)`, no configuration is needed.
 
-Elle deneme adımları: `docs/MANUAL-TEST.md` → "WebSocket ile deneme (Faz 6)".
+The manual trial steps: `docs/MANUAL-TEST.md` → "Trying it with WebSocket
+(phase 6)".
 
-## Sınırlar ve bilinçli kararlar
+## Limits and deliberate decisions
 
-- **Tek bayrak.** `--inject-ws-shim` köprüyü **ve** enjeksiyonu birlikte açar:
-  shim olmadan hiçbir tarayıcı sayfası `ws-open` yollamaz, köprü olmadan shim
-  işe yaramaz. Bayrak verilmediyse gelen `ws-open` istekleri `ws-close 1008`
-  ile reddedilir.
-- **`bufferedAmount` her zaman 0.** Gerçek gönderim tamponu tünelin içinde;
-  shim'in o değeri taklit etmesi yanıltıcı olurdu. Pratikte etkisi:
-  `bufferedAmount`'un düşmesini bekleyen kütüphaneler hiç beklemez.
-- **Uzantı pazarlığı yok.** Alt protokol (`Sec-WebSocket-Protocol`) geçer,
-  `permessage-deflate` gibi uzantılar geçmez (`extensions` boş string).
-- **`Origin` hedefin kendi origin'i olarak gider.** Yerel sunucular (Vite,
-  Socket.IO) `Origin` denetimi yapar ve ziyaretçinin `github.io` origin'ini
-  reddederdi. Yani tünel, yerel sunucuya **yerel bir istemci gibi** görünür.
-  Bu bilinçli bir seçim ve bir sınır: yerel sunucunun origin denetimi
-  tünelden gelen trafiği ayırt edemez (BRIEF §8).
-- **Tünel koparsa açık soketler düşer** (kod 1006). Faz 4'ün denetleyicisi
-  yeni bir oturum kurar ama soketleri geri getirmez; yeniden bağlanmayı
-  sayfanın kendi kütüphanesi yapar (Vite ve Socket.IO ikisi de yapar).
-- **Mesaj tavanı** `--max-ws-message` (varsayılan 1MB), iki yönde de.
-  Ziyaretçi güvenilmez (BRIEF ilke 4): sınırsız mesaj ajanın belleğini tek
-  istekle şişirebilirdi. Aşılırsa `ws-close 1009`.
+- **One flag.** `--inject-ws-shim` turns on the bridge **and** the
+  injection together: without the shim no browser page sends a `ws-open`,
+  and without the bridge the shim is useless. With the flag omitted,
+  incoming `ws-open` requests are refused with `ws-close 1008`.
+- **`bufferedAmount` is always 0.** The real send buffer is inside the
+  tunnel; having the shim imitate that value would be misleading. The
+  practical effect: libraries that wait for `bufferedAmount` to drop never
+  wait.
+- **No extension negotiation.** The subprotocol
+  (`Sec-WebSocket-Protocol`) passes through; extensions such as
+  `permessage-deflate` do not (`extensions` is an empty string).
+- **`Origin` goes out as the target's own origin.** Local servers (Vite,
+  Socket.IO) check `Origin` and would refuse the visitor's `github.io`
+  origin. So the tunnel looks like **a local client** to the local server.
+  That is a deliberate choice and a limit: the local server's origin check
+  cannot tell traffic from the tunnel apart (BRIEF section 8).
+- **If the tunnel drops, open sockets go down** (code 1006). The phase 4
+  supervisor builds a new session but does not bring the sockets back; the
+  reconnect is left to the page's own library (Vite and Socket.IO both do
+  it).
+- **The message limit** is `--max-ws-message` (1MB by default), in both
+  directions. The visitor is untrusted (BRIEF principle 4): an unbounded
+  message could blow up the agent's memory in a single request. Exceeding
+  it gives `ws-close 1009`.
 
-## Uzun yaşayan akış bütçesi
+## The long-lived stream budget
 
-`--max-streams` (varsayılan 8) **ws oturumu + SSE cevabı** sayısını sınırlar:
+`--max-streams` (8 by default) bounds the number of **ws sessions plus SSE
+responses**:
 
 ```bash
 peerpages serve -t http://localhost:3000 --inject-ws-shim --max-streams 16
 ```
 
-Neden `--max-concurrent`'tan ayrı: uzun yaşayan bir akış slotunu ömrü boyunca
-tutar, yani tek bütçe olsa 64 SSE isteği tüneli normal istekler için
-kullanılamaz hale getirirdi. Bütçe dolduğunda SSE isteği
-`abort too-many-streams`, ws isteği `ws-close 1013` alır — ikisi de sebebi
-söyler.
+Why it is separate from `--max-concurrent`: a long-lived stream holds its
+slot for its whole life, so with a single budget 64 SSE requests would
+make the tunnel unusable for ordinary requests. When the budget is full an
+SSE request gets `abort too-many-streams` and a ws request gets
+`ws-close 1013` — both say why.
 
-Bir HTTP cevabı `content-type: text/event-stream` görüldüğü anda akış
-bütçesine **taşınır**: hangi cevabın uzun yaşadığını önceden bilemiyoruz, bu
-dürüst olan tek işaret.
+An HTTP response is **moved** to the stream budget the moment
+`content-type: text/event-stream` is seen: we cannot know in advance which
+response is long-lived, and that is the only honest hint.
 
-## SSE hakkında bilinmesi gereken tek şey
+## The one thing to know about SSE
 
-Faz 6'dan önce ajandaki 60 saniyelik zaman aşımı **tüm cevabı** sarıyordu:
-60 saniyeden uzun yaşayan her SSE akışı sessizce kesiliyordu — ziyaretçi hata
-bile görmüyordu, yalnızca "akış bitti" görüyordu. Artık bu süre yalnızca
-**cevap başlığının** gelmesi için; gövde akarken süre sınırı yok. Akışı
-bitiren şeyler: ziyaretçinin vazgeçmesi, oturumun kapanması ya da yerel
-sunucunun akışı bitirmesi.
+Before phase 6 the agent's 60-second timeout wrapped **the whole
+response**: every SSE stream living longer than 60 seconds was cut off
+silently — the visitor did not even see an error, just "the stream
+ended". That deadline now covers only the arrival of the **response
+head**; while the body streams there is no time limit. What ends a stream:
+the visitor giving up, the session closing, or the local server ending the
+stream.
 
-Test ucu: `peerpages testsite` içinde `/sse?n=5&delay=400&keepalive=1`.
+The test endpoint: `/sse?n=5&delay=400&keepalive=1` in
+`peerpages testsite`.
 
-## Sorun giderme
+## Troubleshooting
 
-| Belirti | Olası neden |
+| Symptom | Likely cause |
 |---|---|
-| `onclose` kodu **1008** | Köprü kapalı (`--inject-ws-shim` yok) ya da yerel sunucu el sıkışmayı reddetti (yolu kontrol et) |
-| `onclose` kodu **1011** | Yerel sunucuya bağlanılamadı (sunucu ayakta mı, yol doğru mu) |
-| `onclose` kodu **1009** | Mesaj `--max-ws-message` tavanını aştı |
-| `onclose` kodu **1013** | Akış bütçesi dolu (`--max-streams`) |
-| `onclose` kodu **1002** | Protokol hatası: bozuk çerçeve ya da sıra. Bir hata; `--verbose` ile ajan logunu paylaş |
-| Shim hiç yüklenmiyor | Cevap HTML değil (yalnızca `text/html` ve `application/xhtml+xml` işaretlenir) ya da bayrak verilmemiş |
-| Vite HMR bağlanmıyor | `base` hizalaması (yukarıda) ya da sayfanın CSP'si `script-src`'i daraltmış olabilir |
-| SSE 60 saniyede kesiliyor | Faz 6 öncesi bir ajan kullanıyorsun (`peerpages version`) |
+| `onclose` code **1008** | The bridge is off (no `--inject-ws-shim`), or the local server refused the handshake (check the path) |
+| `onclose` code **1011** | The local server was unreachable (is it up, is the path right) |
+| `onclose` code **1009** | The message exceeded the `--max-ws-message` limit |
+| `onclose` code **1013** | The stream budget is full (`--max-streams`) |
+| `onclose` code **1002** | A protocol error: a broken frame or a broken order. That is a bug; share the agent log with `--verbose` |
+| The shim never loads | The response is not HTML (only `text/html` and `application/xhtml+xml` are marked), or the flag was not given |
+| Vite HMR does not connect | Lining up `base` (above), or the page's CSP may have narrowed `script-src` |
+| SSE is cut off at 60 seconds | You are using an agent from before phase 6 (`peerpages version`) |

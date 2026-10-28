@@ -1,37 +1,37 @@
-# TURN (bağlanamayan ağlar için)
+# TURN (for networks that cannot connect)
 
-Çoğu ağda PeerPages'e TURN gerekmez: ajan ve ziyaretçi birbirine **doğrudan**
-bağlanır (STUN yardımıyla). Ama bazı ağlarda doğrudan bağlantı kurulamaz ve o
-zaman trafiğin bir **relay** üzerinden geçmesi gerekir. TURN tam olarak bunu
-yapan standart.
+On most networks PeerPages needs no TURN: the agent and the visitor
+connect to each other **directly** (with STUN's help). But on some
+networks a direct connection cannot be made, and then the traffic has to
+go over a **relay**. TURN is exactly the standard that does that.
 
-## Gerekip gerekmediğini nasıl anlarsın
+## How to tell whether you need it
 
 ```bash
 peerpages doctor
 ```
 
-Çıktının sonundaki tavsiyeye bak:
+Look at the advice at the end of the output:
 
-| Ne görürsen | Anlamı |
+| What you see | What it means |
 |---|---|
-| `NAT uyumlu: TURN gerekmez.` | Doğrudan bağlantı kurulabiliyor. Bir şey yapma. |
-| `NAT simetrik ve TURN verilmedi` | Karşı taraf da simetrik NAT arkasındaysa **bağlanamaz**. TURN gerekiyor. |
-| `STUN'a ulasilamadi` | UDP dışarıya kapalı. TURN de UDP kullanır; `turns:` (TCP/TLS) dene. |
+| `The NAT is friendly: no TURN needed.` | A direct connection can be made. Do nothing. |
+| `The NAT is symmetric and no TURN was given` | If the other side is behind symmetric NAT too, it **cannot connect**. TURN is needed. |
+| `STUN is unreachable` | Outbound UDP is blocked. TURN uses UDP too; try `turns:` (TCP/TLS). |
 
-Ziyaretçi tarafında belirti: bağlantı ekranı **"Veri kanallari acilmadi"**
-diyor ve signaling adımları tamamlanmış görünüyor. Bu bir yazılım hatası
-değil, ağ topolojisinin sonucu.
+The symptom on the visitor side: the connect screen says **"The data
+channels did not open"** while the signaling steps look complete. That is
+not a software bug but a consequence of the network topology.
 
-Tünel kurulduktan sonra hangi yolun seçildiğini bağlantı ekranındaki
-**"Baglanti yolu"** satırı söyler: `dogrudan (yerel ag)`,
-`dogrudan (NAT uzerinden)` ya da `TURN uzerinden (relay)`.
+Once the tunnel is up, the **"Connection path"** row on the connect screen
+says which route was chosen: `direct (local network)`,
+`direct (through NAT)` or `through TURN (relay)`.
 
-## Üç yol
+## Three ways
 
-### 1. Kendi TURN sunucun (coturn)
+### 1. Your own TURN server (coturn)
 
-En çok kontrol, en az bağımlılık. Bir VPS'te:
+The most control and the fewest dependencies. On a VPS:
 
 ```bash
 sudo apt install coturn
@@ -44,116 +44,121 @@ listening-port=3478
 tls-listening-port=5349
 fingerprint
 lt-cred-mech
-user=peerpages:COK-UZUN-BIR-SIFRE
-realm=ornek.com
-# Kendi genel IP'n:
+user=peerpages:A-VERY-LONG-PASSWORD
+realm=example.com
+# Your own public IP:
 external-ip=203.0.113.10
-# Yalnızca senin kullanman için: kota koy.
+# For your use only: set a quota.
 user-quota=12
 total-quota=1200
-# Yerel ağına relay açılmasını engelle (SSRF benzeri kötüye kullanım):
+# Keep the relay from reaching your local network (SSRF-like abuse):
 denied-peer-ip=10.0.0.0-10.255.255.255
 denied-peer-ip=192.168.0.0-192.168.255.255
 denied-peer-ip=172.16.0.0-172.31.255.255
 ```
 
-Ajanı başlat:
+Start the agent:
 
 ```bash
 peerpages serve --target http://localhost:3000 \
-  --turn turn:ornek.com:3478 --turn-user peerpages \
-  --turn-pass COK-UZUN-BIR-SIFRE
+  --turn turn:example.com:3478 --turn-user peerpages \
+  --turn-pass A-VERY-LONG-PASSWORD
 ```
 
-> **Şifreyi komut satırına yazmak zorunda değilsin:** `PEERPAGES_TURN_PASS`
-> ortam değişkeni de okunuyor. Komut satırı argümanları `ps` çıktısında ve
-> Görev Yöneticisi'nde başka kullanıcılara görünür.
+> **You do not have to put the password on the command line:** the
+> `PEERPAGES_TURN_PASS` environment variable is read too. Command line
+> arguments are visible to other users in `ps` output and in Task Manager.
 
-### 2. Cloudflare Realtime TURN (kısa ömürlü kimlik bilgisi)
+### 2. Cloudflare Realtime TURN (short-lived credentials)
 
-Cloudflare'in TURN hizmeti aylık 1 TB'a kadar ücretsiz. Ajan kimlik
-bilgisini **kendisi** çeker ve süresi bitmeden yeniler:
+Cloudflare's TURN service is free up to 1 TB a month. The agent fetches
+the credentials **itself** and refreshes them before they expire:
 
 ```bash
-export PEERPAGES_CF_TURN_TOKEN=...   # API jetonu
+export PEERPAGES_CF_TURN_TOKEN=...   # the API token
 peerpages serve --target http://localhost:3000 \
-  --turn-cloudflare-key-id <ANAHTAR-KIMLIGI>
+  --turn-cloudflare-key-id <KEY-ID>
 ```
 
-Panelden alman gerekenler: **TURN anahtar kimliği** ve **API jetonu**
+What you need from the dashboard: the **TURN key id** and an **API token**
 (Cloudflare Dashboard → Realtime → TURN).
 
-> **Worker gerekmiyor.** README'nin ilk planı, kısa ömürlü kimlik bilgisi
-> üretmek için `cloudflare-turn/` altında küçük bir Worker öngörüyordu.
-> Worker'ın tek işi API jetonunu **tarayıcıdan** saklamaktı; PeerPages'te
-> TURN'ü yalnızca ajan kullandığı ve jeton zaten senin makinende durduğu için
-> aradaki sunucu gereksiz. Böylece "sıfır sunucu" iddiası TURN'le bile
-> bozulmuyor.
+> **No Worker is needed.** The README's first plan called for a small
+> Worker under `cloudflare-turn/` to mint short-lived credentials. The
+> Worker's only job was to hide the API token **from the browser**; since
+> in PeerPages only the agent uses TURN and the token already sits on your
+> machine, the server in between is unnecessary. That keeps the "zero
+> servers" claim intact even with TURN.
 
-> **Denenmedi:** bu yol gerçek bir Cloudflare hesabına karşı çalıştırılmadı.
-> İstek biçimi ve cevap ayrıştırması testlerle doğrulandı (`httptest`), canlı
-> doğrulama sende. Çalışmazsa `peerpages doctor
-> --turn-cloudflare-key-id ...` çıktısını paylaş.
+> **Not tried:** this path has not been run against a real Cloudflare
+> account. The request shape and the response parsing are verified by
+> tests (`httptest`); the live verification is yours. If it does not work,
+> share the output of
+> `peerpages doctor --turn-cloudflare-key-id ...`.
 
-### 3. Elle alınmış statik kimlik bilgisi
+### 3. Static credentials obtained by hand
 
-Herhangi bir TURN sağlayıcısından aldığın kullanıcı/şifreyi `--turn-user` /
-`--turn-pass` ile verebilirsin. Kimlik bilgisinin süresi varsa bitiminde
-ajanı yeniden başlatman gerekir (Cloudflare yolunda bu otomatik).
+You can pass the user and password you got from any TURN provider with
+`--turn-user` / `--turn-pass`. If the credentials expire you have to
+restart the agent when they do (on the Cloudflare path that is automatic).
 
-## Doğrulama
+## Verification
 
 ```bash
-peerpages doctor --turn turn:ornek.com:3478 --turn-user peerpages --turn-pass ...
+peerpages doctor --turn turn:example.com:3478 --turn-user peerpages --turn-pass ...
 ```
 
-`TURN` bölümünde `durum: tamam` ve bir **relay adresi** görmelisin. Ölçülen
-şey "sunucu ayakta mı" değil, **"bana relay adresi veriyor mu"**: yanlış
-kimlik bilgisi ya da dolmuş kota, ayakta görünüp allocation vermeyen bir
-sunucu üretir. TURN verildiği hâlde hiçbiri allocation vermezse `doctor`
-sıfırdan farklı bir kodla çıkar.
+In the `TURN` section you should see `status: ok` and a **relay address**.
+What is measured is not "is the server up" but **"does it give me a relay
+address"**: wrong credentials, or an exhausted quota, produce a server
+that looks up yet grants no allocation. If TURN was given and none of them
+grants an allocation, `doctor` exits with a non-zero code.
 
-Yerel deneme (gerçek TURN sunucusu olmadan):
+A local trial (without a real TURN server):
 
 ```bash
-# 1. terminal
+# terminal 1
 cd agent && go run . faketurn --port 0 --user u --pass p
-# Bastığı adresi al: turn:127.0.0.1:XXXXX
+# Take the address it prints: turn:127.0.0.1:XXXXX
 
-# 2. terminal — dogrudan yolu IMKANSIZ kil
+# terminal 2 — make the direct path IMPOSSIBLE
 cd agent && go run . serve --target http://localhost:3000 \
   --turn turn:127.0.0.1:XXXXX --turn-user u --turn-pass p --ice-relay-only
 ```
 
-`--ice-relay-only` yalnızca relay adayı toplar, yani bağlantı kurulabiliyorsa
-**mutlaka** TURN üzerinden kurulmuştur. Bu bir teşhis bayrağı; üretimde
-gerekmez (ICE doğrudan yolu zaten tercih eder, kota boşa gitmez).
+`--ice-relay-only` gathers relay candidates only, so if a connection can
+be made it **must** have gone over TURN. It is a diagnostic flag and is
+not needed in production (ICE prefers the direct path anyway, so no quota
+is wasted).
 
-## Güvenlik ve maliyet
+## Security and cost
 
-- **Kimlik bilgisi ajandan çıkmaz.** Ziyaretçi TURN'ü hiç bilmez: sayfaya ne
-  adres ne kullanıcı ne şifre gönderilir. Tek taraflı TURN yeterli, çünkü
-  ziyaretçi ajanın relay adresine doğrudan paket yollar. Böylece kotanı
-  tanımadığın ziyaretçiler harcayamaz (BRIEF §6 ilke 4: ziyaretçi
-  güvenilmez kabul edilir).
-- **Trafik TURN üzerinden geçse bile uçtan uca şifreli kalır.** WebRTC data
-  channel DTLS ile şifrelidir; TURN sunucusu baytları taşır, **içeriği
-  göremez**. Göreceği şey: iki ucun adresi ve ne kadar veri aktığı.
-- **Yine de bir sunucuya bağımlı hale gelirsin.** Bu, projenin "arada hiçbir
-  sunucu yok" iddiasının tek istisnası — bu yüzden TURN **opsiyonel** ve
-  varsayılan olarak kapalı. Bağlantı ekranı TURN kullanıldığında bunu
-  ziyaretçiye de söyler.
-- **Kota:** TURN tüm trafiği taşır, yani 5 MB'lık bir indirme sağlayıcının
-  kotasından 5 MB yer. Kendi coturn'ünde `user-quota` koy.
-- Ölçülen bedel (aynı makinede, loopback): 5 MB indirme doğrudan 96 ms,
-  TURN üzerinden 114 ms (~%16 yavaş). Gerçek ağda TURN sunucusunun
-  konumuna bir gidiş-dönüş eklenir. Ayrıntı: `MEASUREMENTS.md`.
+- **The credentials never leave the agent.** The visitor knows nothing
+  about TURN: neither the address nor the user nor the password is sent to
+  the page. One-sided TURN is enough, because the visitor sends packets
+  straight to the agent's relay address. That way visitors you do not know
+  cannot spend your quota (BRIEF section 6, principle 4: the visitor is
+  treated as untrusted).
+- **Even over TURN the traffic stays end-to-end encrypted.** A WebRTC data
+  channel is encrypted with DTLS; the TURN server carries the bytes and
+  **cannot see the content**. What it does see: the two ends' addresses
+  and how much data flowed.
+- **You still become dependent on a server.** That is the one exception to
+  the project's "no server in between" claim — which is why TURN is
+  **optional** and off by default. When TURN is in use the connect screen
+  tells the visitor so.
+- **Quota:** TURN carries all the traffic, so a 5 MB download takes 5 MB
+  of the provider's quota. On your own coturn, set `user-quota`.
+- The measured cost (on one machine, over loopback): a 5 MB download takes
+  96 ms directly and 114 ms over TURN (about 16% slower). On a real
+  network one round trip to the TURN server's location is added. Details:
+  `MEASUREMENTS.md`.
 
-## Sınırlar
+## Limits
 
-- `turns:` (TLS) adresleri ajana verilebilir ve WebRTC kullanır, ama
-  `peerpages doctor`'ın allocation denemesi TLS'i atlayıp UDP dener —
-  rapor bunu dürüstçe yazar.
-- İki uçlu TURN (ziyaretçinin de kendi relay'ini kullanması) yapılmıyor.
-  Gerekli değil: tek taraflı relay, iki taraf da simetrik NAT arkasındayken
-  bile çalışır.
+- `turns:` (TLS) addresses can be given to the agent and WebRTC uses them,
+  but `peerpages doctor`'s allocation attempt skips TLS and tries UDP —
+  the report says so honestly.
+- Two-sided TURN (the visitor using a relay of their own) is not done. It
+  is not needed: a one-sided relay works even when both sides are behind
+  symmetric NAT.

@@ -1,57 +1,59 @@
-# Kurulum
+# Installation
 
-PeerPages iki parçadan oluşur ve **yalnızca ajanı kurman gerekir**:
+PeerPages has two parts, and **you only have to install the agent**:
 
-- **Ajan** (`peerpages`) — senin makinende çalışan tek binary.
-- **Web uygulaması** — GitHub Pages'te duran statik sayfa. Ziyaretçi hiçbir şey
-  kurmaz, sadece URL'yi açar.
+- **The agent** (`peerpages`) — a single binary that runs on your machine.
+- **The web app** — a static page sitting on GitHub Pages. The visitor
+  installs nothing, they just open the URL.
 
-> Proje henüz sürümlenmedi ve hiç etiket atılmadı (bkz. `CHANGELOG.md`).
-> Aşağıdaki indirme adresleri **ilk release'den sonra** çalışacak; şimdilik
-> kaynaktan derleme yolunu kullan.
+> The project has no version yet and no tag has been pushed (see
+> `CHANGELOG.md`). The download addresses below will work **after the
+> first release**; for now use the build-from-source path.
 
-## 1. Binary indir (önerilen)
+## 1. Download a binary (recommended)
 
-Release sayfasından platformuna uygun arşivi indir:
+Download the archive for your platform from the releases page:
 <https://github.com/aliosmanmho/PeerPages/releases>
 
-| İşletim sistemi | Dosya |
+| Operating system | File |
 |---|---|
-| Windows | `peerpages_<surum>_windows_amd64.zip` (ARM için `windows_arm64`) |
-| macOS (Apple Silicon) | `peerpages_<surum>_darwin_arm64.tar.gz` |
-| macOS (Intel) | `peerpages_<surum>_darwin_amd64.tar.gz` |
-| Linux | `peerpages_<surum>_linux_amd64.tar.gz` (ARM için `linux_arm64`) |
+| Windows | `peerpages_<version>_windows_amd64.zip` (`windows_arm64` for ARM) |
+| macOS (Apple Silicon) | `peerpages_<version>_darwin_arm64.tar.gz` |
+| macOS (Intel) | `peerpages_<version>_darwin_amd64.tar.gz` |
+| Linux | `peerpages_<version>_linux_amd64.tar.gz` (`linux_arm64` for ARM) |
 
-Arşivi aç, `peerpages` (Windows'ta `peerpages.exe`) dosyasını PATH'inde bir
-dizine koy. İndirdiğin dosyanın bütünlüğünü `checksums.txt` ile doğrulayabilirsin:
+Unpack the archive and put `peerpages` (`peerpages.exe` on Windows) into a
+directory on your PATH. You can check the integrity of what you downloaded
+against `checksums.txt`:
 
 ```sh
 sha256sum -c checksums.txt --ignore-missing
 ```
 
-macOS'te ilk çalıştırmada Gatekeeper uyarı verebilir (binary imzalı değil):
-**Sistem Ayarları → Gizlilik ve Güvenlik** altından "yine de aç" seçilir.
+On macOS the first run may trip Gatekeeper (the binary is not signed):
+open **System Settings → Privacy & Security** and choose "open anyway".
 
-## 2. `go install` ile
+## 2. With `go install`
 
-Go 1.27 veya üstü gerekir:
+Go 1.27 or newer is required:
 
 ```sh
 go install github.com/aliosmanmho/PeerPages/agent@latest
 ```
 
-Binary `$(go env GOPATH)/bin` altına kurulur; bu dizinin PATH'inde olduğundan
-emin ol. Bu yolla kurulan binary de sürümünü bilir (`runtime/debug` üzerinden),
-yani `peerpages version` doğru etiketi basar.
+The binary lands under `$(go env GOPATH)/bin`; make sure that directory is
+on your PATH. A binary installed this way knows its version too (through
+`runtime/debug`), so `peerpages version` prints the right tag.
 
-> **Not:** Modül yolu `…/PeerPages/agent` ve Faz 7'de **kesinleşti**:
-> proje adı `peerpages` olarak kalıyor, yani bu yol değişmeyecek.
+> **Note:** the module path is `…/PeerPages/agent` and it was **settled**
+> in phase 7: the project name stays `peerpages`, so this path will not
+> change.
 
-## 3. Scoop / Homebrew (henüz yayınlanmadı)
+## 3. Scoop / Homebrew (not published yet)
 
-`scoop-bucket` ve `homebrew-tap` depoları hazır değil; goreleaser
-yapılandırmasında taslak olarak duruyor ve yükleme kapalı
-(`.goreleaser.yaml` → `skip_upload: true`). Yayınlandığında:
+The `scoop-bucket` and `homebrew-tap` repositories are not ready; they sit
+in the goreleaser configuration as a draft and uploading is off
+(`.goreleaser.yaml` → `skip_upload: true`). Once they are published:
 
 ```sh
 # Windows
@@ -62,7 +64,7 @@ scoop install peerpages
 brew install --cask aliosmanmho/tap/peerpages
 ```
 
-## 4. Kaynaktan derle
+## 4. Build from source
 
 ```sh
 git clone https://github.com/aliosmanmho/PeerPages.git
@@ -70,68 +72,70 @@ cd PeerPages/agent
 go build -o peerpages .
 ```
 
-Geliştirme ortamının tamamı (web dahil) için: [DEV.md](DEV.md).
+For the whole development environment (the web app included):
+[DEV.md](DEV.md).
 
-## Kurulumu doğrula
+## Check the installation
 
 ```sh
 peerpages version
 peerpages doctor
 ```
 
-`version` sürüm, commit, tarih ve platformu basar. `doctor` relay'lere
-erişimi, STUN'u ve NAT tipini sınar — bir sorun varsa bağlanmayı denemeden
-önce burada görürsün.
+`version` prints the version, the commit, the date and the platform.
+`doctor` tests reaching the relays, STUN and the NAT type — if something
+is wrong you see it here, before trying to connect.
 
-## İlk çalıştırma
+## The first run
 
 ```sh
 peerpages serve --target http://localhost:3000
 ```
 
-Ajan her hedef için bir ziyaretçi adresi basar. Ayrıntılı kullanım, çoklu
-hedef ve paylaşılan sır için [DEV.md](DEV.md), elle deneme adımları için
-[MANUAL-TEST.md](MANUAL-TEST.md).
+The agent prints a visitor address for every target. For detailed usage,
+several targets and the shared secret see [DEV.md](DEV.md); for the manual
+trial steps see [MANUAL-TEST.md](MANUAL-TEST.md).
 
-## Windows'ta servis olarak çalıştırma
+## Running it as a service on Windows
 
-Ajan bir servis **değildir**: normal bir ön plan sürecidir ve terminali
-kapatınca durur. Oturum açınca kendiliğinden çalışmasını istiyorsan iki yol
-var. İkisi de sadece dokümantasyon: PeerPages bir servis birimi kurmaz.
+The agent is **not** a service: it is an ordinary foreground process and
+it stops when you close the terminal. If you want it to start on login
+there are two ways. Both are documentation only: PeerPages installs no
+service unit.
 
-> Ajanın kendisi relay düşmesinden ve uyku/uyanmadan toparlanır (Faz 4);
-> aşağıdaki yollar sürecin **çökmesi** ya da makinenin yeniden başlaması
-> durumu için.
+> The agent recovers from a relay going down and from sleep/wake on its
+> own (phase 4); the paths below are for the process **crashing** or the
+> machine restarting.
 
-### Görev Zamanlayıcı (ek araç gerekmez)
+### Task Scheduler (no extra tool needed)
 
 ```powershell
-$action  = New-ScheduledTaskAction -Execute "C:\araclar\peerpages.exe" `
+$action  = New-ScheduledTaskAction -Execute "C:\tools\peerpages.exe" `
            -Argument "serve --target http://localhost:3000"
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 Register-ScheduledTask -TaskName "PeerPages" -Action $action -Trigger $trigger -Settings $settings
 ```
 
-Günlükler görev geçmişinde durur; ajanın kendi çıktısını görmek için
-`--log-file` yerine yönlendirme kullan (`cmd /c peerpages … >> log.txt 2>&1`).
+The logs sit in the task history; to see the agent's own output use a
+redirect (`cmd /c peerpages … >> log.txt 2>&1`).
 
-### NSSM (gerçek Windows servisi)
+### NSSM (a real Windows service)
 
 ```powershell
-nssm install PeerPages "C:\araclar\peerpages.exe" "serve --target http://localhost:3000"
-nssm set PeerPages AppStdout "C:\araclar\peerpages.log"
-nssm set PeerPages AppStderr "C:\araclar\peerpages.log"
+nssm install PeerPages "C:\tools\peerpages.exe" "serve --target http://localhost:3000"
+nssm set PeerPages AppStdout "C:\tools\peerpages.log"
+nssm set PeerPages AppStderr "C:\tools\peerpages.log"
 nssm start PeerPages
 ```
 
-**Dikkat:** servis olarak çalışan ajan, servis hesabının `~/.peerpages/key`
-dosyasını kullanır — yani **peer-id'si farklı olur**. Aynı adresi korumak
-istiyorsan anahtarı `--key` ile açıkça ver.
+**Careful:** an agent running as a service uses the service account's
+`~/.peerpages/key` file — so **its peer-id is different**. If you want to
+keep the same address, pass the key explicitly with `--key`.
 
 ### macOS / Linux
 
-macOS'te `launchd` (`~/Library/LaunchAgents/*.plist`), Linux'ta kullanıcı
-servisi (`systemctl --user`) aynı işi yapar. Her ikisinde de ajanı **kullanıcı
-oturumunda** çalıştır: hedef (`localhost:3000`) genelde kullanıcıya ait bir
-geliştirme sunucusudur.
+On macOS `launchd` (`~/Library/LaunchAgents/*.plist`) and on Linux a user
+service (`systemctl --user`) do the same job. In both cases run the agent
+**in the user session**: the target (`localhost:3000`) is usually a
+development server that belongs to the user.

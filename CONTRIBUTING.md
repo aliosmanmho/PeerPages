@@ -1,86 +1,101 @@
-# Katkı rehberi (taslak)
+# Contributing guide (draft)
 
-PeerPages'in Faz 0–7'si bitti. Kullanıcıya dönük giriş noktaları kökteki
-İngilizce `README.md` ve `docs/SECURITY.md`; bu dosya repo içi çalışma
-kurallarını tutar. Projenin iç brief'i ve karar defteri: `docs/BRIEF.md`.
+Phases 0–7 of PeerPages are done. The user-facing entry points are the
+English `README.md` at the root and `docs/SECURITY.md`; this file holds the
+working rules inside the repo. The project's internal brief and decision
+log: `docs/BRIEF.md`.
 
-## Monorepo düzeni
+## Monorepo layout
 
-| Dizin | İçerik |
+| Directory | Contents |
 |---|---|
-| `web/` | Statik uygulama: Vite + TypeScript, framework yok. App shell + elle yazılmış Service Worker. |
-| `agent/` | Go ajanı (tek binary). WebRTC + reverse proxy. |
-| `protocol/` | Data channel protokolünün normatif tanımı ve **paylaşılan test vektörleri**. |
-| `docs/` | Geliştirici ve elle test dokümanları. |
-| `scripts/` | Windows (PowerShell) dev scriptleri ve test verisi üreticileri. |
+| `web/` | The static app: Vite + TypeScript, no framework. The app shell plus a hand-written Service Worker. |
+| `agent/` | The Go agent (a single binary). WebRTC plus the reverse proxy. |
+| `protocol/` | The normative definition of the data channel protocol and the **shared test vectors**. |
+| `docs/` | The developer and manual-test documents. |
+| `scripts/` | The Windows (PowerShell) dev scripts and the test data generators. |
 
-## Komutlar
+## Commands
 
-`make` kurulu ise `make dev` / `make test` / `make lint` / `make e2e`.
-Windows'ta eşdeğerleri için `docs/DEV.md`'ye bak.
+With `make` installed: `make dev` / `make test` / `make lint` / `make e2e`.
+For the Windows equivalents see `docs/DEV.md`.
 
-## Değişmez kurallar
+## The fixed rules
 
-Bu kararlar brief'te (`docs/BRIEF.md`) sabitlendi; değiştirmek için önce tartışma açılır:
+These decisions were settled in the brief (`docs/BRIEF.md`); changing one
+starts with a discussion:
 
-1. Ajan **Go**, tek statik binary.
-2. Web **Vite + TypeScript**, UI framework yok (bundle küçük kalsın).
-3. Service Worker **elle** yazılır ve elle derlenir — `vite-plugin-pwa` kullanılmaz.
-4. Data channel **iki tane**: `ctrl` (JSON) ve `data` (binary).
-5. Binary framing payload sınırı **16 KiB**.
-6. `docs/BRIEF.md` §6'daki güvenlik ilkeleri her fazda geçerlidir (aynı
-   numaralarla public README'de de var). Özellikle:
-   ajan yalnızca CLI'da verilen hedeflere istek atar (path'ten host türetmek yasak).
-7. Signaling içeriği her zaman **NIP-44** ile şifreli; relay'ler yalnızca
-   "bir pubkey bir şey aldı" görür.
-8. Ziyaretçi güvenilmez: replay, saat kayması, hız limiti ve oturum tavanı
-   korumaları `agent/internal/connect/guard.go`'da.
+1. The agent is **Go**, a single static binary.
+2. The web app is **Vite + TypeScript**, with no UI framework (so the
+   bundle stays small).
+3. The Service Worker is written and built **by hand** —
+   `vite-plugin-pwa` is not used.
+4. There are **two** data channels: `ctrl` (JSON) and `data` (binary).
+5. The binary framing payload limit is **16 KiB**.
+6. The security principles in `docs/BRIEF.md` section 6 hold in every
+   phase (they appear under the same numbers in the public README). In
+   particular: the agent only makes requests to the targets given on the
+   CLI (deriving a host from the path is forbidden).
+7. Signaling content is always encrypted with **NIP-44**; relays only see
+   "a pubkey received something".
+8. The visitor is untrusted: the replay, clock skew, rate limit and
+   session limit guards live in `agent/internal/connect/guard.go`.
 
-## Protokol değişikliği
+## Changing a protocol
 
-İki protokol var ve ikisi de aynı kurala tabi:
+There are two protocols and the same rule covers both:
 
-| Ne | Tanım | Vektörler | TS | Go |
+| What | Definition | Vectors | TS | Go |
 |---|---|---|---|---|
 | Data channel | `protocol/README.md` | `testvectors.json` | `web/src/protocol/` | `agent/internal/protocol/` |
 | Signaling | `protocol/signaling.md` | `signaling-testvectors.json` | `web/src/nostr/` | `agent/internal/signaling/` |
 
-Değişiklik yaparsan:
+If you change one:
 
-1. ilgili tanım dosyası güncellenir,
-2. vektör dosyasına vektör eklenir,
-3. **hem** TS **hem** Go tarafı aynı vektörlerle yeşile geçer.
+1. update the definition file,
+2. add vectors to the vector file,
+3. get **both** the TS **and** the Go side green against the same
+   vectors.
 
-Aynı desen protokol dışında da geçerli: QR kodlayıcı (`web/src/ui/qr.ts`)
-`web/src/ui/qr-testvectors.json`'a karşı test ediliyor ve o dosyayı
-`web/scripts/gen-qr-vectors.py` (python `qrcode`) üretiyor. Kodlayıcıyı
-değiştirirsen vektörleri yeniden üret ve testleri yeşile geçir.
+The same pattern holds outside the protocol too: the QR encoder
+(`web/src/ui/qr.ts`) is tested against
+`web/src/ui/qr-testvectors.json`, and that file is produced by
+`web/scripts/gen-qr-vectors.py` (the python `qrcode` package). If you
+change the encoder, regenerate the vectors and get the tests green.
 
-Signaling vektörleri `protocol/gen-signaling-vectors.py` ile üretiliyor —
-**üçüncü bir bağımsız uygulama** (python `cryptography`). Bu kasıtlı: Go ve TS,
-hiçbirinin üretmediği vektörlere karşı doğrulanıyor, böylece ikisinin aynı
-hatayı birlikte yapması mümkün olmuyor.
+The signaling vectors are produced by
+`protocol/gen-signaling-vectors.py` — a **third, independent
+implementation** (the python `cryptography` package). That is deliberate:
+Go and TS are both verified against vectors neither of them produced, so
+the two cannot make the same mistake together.
 
-Tek taraflı protokol değişikliği kabul edilmez.
+A one-sided protocol change is not accepted.
 
-## Commit mesajları
+## Commit messages
 
-Faz boyunca: `faz-<N>: kısa açıklama`. Küçük ve tek konulu commit'ler.
-Her faz bitiminde `CHANGELOG.md` güncellenir.
+During the phases: `faz-<N>: a short description`. Small, single-topic
+commits. `CHANGELOG.md` is updated at the end of every phase.
 
-## Sürüm ve etiket (Faz 4)
+From phase 8 on, new commit messages are written in English; the history
+before it is left as it is.
 
-- Etiket biçimi `v<major>.<minor>.<patch>` (ör. `v0.1.0`). Etiket push
-  edilince `.github/workflows/release.yml` koşar ve goreleaser release'i
-  **taslak** olarak açar — notlar elle gözden geçirilip yayınlanır.
-- Sürüm bilgisi `-ldflags -X` ile enjekte edilir; `go install` ile kurulan
-  binary'de `runtime/debug` yedeği devreye girer (`agent/internal/version`).
-- Changelog faz bazlı kalır: proje `0.x` boyunca sürümleri fazlara
-  bağlıyor, ayrı bir `[x.y.z]` bölümü tutmuyor.
-- Yerel deneme yayın yapmaz: `goreleaser release --snapshot --clean`.
+## Versions and tags (phase 4)
 
-## Test
+- The tag format is `v<major>.<minor>.<patch>` (for example `v0.1.0`).
+  Pushing a tag runs `.github/workflows/release.yml`, and goreleaser
+  opens the release as a **draft** — the notes are reviewed by hand and
+  then published.
+- The version information is injected with `-ldflags -X`; in a binary
+  installed with `go install` the `runtime/debug` fallback takes over
+  (`agent/internal/version`).
+- The changelog stays phase based: through `0.x` the project ties versions
+  to phases and keeps no separate `[x.y.z]` section.
+- A local trial publishes nothing: `goreleaser release --snapshot --clean`.
 
-- Birim: `vitest` (web), `go test` (agent).
-- E2E: Playwright (Chromium), ajan + test sitesi gerçekten başlatılır.
-- Bir faz, kabul kriterleri testlerle doğrulanmadan kapanmaz.
+## Tests
+
+- Unit: `vitest` (web), `go test` (agent).
+- E2E: Playwright (Chromium), with the agent and the test site really
+  started.
+- A phase does not close until its acceptance criteria are verified by
+  tests.

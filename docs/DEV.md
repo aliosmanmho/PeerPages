@@ -1,233 +1,244 @@
-# Gelistirme
+# Development
 
-## Gereksinimler
+## Requirements
 
-| Arac | Surum | Not |
+| Tool | Version | Note |
 |---|---|---|
-| Go | 1.27+ (agent/go.mod'daki `go` yonergesi) | ajan |
-| Node.js | 20+ (gelistirme: 22.12) | web |
-| make | opsiyonel | Windows'ta yoksa `scripts/*.ps1` kullan |
-| golangci-lint | opsiyonel | yoksa `gofmt` + `go vet` calisir, CI'da zorunlu |
-| goreleaser | opsiyonel | yalnizca release derlemesi icin: `go install github.com/goreleaser/goreleaser/v2@latest` |
+| Go | 1.27+ (the `go` directive in agent/go.mod) | the agent |
+| Node.js | 20+ (developed on 22.12) | the web app |
+| make | optional | if it is missing on Windows, use `scripts/*.ps1` |
+| golangci-lint | optional | without it `gofmt` + `go vet` still run; it is mandatory in CI |
+| goreleaser | optional | only for a release build: `go install github.com/goreleaser/goreleaser/v2@latest` |
 
-Ilk kurulum:
+First-time setup:
 
 ```sh
 cd web && npm install
 cd ../agent && go mod download
-cd ../web && npx playwright install chromium   # yalnizca e2e icin
+cd ../web && npx playwright install chromium   # for e2e only
 ```
 
-## Komut esdegerleri
+## Equivalent commands
 
-| Ne yapar | make | npm (web icinde) | PowerShell (repo kokunde) |
+| What it does | make | npm (inside web) | PowerShell (at the repo root) |
 |---|---|---|---|
-| Web dev sunucusu (5173) | `make dev` | `npm run dev` | `.\scripts\dev.ps1` |
-| Tum birim testler | `make test` | — | `.\scripts\test.ps1` |
-| Web birim testleri | `make test-web` | `npm test` | — |
-| Ajan birim testleri | `make test-agent` | — | `cd agent; go test ./...` |
-| Derleme (web + ajan) | `make build` | — | `.\scripts\build.ps1` |
-| Pages derlemesi | `make build PEERPAGES_BASE=/PeerPages/` | `node scripts/build.mjs /PeerPages/` | `.\scripts\build.ps1 -Base "/PeerPages/"` |
-| Lint / format kontrolu | `make lint` | `npm run lint` | `.\scripts\lint.ps1` |
-| Bicimlendir | — | `npm run format` | — |
-| E2E (tum fazlar) | `make e2e` | `npm run e2e` | `.\scripts\e2e.ps1` |
-| Test verisi uret | `make testdata` | — | `cd agent; go run ./internal/testsite/gen` |
-| Release anlik derleme | `make release-snapshot` | — | `scripts/release-snapshot.ps1` |
-| Release yapilandirmasi | `make release-check` | — | `goreleaser check` |
+| The web dev server (5173) | `make dev` | `npm run dev` | `.\scripts\dev.ps1` |
+| Every unit test | `make test` | — | `.\scripts\test.ps1` |
+| The web unit tests | `make test-web` | `npm test` | — |
+| The agent unit tests | `make test-agent` | — | `cd agent; go test ./...` |
+| Build (web + agent) | `make build` | — | `.\scripts\build.ps1` |
+| A Pages build | `make build PEERPAGES_BASE=/PeerPages/` | `node scripts/build.mjs /PeerPages/` | `.\scripts\build.ps1 -Base "/PeerPages/"` |
+| Lint and format checks | `make lint` | `npm run lint` | `.\scripts\lint.ps1` |
+| Format | — | `npm run format` | — |
+| E2E (every phase) | `make e2e` | `npm run e2e` | `.\scripts\e2e.ps1` |
+| Generate the test data | `make testdata` | — | `cd agent; go run ./internal/testsite/gen` |
+| A release snapshot build | `make release-snapshot` | — | `scripts/release-snapshot.ps1` |
+| Validate the release config | `make release-check` | — | `goreleaser check` |
 
-## `base` (GitHub Pages alt yolu)
+## `base` (the GitHub Pages subpath)
 
-Uygulama `/` ya da `/PeerPages/` gibi bir alt yolda calisabilir. Deger derleme
-zamani `PEERPAGES_BASE` ortam degiskeniyle verilir ve `import.meta.env.BASE_URL`
-olarak koda gecer. Service Worker scope'u da bu degerden turetilir
-(`src/base.ts`).
+The app can run at `/` or under a subpath such as `/PeerPages/`. The value
+is given at build time through the `PEERPAGES_BASE` environment variable
+and reaches the code as `import.meta.env.BASE_URL`. The Service Worker
+scope is derived from it too (`src/base.ts`).
 
-Derleme `scripts/build.mjs` uzerinden yapilir; base'i ortam degiskeni olarak
-alt sureclere kendisi gecirir. Boylece "Windows'ta `VAR=x cmd` calismaz" ve
-"Git Bash `/PeerPages/` degerini Windows yoluna cevirir" sorunlarinin ikisi de
-asilir.
+The build goes through `scripts/build.mjs`, which passes base to the
+subprocesses as an environment variable itself. That gets past both
+"`VAR=x cmd` does not work on Windows" and "Git Bash turns `/PeerPages/`
+into a Windows path".
 
-> **Git Bash uyarisi:** base'i ARGUMAN olarak verirken MSYS yine araya girer:
+> **A Git Bash warning:** when you pass base as an ARGUMENT, MSYS still
+> steps in:
 >
 > ```sh
 > MSYS_NO_PATHCONV=1 node scripts/build.mjs /PeerPages/
 > ```
 >
-> Script boyle bir donusumu tespit ederse anlasilir bir hata verir.
-> PowerShell'de (`scripts\build.ps1`) boyle bir sorun yok.
+> If the script detects such a conversion it fails with a clear message.
+> In PowerShell (`scripts\build.ps1`) there is no such problem.
 
-## Pages dagitimi (Faz 7)
+## The Pages deploy (phase 7)
 
-App shell'i yayinlayan workflow: `.github/workflows/pages.yml`. `main`'e
-`web/**` ya da `protocol/**` altinda bir degisiklik gidince kosar; elle
-tetiklemek icin Actions sekmesinden "Pages" -> "Run workflow".
+The workflow that publishes the app shell:
+`.github/workflows/pages.yml`. It runs when a change under `web/**` or
+`protocol/**` reaches `main`; to trigger it by hand use the Actions tab →
+"Pages" → "Run workflow".
 
-Iki depo degiskeni (Settings -> Secrets and variables -> Actions ->
+Two repository variables (Settings → Secrets and variables → Actions →
 Variables):
 
-| Degisken | Varsayilan | Ne yapar |
+| Variable | Default | What it does |
 |---|---|---|
-| `PAGES_BASE` | `/PeerPages/` | Proje sayfasi alt yolu; derleme base'i |
-| `PAGES_CNAME` | bos | Doluysa base `/` olur ve `dist/CNAME` yazilir |
+| `PAGES_BASE` | `/PeerPages/` | The project page subpath; the build base |
+| `PAGES_CNAME` | empty | When set, base becomes `/` and `dist/CNAME` is written |
 
-Custom domain baglamak:
+Attaching a custom domain:
 
-1. DNS'te kaydi olustur (alt alan adi icin `CNAME` -> `<kullanici>.github.io`;
-   apex icin GitHub'in A/AAAA adresleri).
-2. `PAGES_CNAME` degiskenine alan adini yaz (or. `demo.ornek.com`).
-3. Workflow'u tekrar kostur. Site artik alan adinin KOKUNDE.
-4. Ajanin bastigi adresi de guncelle: `--app-url https://demo.ornek.com/`
-   (varsayilan `internal/cli/key.go` icindeki `DefaultAppURL`).
+1. Create the DNS record (for a subdomain a `CNAME` →
+   `<user>.github.io`; for an apex, GitHub's A/AAAA addresses).
+2. Put the domain into the `PAGES_CNAME` variable (for example
+   `demo.example.com`).
+3. Run the workflow again. The site is now at the ROOT of the domain.
+4. Update the address the agent prints too:
+   `--app-url https://demo.example.com/` (the default lives in
+   `DefaultAppURL` in `internal/cli/key.go`).
 
-Kok dagitimin teknik kazanci sadece estetik degil: yerel sitenin **kok-mutlak**
-yollari (`/style.css`) Service Worker kapsami icinde kalir. Alt yolda bu
-yollar kapsam disina duser ve SW onlari yakalayamaz (BRIEF §8'deki yapisal
-sinir).
+The technical gain of a root deploy is not just cosmetic: the local site's
+**root-absolute** paths (`/style.css`) stay inside the Service Worker
+scope. Under a subpath those paths fall outside the scope and the SW
+cannot catch them (the structural boundary in BRIEF section 8).
 
-Workflow testleri TEKRARLAMAZ; `ci.yml` zaten lint + birim test + e2e
-kosuyor. Dagitimi e2e'ye baglamak yayini yavaslatir ve dagitimin kendi
-hatasini gurultunun arkasina saklar.
+The workflow does NOT repeat the tests; `ci.yml` already runs lint, the
+unit tests and e2e. Tying the deploy to e2e would slow publishing down and
+hide the deploy's own failure behind the noise.
 
-## URL yerlesimi
+## The URL layout
 
-| Yol | Ne |
+| Path | What |
 |---|---|
-| `/<base>/` | **Yerel sitenin koku.** Tunel acikken SW burayi proxy'ler. Tunel yokken kucuk bir onyukleyici servis edilir: SW'yi kurar ve `connect/`e gecer. |
-| `/<base>/connect/` | **Baglanti ekrani + tunel sahibi sayfa.** SW bu yolu asla tunelden gecirmez, boylece bu sekme yenilense bile tunel yasar. |
-| `/<base>/sw.js` | Service Worker. Hash'siz ve scope kokunde olmak zorunda. |
-| `/<base>/assets/…` | App shell'in JS/CSS dosyalari. |
+| `/<base>/` | **The local site's root.** With the tunnel open the SW proxies this. With no tunnel a small bootloader is served: it installs the SW and moves on to `connect/`. |
+| `/<base>/connect/` | **The connect screen and the tunnel-owner page.** The SW never sends this path through the tunnel, so the tunnel survives even if this tab is refreshed. |
+| `/<base>/sw.js` | The Service Worker. It has to be unhashed and at the scope root. |
+| `/<base>/assets/…` | The app shell's JS and CSS files. |
 
-Gerekcesi BRIEF bolum 8'de ("App shell ile yerel sitenin koku ayni URL'yi
-istiyor"). SW kapsamini **calisma zamaninda** `registration.scope`'tan
-turetiyor (`src/sw.ts`), derleme zamani bir sabitten degil.
+The reasoning is in BRIEF section 8 ("the app shell and the local site's
+root both want the same URL"). The SW derives its scope **at runtime**
+from `registration.scope` (`src/sw.ts`), not from a build-time constant.
 
-## Web derlemesi neden uc adim
+## Why the web build has three steps
 
-`npm run build` (yani `node scripts/build.mjs`) sirayla uc Vite derlemesi
-calistirir:
+`npm run build` (that is, `node scripts/build.mjs`) runs three Vite builds
+in order:
 
-1. `vite build` — iki HTML girdisi (`index.html` onyukleyici,
-   `connect/index.html` baglanti ekrani) ve hash'li `assets/`.
-2. `vite build --config vite.sw.config.ts` — Service Worker, `dist/sw.js`.
-3. `vite build --config vite.shim.config.ts` — WebSocket shim,
-   `dist/ws-shim.js` (Faz 6). Modul DEGIL, klasik IIFE: ziyaretcinin
-   sayfasina enjekte ediliyor ve sayfanin kendi script'lerinden once
-   kosmasi gerekiyor.
+1. `vite build` — the two HTML entries (`index.html` the bootloader,
+   `connect/index.html` the connect screen) and the hashed `assets/`.
+2. `vite build --config vite.sw.config.ts` — the Service Worker,
+   `dist/sw.js`.
+3. `vite build --config vite.shim.config.ts` — the WebSocket shim,
+   `dist/ws-shim.js` (phase 6). NOT a module but a classic IIFE: it is
+   injected into the visitor's page and has to run before the page's own
+   scripts.
 
-Service Worker (ve shim) ayri derlenir cunku:
+The Service Worker (and the shim) are built separately because:
 
-- dosya adi **hash'siz ve sabit** olmali (`register(base + "sw.js")`),
-- scope kokunde tek dosya olmali (ek chunk = ek istek),
-- ne bundle'landigi uzerinde tam kontrol gerekiyor.
+- the file name has to be **fixed and unhashed**
+  (`register(base + "sw.js")`),
+- it has to be a single file at the scope root (an extra chunk is an extra
+  request),
+- full control over what gets bundled is needed.
 
-`vite-plugin-pwa` bilerek kullanilmiyor (BRIEF karari).
+`vite-plugin-pwa` is deliberately not used (a BRIEF decision).
 
-Sonraki derlemeler `emptyOutDir: false` ile calisir; bu yuzden **sira
-onemli**: app shell en basta gelmeli.
+The later builds run with `emptyOutDir: false`, so **the order matters**:
+the app shell has to come first.
 
-## TypeScript yapilandirmasi
+## The TypeScript configuration
 
-Uc ayri `tsconfig` var, cunku app ve Service Worker farkli global ortamlarda
-calisir (`DOM` ve `WebWorker` lib'leri ayni anda kullanilamaz):
+There are three separate `tsconfig` files, because the app and the Service
+Worker run in different global environments (the `DOM` and `WebWorker`
+libs cannot be used at the same time):
 
-| Dosya | Lib | Kapsam |
+| File | Lib | Scope |
 |---|---|---|
-| `tsconfig.json` | `DOM` | `src/**` (sw.ts haric) |
+| `tsconfig.json` | `DOM` | `src/**` (except sw.ts) |
 | `tsconfig.sw.json` | `WebWorker` | `src/sw.ts`, `src/protocol/**` |
-| `tsconfig.node.json` | node | `e2e/**`, `*.config.ts`, testler |
+| `tsconfig.node.json` | node | `e2e/**`, `*.config.ts`, the tests |
 
-`npm run typecheck` ucunu birlikte calistirir; `npm run lint` buna biome'u ekler.
+`npm run typecheck` runs all three together; `npm run lint` adds biome to
+that.
 
-## Ajan
+## The agent
 
 ```sh
 cd agent
 
-# Nostr signaling (varsayilan): ziyaretci yalnizca URL'yi acar
+# Nostr signaling (the default): the visitor only opens the URL
 go run . serve --target http://localhost:3000
 
-# Paylasilan sirla
-go run . serve --target http://localhost:3000 --secret kedi-balik-7
+# With a shared secret
+go run . serve --target http://localhost:3000 --secret cat-fish-7
 
-# Coklu hedef: ajan her hedef icin ayri ziyaretci URL'si basar
+# Several targets: the agent prints a separate visitor URL for each one
 go run . serve -t http://localhost:3000 -t admin=http://localhost:4000
 
-# Elle signaling (kopyala-yapistir); hedefi bayrak secer
+# Manual signaling (copy-paste); a flag picks the target
 go run . serve --target http://localhost:3000 --manual
 go run . serve -t http://localhost:3000 -t admin=http://localhost:4000 --manual --manual-target admin
 
-# Kendi relay listen
+# Your own relay list
 go run . serve --target http://localhost:3000 --relay wss://nos.lol
 
-# Teshis: relay sagligi + NAT tipi (+ TURN allocation)
+# Diagnostics: relay health plus the NAT type (plus a TURN allocation)
 go run . doctor
 go run . doctor --json
-go run . doctor --turn turn:ornek.com:3478 --turn-user u --turn-pass p
+go run . doctor --turn turn:example.com:3478 --turn-user u --turn-pass p
 
-# TURN (simetrik NAT'ta gerekir; yalnizca AJAN tarafinda kullanilir)
-go run . serve --target http://localhost:3000   --turn turn:ornek.com:3478 --turn-user u --turn-pass p
-# Cloudflare Realtime TURN: kimlik bilgisi API'den cekilir ve yenilenir
-PEERPAGES_CF_TURN_TOKEN=... go run . serve --target http://localhost:3000   --turn-cloudflare-key-id <anahtar>
-# Teshis: dogrudan yolu imkansiz kil (baglanti kurulursa TURN'den gecti)
+# TURN (needed on symmetric NAT; used on the AGENT side only)
+go run . serve --target http://localhost:3000   --turn turn:example.com:3478 --turn-user u --turn-pass p
+# Cloudflare Realtime TURN: the credentials are fetched from the API and refreshed
+PEERPAGES_CF_TURN_TOKEN=... go run . serve --target http://localhost:3000   --turn-cloudflare-key-id <key>
+# Diagnostics: make the direct path impossible (if it connects, it went over TURN)
 go run . serve --target http://localhost:3000   --turn turn:127.0.0.1:3478 --turn-user u --turn-pass p --ice-relay-only
 
-# WebSocket koprusu (Faz 6): shim HTML'e enjekte edilir, varsayilan KAPALI
+# The WebSocket bridge (phase 6): the shim is injected into the HTML, OFF by default
 go run . serve --target http://localhost:5173 --inject-ws-shim
-# Sinirlar: uzun yasayan akis (ws + SSE) sayisi ve ws mesaj tavani
+# The limits: the number of long-lived streams (ws + SSE) and the ws message limit
 go run . serve --target http://localhost:3000 --max-streams 16 --max-ws-message 4MB
 
-# Surum ve derleme bilgisi
+# The version and build information
 go run . version
 
-# Kimlik
-go run . key                   # peer-id ve ziyaretci URL'si
-go run . key --target admin    # hedefli ziyaretci URL'si
-go run . key --reveal-secret   # gizli anahtari da goster
+# The identity
+go run . key                   # the peer-id and the visitor URL
+go run . key --target admin    # the visitor URL with a target
+go run . key --reveal-secret   # show the secret key too
 
-# Ayrintili log (path'ler MASKELENMEZ)
+# Verbose logging (paths are NOT MASKED)
 go run . serve --target http://localhost:3000 --verbose
 ```
 
-Testler icin gizli komutlar: `peerpages testsite` (yerel test sitesi),
-`peerpages fakerelay` (surec ici Nostr relay'i), `peerpages faketurn`
-(surec ici TURN sunucusu, Faz 5).
+The hidden commands for the tests: `peerpages testsite` (the local test
+site), `peerpages fakerelay` (an in-process Nostr relay) and
+`peerpages faketurn` (an in-process TURN server, phase 5).
 
-Test sitesinin akis uclari (Faz 6): `/sse?n=5&delay=400&keepalive=1` ve
-`/ws` (metin + ikili yanki; `?proto=` alt protokol, `?close=4002` sunucu
-kapanisi). SSE'nin varsayilani Faz 1'deki gibi: uc olay, beklemesiz.
+The test site's streaming endpoints (phase 6):
+`/sse?n=5&delay=400&keepalive=1` and `/ws` (a text and binary echo;
+`?proto=` sets the subprotocol, `?close=4002` makes the server close). The
+SSE default is as it was in phase 1: three events, no delay.
 
-WebSocket koprusu ve shim: [WEBSOCKET.md](WEBSOCKET.md).
+The WebSocket bridge and the shim: [WEBSOCKET.md](WEBSOCKET.md).
 
-Sifre ve jeton icin ortam degiskenleri: `PEERPAGES_TURN_PASS`,
-`PEERPAGES_CF_TURN_TOKEN`. Komut satiri argumanlari `ps` ciktisinda baska
-kullanicilara gorunur, bu yuzden bayrak tek yol degil.
+The environment variables for passwords and tokens:
+`PEERPAGES_TURN_PASS`, `PEERPAGES_CF_TURN_TOKEN`. Command line arguments
+are visible to other users in `ps` output, which is why a flag is not the
+only way.
 
-TURN kurulumu ve guvenlik notlari: [TURN.md](TURN.md).
+TURN setup and its security notes: [TURN.md](TURN.md).
 
-Loglar varsayilan olarak URL path'lerini maskeler (`/api/items` → `/*3/*5`);
-`--verbose` bunu kapatir (BRIEF guvenlik ilkesi 6).
+By default the logs mask URL paths (`/api/items` → `/*3/*5`);
+`--verbose` turns that off (BRIEF security principle 6).
 
-Ajan **yalnizca** `--target` ile verilen hostlara istek atar. Istek yolundan
-host turetmek `internal/target` icinde kasten imkansiz kilindi ve testlerle
-korunuyor (ilke 1).
+The agent makes requests **only** to the hosts given with `--target`.
+Deriving a host from the request path was made deliberately impossible
+inside `internal/target`, and tests keep it that way (principle 1).
 
-## Release (Faz 4)
+## Releases (phase 4)
 
-Surum bilgisi `-ldflags -X` ile `main.buildVersion/buildCommit/buildDate`'e
-enjekte edilir; verilmezse `runtime/debug.ReadBuildInfo` kullanilir
-(`internal/version`). Yani `go install ...@latest` ile kurulan binary de
-dogru surumu basar.
+The version information is injected with `-ldflags -X` into
+`main.buildVersion/buildCommit/buildDate`; with none given,
+`runtime/debug.ReadBuildInfo` is used (`internal/version`). So a binary
+installed with `go install ...@latest` prints the right version too.
 
 ```sh
-goreleaser check                       # yapilandirma gecerli mi
-goreleaser release --snapshot --clean  # dist/ altinda 6 arsiv, YAYIN YAPMAZ
+goreleaser check                       # is the configuration valid
+goreleaser release --snapshot --clean  # 6 archives under dist/, it DOES NOT PUBLISH
 ```
 
-Gercek release: `v*` bicimli bir etiket push edilince
-`.github/workflows/release.yml` kosar ve goreleaser release'i **taslak**
-olarak acar (notlar elle gozden gecirilir). Scoop/Homebrew taslaklari
-`.goreleaser.yaml` icinde ama `skip_upload: true` ile kapali: tap depolari
-henuz yok. Proje adi Faz 7'de kesinlesti, yani modul yolu ve binary adi
-artik sabit.
+A real release: pushing a tag of the form `v*` runs
+`.github/workflows/release.yml`, and goreleaser opens the release as a
+**draft** (the notes are reviewed by hand). The Scoop and Homebrew drafts
+sit in `.goreleaser.yaml` but are off with `skip_upload: true`: the tap
+repositories do not exist yet. The project name was settled in phase 7, so
+the module path and the binary name are fixed now.
 
-Son kullanici kurulumu: `docs/INSTALL.md`.
+End-user installation: `docs/INSTALL.md`.

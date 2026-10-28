@@ -1,66 +1,72 @@
-# Lansman malzemesi
+# Launch material
 
-Hazır metinler ve kontrol listesi. **Hiçbiri paylaşılmadı** — paylaşma kararı
-ve zamanlaması sende.
+Ready-made texts and a checklist. **None of it has been posted** — the
+decision to post, and when, is yours.
 
-Tonun kuralı, projenin kendi kuralıyla aynı: **abartma yok, ölçülmeyen iddia
-yok.** Hacker News ve r/selfhosted, "no server" iddiasını ilk yorumda
-delmeye çalışır; onlara malzemeyi kendin ver, kazanırsın.
+The rule for the tone is the project's own rule: **no exaggeration, no
+claim that has not been measured.** Hacker News and r/selfhosted will try
+to puncture the "no server" claim in the first comment; hand them the
+material yourself and you win.
 
 ---
 
-## 1. Önce: 10 saniyelik GIF
+## 1. First: the 10-second GIF
 
-README'nin en üstündeki iki ekran görüntüsü gerçek ama **durağan**. Asıl ikna
-edici şey, bir terminalden çıkan URL'nin başka bir cihazda açılması. Bunu
-senin makinenin kaydı olarak çekmek, benim üreteceğim sentetik bir
-animasyondan daha iyi: gerçek gecikme, gerçek fare hareketi, gerçek site.
+The two screenshots at the top of the README are real but **static**. What
+really convinces is a URL coming out of one terminal and opening on
+another device. Recording that from your own machine beats any synthetic
+animation: real latency, real mouse movement, a real site.
 
-**Senaryo (hedef: 10–12 saniye)**
+**The script (target: 10–12 seconds)**
 
-| Saniye | Ekranda |
+| Second | On screen |
 |---|---|
-| 0–2 | Terminal: `peerpages serve --target http://localhost:3000` yazılır ve çalışır |
-| 2–4 | Ajan hazır olur, ziyaretçi URL'si görünür (peer-id'yi bulanıklaştırmana gerek yok, zaten her çalıştırmada aynı — istersen `--key` ile geçici bir anahtar kullan) |
-| 4–6 | URL kopyalanır, **ikinci bir tarayıcı penceresinde** (tercihen telefon ekranı yansıması) açılır |
-| 6–9 | Bağlantı ekranı adımları geçer, site görünür; bir-iki tıkla gezilir |
-| 9–12 | Yerel editörde bir metin değiştirilir, sayfa yenilenir ve değişiklik ziyaretçide görünür |
+| 0–2 | The terminal: `peerpages serve --target http://localhost:3000` is typed and runs |
+| 2–4 | The agent becomes ready and the visitor URL appears (you do not need to blur the peer-id, it is the same on every run anyway — use a temporary key with `--key` if you prefer) |
+| 4–6 | The URL is copied and opened **in a second browser window** (ideally a mirrored phone screen) |
+| 6–9 | The connect screen's steps go by, the site appears, and a click or two browses it |
+| 9–12 | A piece of text is changed in the local editor, the page is refreshed, and the change shows up for the visitor |
 
-**Nasıl kaydedilir**
+**How to record it**
 
-- Windows: [ScreenToGif](https://www.screentogif.com/) — pencere seç, 15 fps,
-  kayıttan sonra "Reduce frame count" + 256 renk.
-- macOS: QuickTime ile ekran kaydı → `ffmpeg -i demo.mov -vf "fps=15,scale=900:-1" demo.gif`.
-- Linux: `peek` ya da aynı `ffmpeg` komutu.
+- Windows: [ScreenToGif](https://www.screentogif.com/) — pick the window,
+  15 fps, then "Reduce frame count" plus 256 colours.
+- macOS: a screen recording with QuickTime →
+  `ffmpeg -i demo.mov -vf "fps=15,scale=900:-1" demo.gif`.
+- Linux: `peek`, or the same `ffmpeg` command.
 
-**Hedef:** 900 px genişlik, **2 MB altı** (GitHub README'de 2 MB üstü GIF'ler
-ağır açılır). Dosyayı `docs/img/demo.gif` olarak koy ve README'nin en üstündeki
-tabloyu şununla değiştir:
+**The target:** 900 px wide and **under 2 MB** (GIFs over 2 MB load slowly
+in a GitHub README). Put the file at `docs/img/demo.gif` and replace the
+table at the top of the README with this:
 
 ```markdown
 ![PeerPages demo](docs/img/demo.gif)
 ```
 
-> Ekran görüntülerini silme: GIF yüklenmeyen ortamlarda (RSS, bazı mobil
-> istemciler) tablo yedek kalsın diye GIF'in altına taşı.
+> Do not delete the screenshots: move them below the GIF so the table
+> stays as a fallback where GIFs do not load (RSS, some mobile clients).
 
 ---
 
 ## 2. Show HN
 
-**Başlık adayları** (HN başlıkları sade olmalı; emoji ve ünlem düşürür):
+**Title candidates** (HN titles should be plain; emoji and exclamation
+marks hurt):
 
 1. `Show HN: PeerPages – Share your localhost over GitHub Pages, no server in between`
-   — en açık olanı. "no server" iddiası tartışmayı başlatır, ki istediğimiz bu.
+   — the clearest one. The "no server" claim starts the discussion, which
+   is what we want.
 2. `Show HN: Tunnel to localhost with WebRTC and Nostr signaling, no relay server`
-   — teknolojiyi öne çıkarır; WebRTC/Nostr bilen kitleyi çeker ama "ne işe
-   yarıyor" sorusunu ikinci plana atar.
+   — puts the technology first; it draws the WebRTC/Nostr crowd but pushes
+   "what is it for" into second place.
 3. `Show HN: A localhost tunnel where the traffic never touches a third party`
-   — faydayı öne çıkarır; en az teknik, en çok yanlış anlaşılmaya açık.
+   — puts the benefit first; the least technical and the most open to
+   being misread.
 
-**Önerilen: 1.**
+**Recommended: 1.**
 
-**İlk yorum** (HN kuralı: yazar ilk yorumda bağlamı verir)
+**The first comment** (an HN convention: the author gives the context in
+the first comment)
 
 > I built this because every localhost tunnel I used terminates TLS on
 > someone else's machine. ngrok and Cloudflare Tunnel are good products, but
@@ -96,8 +102,6 @@ tabloyu şununla değiştir:
 >   visitor when traffic is relayed.
 > - Only Chromium is verified by the test suite. Socket.IO works in manual
 >   testing but isn't covered.
-> - The agent's CLI and the detailed docs are still in Turkish. README and the
->   threat model are English.
 > - No tags yet, so `go install` is the only install path today.
 >
 > Threat model: https://github.com/aliosmanmho/PeerPages/blob/main/docs/SECURITY.md
@@ -106,21 +110,26 @@ tabloyu şununla değiştir:
 >
 > Happy to answer anything about the protocol or the failure modes.
 
-**Beklenen zor sorular ve dürüst cevapları**
+> **Note:** the comment above used to end with a line saying the CLI and
+> the detailed docs were still in Turkish. Phase 8 made the whole
+> repository English, so that line is gone; the web page now speaks both
+> English and Turkish, with English as the default.
 
-| Soru | Cevap |
+**The hard questions to expect, and the honest answers**
+
+| Question | Answer |
 |---|---|
-| "Nostr relay de bir sunucu değil mi?" | Evet, ve bunu saklamıyoruz: relay'ler el sıkışmayı taşır, trafiği değil. İstersen kendi relay'ini verirsin (`--relay`). Fark şu: relay'in içeriği okuma imkânı yok, ngrok'un var. |
-| "GitHub Pages da bir sunucu." | Statik dosya sunuyor, trafiğini değil. Sayfayı kendi alan adında da barındırabilirsin. |
-| "TURN gerekirse iddian çöküyor." | Simetrik NAT'ta evet, bir relay gerekiyor; o yüzden opsiyonel, varsayılan kapalı ve ekranda ziyaretçiye söyleniyor. TURN bile içeriği göremez (DTLS). |
-| "URL'yi bilen herkes giriyor." | Doğru, ve README bunu "URL'yi şifre gibi gör" diye yazıyor. `--secret` ikinci katman. |
-| "Güvenlik denetimi var mı?" | Yok. NIP-44 ve DTLS kendi uygulamaları değil, ama kompozisyon denetlenmedi; SECURITY.md bunu açıkça söylüyor. |
+| "Isn't a Nostr relay a server too?" | Yes, and we do not hide it: the relays carry the handshake, not the traffic. You can pass your own relay (`--relay`). The difference: a relay has no way to read the content, where ngrok does. |
+| "GitHub Pages is a server as well." | It serves static files, not your traffic. You can host the page on your own domain too. |
+| "If TURN is needed your claim collapses." | On symmetric NAT, yes, a relay is needed; that is why it is optional, off by default, and shown to the visitor on screen. Even TURN cannot see the content (DTLS). |
+| "Anyone who knows the URL gets in." | True, and the README says "treat the URL like a password". `--secret` is the second layer. |
+| "Has it been audited?" | No. NIP-44 and DTLS are not our own implementations, but the composition has not been audited; SECURITY.md says so plainly. |
 
 ---
 
 ## 3. r/selfhosted
 
-**Başlık:** `PeerPages: share localhost over GitHub Pages — WebRTC data channel, Nostr signaling, no relay server`
+**Title:** `PeerPages: share localhost over GitHub Pages — WebRTC data channel, Nostr signaling, no relay server`
 
 > Self-hosting crowd will appreciate the specific thing here: there is no
 > third-party server in the data path and no account anywhere.
@@ -149,7 +158,7 @@ tabloyu şununla değiştir:
 
 ## 4. r/webdev
 
-**Başlık:** `Share your dev server with a client in one command — no signup, no tunnel provider`
+**Title:** `Share your dev server with a client in one command — no signup, no tunnel provider`
 
 > You run `peerpages serve --target http://localhost:3000`, you get a URL, you
 > send it. Whoever opens it sees your dev server in their browser: relative
@@ -176,9 +185,9 @@ tabloyu şununla değiştir:
 
 ## 5. X / LinkedIn
 
-Kurumsal hesap adını `<kurumsal-hesap>` yerine yaz.
+Put the company account name in place of `<company-account>`.
 
-**X (kısa):**
+**X (short):**
 
 > Share your localhost over GitHub Pages — with no server in between.
 >
@@ -188,7 +197,7 @@ Kurumsal hesap adını `<kurumsal-hesap>` yerine yaz.
 >
 > Open source, MIT: github.com/aliosmanmho/PeerPages
 
-**LinkedIn (biraz daha uzun):**
+**LinkedIn (a bit longer):**
 
 > Most localhost tunnels work by terminating TLS on the provider's servers.
 > That is fine until you are sharing a staging build with a client and realise
@@ -204,33 +213,35 @@ Kurumsal hesap adını `<kurumsal-hesap>` yerine yaz.
 > deliberately accepted.
 >
 > MIT licensed: github.com/aliosmanmho/PeerPages
-> (built with <kurumsal-hesap>)
+> (built with <company-account>)
 
 ---
 
-## 6. Lansmandan önce kontrol listesi
+## 6. The checklist before launching
 
-Sırayla, her biri **gerçekten denenerek**:
+In order, each one **actually tried**:
 
-- [ ] Pages sitesi canlı ve bağlantı ekranı açılıyor.
-- [ ] `go install github.com/aliosmanmho/PeerPages/agent@latest` **temiz bir
-      makinede** çalışıyor (ya da en azından temiz bir `GOPATH`'te).
-- [ ] Ajan bayraksız çalıştırıldığında bastığı URL **gerçekten açılıyor**
-      (`DefaultAppURL` doğru).
-- [ ] README'deki her komut kopyala-çalıştır: yazım hatası olan tek bir komut
-      Show HN'de ilk yorumu belirler.
-- [ ] README'deki her bağlantı çözülüyor (görseller dahil).
-- [ ] `docs/SECURITY.md`'deki bildirim kanalı gerçekten çalışıyor (Security
-      Advisories sekmesi açık mı).
-- [ ] GIF eklendi ve 2 MB altında.
-- [ ] Depo açıklaması (`gh repo edit --description`) ve `homepageUrl` dolu;
-      topics eklendi (`webrtc`, `nostr`, `tunnel`, `service-worker`, `golang`).
-- [ ] İlk etiket kararı: etiketsiz lansmanda indirme linki yok, yalnızca
-      `go install`. `v0.1.0` atmak ister misin? (`docs/INSTALL.md`'deki
-      "henüz etiket yok" notu o zaman kalkar.)
-- [ ] Lansman günü için 2–3 saat ayır: Show HN'de ilk saat içinde gelen
-      sorulara cevap vermemek, gönderiyi öldürür.
+- [ ] The Pages site is live and the connect screen opens.
+- [ ] `go install github.com/aliosmanmho/PeerPages/agent@latest` works **on
+      a clean machine** (or at least in a clean `GOPATH`).
+- [ ] When the agent runs with no flags, the URL it prints **really
+      opens** (`DefaultAppURL` is right).
+- [ ] Every command in the README is copy-and-run: a single command with a
+      typo decides the first comment on Show HN.
+- [ ] Every link in the README resolves (the images included).
+- [ ] The reporting channel in `docs/SECURITY.md` really works (is the
+      Security Advisories tab enabled).
+- [ ] The GIF is in place and under 2 MB.
+- [ ] The repository description (`gh repo edit --description`) and
+      `homepageUrl` are filled in; the topics are added (`webrtc`,
+      `nostr`, `tunnel`, `service-worker`, `golang`).
+- [ ] The first-tag decision: launching without a tag means there is no
+      download link, only `go install`. Do you want to push `v0.1.0`?
+      (The "no tag yet" note in `docs/INSTALL.md` goes away then.)
+- [ ] Set aside 2–3 hours for launch day: not answering the questions that
+      arrive in the first hour kills a Show HN post.
 
-**Zamanlama:** Show HN için Salı–Perşembe, 08:00–10:00 ET (TSİ 15:00–17:00)
-istatistiksel olarak en iyi pencere. Reddit gönderilerini aynı güne yığma;
-HN'den bir gün sonra paylaş ki soruların ikisine birden yetişebil.
+**Timing:** for Show HN, Tuesday to Thursday, 08:00–10:00 ET is
+statistically the best window. Do not pile the Reddit posts onto the same
+day; post them a day after HN so you can keep up with both sets of
+questions.

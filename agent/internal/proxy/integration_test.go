@@ -346,7 +346,7 @@ func TestIntegrationTestSiteOverTunnel(t *testing.T) {
 		if res.status != 200 {
 			t.Fatalf("status %d", res.status)
 		}
-		if !bytes.Contains(res.body, []byte("PeerPages test sitesi")) {
+		if !bytes.Contains(res.body, []byte("PeerPages test site")) {
 			t.Errorf("the HTML content is wrong: %d bytes", len(res.body))
 		}
 		if ct := res.headers["content-type"]; !bytes.Contains([]byte(ct), []byte("text/html")) {
@@ -401,15 +401,15 @@ func TestIntegrationTestSiteOverTunnel(t *testing.T) {
 		}
 		var payload struct {
 			Items []struct {
-				Ad    string `json:"ad"`
-				Deger int    `json:"value"`
+				Name  string `json:"name"`
+				Value int    `json:"value"`
 			} `json:"items"`
-			Toplam int `json:"toplam"`
+			Total int `json:"total"`
 		}
 		if err := json.Unmarshal(res.body, &payload); err != nil {
 			t.Fatalf("the JSON could not be decoded: %v (%q)", err, res.body)
 		}
-		if payload.Toplam != 3 || len(payload.Items) != 3 || payload.Items[0].Ad != "alfa" {
+		if payload.Total != 3 || len(payload.Items) != 3 || payload.Items[0].Name != "alfa" {
 			t.Errorf("the JSON content is wrong: %+v", payload)
 		}
 	})

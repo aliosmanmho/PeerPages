@@ -25,7 +25,8 @@ import {
   validTargetName,
 } from "./signaling";
 
-// Go tarafi (agent/internal/signaling/vectors_test.go) AYNI dosyayi okur.
+// The Go side (agent/internal/signaling/vectors_test.go) reads the SAME
+// file.
 const vectorsPath = fileURLToPath(
   new URL("../../../protocol/signaling-testvectors.json", import.meta.url),
 );
@@ -88,7 +89,7 @@ function codeOf(fn: () => unknown): string {
 }
 
 describe("signaling-testvectors.json", () => {
-  it("TS sabitleriyle ayni degerleri bildiriyor", () => {
+  it("it reports the same values as the TS constants", () => {
     expect(V.version).toBe(SIGNALING_VERSION);
     expect(V.limits.sidLength).toBe(SID_LENGTH);
     expect(V.limits.maxSDP).toBe(MAX_SDP);
@@ -100,7 +101,7 @@ describe("signaling-testvectors.json", () => {
     expect(V.secret.nonceBytes).toBe(12);
   });
 
-  it("beklenen sayida vektor iceriyor", () => {
+  it("it holds the expected number of vectors", () => {
     expect(V.messages.valid.length).toBeGreaterThanOrEqual(8);
     expect(V.messages.invalid.length).toBeGreaterThanOrEqual(25);
     expect(V.messages.generated.length).toBeGreaterThanOrEqual(8);
@@ -109,24 +110,25 @@ describe("signaling-testvectors.json", () => {
   });
 });
 
-describe("parseSignaling + canonicalSignaling — gecerli vektorler", () => {
+describe("parseSignaling + canonicalSignaling — the valid vectors", () => {
   for (const vec of V.messages.valid) {
     it(vec.name, () => {
       const msg = parseSignaling(vec.text);
-      // Kanonik cikti Go tarafiyla bayt bayt ayni olmali.
+      // The canonical output has to be byte-for-byte the same as the Go
+      // side's.
       expect(canonicalSignaling(msg)).toBe(vec.canonical);
-      // Kanonik metin yeniden ayristirildiginda ayni mesaji vermeli.
+      // Reparsing the canonical text has to give the same message.
       expect(parseSignaling(canonicalSignaling(msg))).toEqual(msg);
     });
   }
 
-  it("tum mesaj tiplerini kapsiyor", () => {
+  it("it covers every message type", () => {
     const seen = new Set(V.messages.valid.map((v) => parseSignaling(v.text).t));
     expect([...seen].sort()).toEqual(["answer", "bye", "candidate", "offer"]);
   });
 });
 
-describe("parseSignaling — reddedilmesi gerekenler", () => {
+describe("parseSignaling — what has to be refused", () => {
   for (const vec of V.messages.invalid) {
     it(`${vec.name} → ${vec.error}`, () => {
       expect(codeOf(() => parseSignaling(vec.text))).toBe(vec.error);
@@ -134,7 +136,7 @@ describe("parseSignaling — reddedilmesi gerekenler", () => {
   }
 });
 
-describe("sinir vakalari", () => {
+describe("the boundary cases", () => {
   const sid = "0123456789abcdef";
 
   for (const vec of V.messages.generated) {
@@ -168,12 +170,12 @@ describe("sinir vakalari", () => {
     });
   }
 
-  // Uzunluk BAYT cinsinden olculmeli: Go tarafi bayt sayiyor, JS'in .length'i
-  // UTF-16 kod birimi sayar. Ikisi ayrilirsa taraflar ayni mesaj icin farkli
-  // karar verir.
-  it("uzunluk bayt cinsinden olculuyor (ASCII disi)", () => {
+  // The length has to be measured in BYTES: the Go side counts bytes
+  // while JS .length counts UTF-16 code units. If the two drift apart,
+  // the sides decide differently about the same message.
+  it("the length is measured in bytes (non-ASCII)", () => {
     const sid = "0123456789abcdef";
-    // "ç" UTF-8'de 2 bayt: 33 karakter = 66 bayt > 64 sinir.
+    // "ç" is 2 bytes in UTF-8: 33 characters = 66 bytes > the 64 limit.
     const reason = "ç".repeat(33);
     expect(reason.length).toBeLessThanOrEqual(MAX_REASON);
     expect(new TextEncoder().encode(reason).byteLength).toBeGreaterThan(MAX_REASON);
@@ -182,7 +184,7 @@ describe("sinir vakalari", () => {
 });
 
 describe("sid", () => {
-  it("newSID gecerli bicimde uretir", () => {
+  it("newSID produces a valid form", () => {
     for (let i = 0; i < 20; i++) {
       const sid = newSID();
       expect(sid).toHaveLength(SID_LENGTH);
@@ -190,12 +192,12 @@ describe("sid", () => {
     }
   });
 
-  it("newSID her cagrida farkli", () => {
+  it("newSID differs on every call", () => {
     const seen = new Set(Array.from({ length: 50 }, () => newSID()));
     expect(seen.size).toBe(50);
   });
 
-  it("validSID bicimi dogru dogruluyor", () => {
+  it("validSID validates the form correctly", () => {
     expect(validSID("0123456789abcdef")).toBe(true);
     expect(validSID("0123456789ABCDEF")).toBe(false); // buyuk harf
     expect(validSID("0123456789abcde")).toBe(false); // kisa
@@ -205,13 +207,13 @@ describe("sid", () => {
   });
 });
 
-describe("Sealer — paylasilan sir katmani", () => {
-  it("anahtar turetimi vektorle ayni", () => {
+describe("Sealer — the shared secret layer", () => {
+  it("the key derivation matches the vector", () => {
     const s = Sealer.fromSecret(V.sealed.key.secret);
     expect(s.keyHex()).toBe(V.sealed.key.keyHex);
   });
 
-  it("bos sir reddedilir", () => {
+  it("an empty secret is refused", () => {
     expect(() => Sealer.fromSecret("")).toThrow();
   });
 
@@ -219,12 +221,13 @@ describe("Sealer — paylasilan sir katmani", () => {
     it(`${vec.name} — vektordeki payload cozuluyor`, () => {
       const s = Sealer.fromSecret(vec.secret);
       expect(s.open(vec.payload)).toBe(vec.plaintext);
-      // Mesaj olarak da ayristirilabilmeli.
+      // It also has to parse as a message.
       expect(() => s.decode(vec.payload)).not.toThrow();
     });
 
-    // Ayni nonce ile BAYT BAYT ayni payload uretilmeli: iki uygulamanin
-    // ayni cercevelemeyi kullandiginin kaniti.
+    // With the same nonce it has to produce a BYTE-FOR-BYTE identical
+    // payload: the proof that the two implementations use the same
+    // framing.
     it(`${vec.name} — ayni nonce ile ayni payload uretiliyor`, () => {
       const s = Sealer.fromSecret(vec.secret);
       expect(s.sealWithNonce(hexBytes(vec.nonceHex), vec.plaintext)).toBe(vec.payload);
@@ -238,20 +241,22 @@ describe("Sealer — paylasilan sir katmani", () => {
     });
   }
 
-  // "Sirsiz teklifleri reddet": sir beklenirken duz JSON gelirse red.
-  it("sir beklenirken duz payload reddedilir", () => {
+  // "Refuse unsealed offers": plain JSON arriving where a secret is
+  // expected is refused.
+  it("a plain payload is refused where a secret is expected", () => {
     const v = V.sealed.plainWhenSecretExpected;
     const s = Sealer.fromSecret(v.secret);
     expect(codeOf(() => s.open(v.payload))).toBe(v.error);
   });
 
-  // Sir yokken sirli payload gelirse red (cozemeyiz).
-  it("sir yokken sirli payload reddedilir", () => {
+  // A sealed payload arriving with no secret is refused (we cannot open
+  // it).
+  it("with no secret a sealed payload is refused", () => {
     const v = V.sealed.sealedWhenNoSecret;
     expect(codeOf(() => plainCodec.decode(v.payload))).toBe(v.error);
   });
 
-  it("rastgele nonce ile roundtrip calisiyor", () => {
+  it("the round trip works with a random nonce", () => {
     const s = Sealer.fromSecret("bir-sir");
     const msg: SignalingMsg = { t: "bye", sid: newSID(), reason: "visitor-left" };
     const payload = s.encode(msg);
@@ -259,7 +264,7 @@ describe("Sealer — paylasilan sir katmani", () => {
     expect(s.decode(payload)).toEqual(msg);
   });
 
-  it("ayni mesaj her seferinde farkli payload uretir (nonce rastgele)", () => {
+  it("the same message produces a different payload every time (the nonce is random)", () => {
     const s = Sealer.fromSecret("bir-sir");
     const msg: SignalingMsg = { t: "bye", sid: "0123456789abcdef", reason: "x" };
     expect(s.encode(msg)).not.toBe(s.encode(msg));
@@ -267,7 +272,7 @@ describe("Sealer — paylasilan sir katmani", () => {
 });
 
 describe("codecFor", () => {
-  it("sir yoksa duz JSON uretir", () => {
+  it("with no secret it produces plain JSON", () => {
     const codec = codecFor(null);
     const msg: SignalingMsg = { t: "bye", sid: "0123456789abcdef", reason: "x" };
     const payload = codec.encode(msg);
@@ -276,7 +281,7 @@ describe("codecFor", () => {
     expect(codec.decode(payload)).toEqual(msg);
   });
 
-  it("sir varsa sirli payload uretir", () => {
+  it("with a secret it produces a sealed payload", () => {
     const codec = codecFor("sir");
     const msg: SignalingMsg = { t: "bye", sid: "0123456789abcdef", reason: "x" };
     const payload = codec.encode(msg);
@@ -284,8 +289,8 @@ describe("codecFor", () => {
     expect(codec.decode(payload)).toEqual(msg);
   });
 
-  // Taraflarin sir konusunda anlasmamasi sessizce gecmemeli.
-  it("sirli ve sirsiz taraflar birbirini reddeder", () => {
+  // The sides disagreeing about the secret must not pass silently.
+  it("the sealed and unsealed sides refuse each other", () => {
     const withSecret = codecFor("sir");
     const without = codecFor(null);
     const msg: SignalingMsg = { t: "bye", sid: "0123456789abcdef", reason: "x" };
@@ -294,7 +299,7 @@ describe("codecFor", () => {
     expect(() => withSecret.decode(without.encode(msg))).toThrow();
   });
 
-  it("farkli sirlar birbirini reddeder", () => {
+  it("different secrets refuse each other", () => {
     const a = codecFor("sir-a");
     const b = codecFor("sir-b");
     const msg: SignalingMsg = { t: "bye", sid: "0123456789abcdef", reason: "x" };
@@ -302,34 +307,35 @@ describe("codecFor", () => {
   });
 });
 
-describe("offer.target (Faz 3)", () => {
+describe("offer.target (phase 3)", () => {
   const sid = "0123456789abcdef";
   const sdp = "v=0\r\n";
 
-  it("ad kurali vektorlerdeki desenle ayni", () => {
+  it("the name rule matches the pattern in the vectors", () => {
     expect(new RegExp(V.targetNamePattern).source).toBe(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$/.source);
   });
 
-  // Onemli: hedefsiz offer'in kanonik bicimi alan eklenmeden onceki haliyle
-  // AYNI olmali, yoksa eski vektorler ve calisan ajanlar kirilir.
-  it("hedef yoksa alan kanonik bicime yazilmaz", () => {
+  // This matters: the canonical form of a target-less offer has to be
+  // the SAME as it was before the field existed, or the old vectors and
+  // running agents break.
+  it("with no target the field is not written into the canonical form", () => {
     expect(canonicalSignaling({ t: "offer", sid, sdp })).toBe(
       `{"v":1,"t":"offer","sid":"${sid}","sdp":"v=0\\r\\n"}`,
     );
   });
 
-  it("hedef varsa sdp'den sonra gelir", () => {
+  it("a target comes after sdp", () => {
     expect(canonicalSignaling({ t: "offer", sid, sdp, target: "admin" })).toBe(
       `{"v":1,"t":"offer","sid":"${sid}","sdp":"v=0\\r\\n","target":"admin"}`,
     );
   });
 
-  it("hedef gidis donusu korunuyor", () => {
+  it("the target survives the round trip", () => {
     const msg: SignalingMsg = { t: "offer", sid, sdp, target: "web-2_eski" };
     expect(parseSignaling(canonicalSignaling(msg))).toEqual(msg);
   });
 
-  it("gecerli adlari kabul, gecersizleri reddeder", () => {
+  it("it accepts the valid names and refuses the invalid ones", () => {
     for (const name of ["a", "A", "0", "default", "admin", "web-2_eski", "a".repeat(32)]) {
       expect(validTargetName(name)).toBe(true);
     }
@@ -338,13 +344,14 @@ describe("offer.target (Faz 3)", () => {
     }
   });
 
-  it("gecersiz hedefli mesaj dogrulamada reddedilir", () => {
+  it("a message with an invalid target is refused in validation", () => {
     expect(() => validateSignaling({ t: "offer", sid, sdp, target: "a/b" })).toThrow();
     expect(() => validateSignaling({ t: "offer", sid, sdp, target: "" })).toThrow();
   });
 
-  // target yalnizca offer'da anlamli; diger tiplerde okunmaz.
-  it("answer'daki target yok sayilir", () => {
+  // target only means anything on an offer; it is not read on the other
+  // types.
+  it("a target in an answer is ignored", () => {
     const text = `{"v":1,"t":"answer","sid":"${sid}","sdp":"v=0","target":"admin"}`;
     expect(parseSignaling(text)).toEqual({ t: "answer", sid, sdp: "v=0" });
   });

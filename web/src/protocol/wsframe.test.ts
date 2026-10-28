@@ -15,23 +15,23 @@ import {
 const vectorsPath = fileURLToPath(new URL("../../../protocol/testvectors.json", import.meta.url));
 const V = JSON.parse(readFileSync(vectorsPath, "utf8")) as TestVectors;
 
-describe("ws cerceve alt bicimi — sabitler vektorle ayni", () => {
-  it("baslik ve sinir", () => {
+describe("the ws frame sub-format — the constants match the vector", () => {
+  it("the header and the limit", () => {
     expect(V.wsFrames.limits.headerBytes).toBe(WS_HEADER_BYTES);
     expect(V.wsFrames.limits.maxPayload).toBe(MAX_WS_PAYLOAD);
   });
 });
 
-describe("encodeWsPayload — gecerli vektorler", () => {
+describe("encodeWsPayload — the valid vectors", () => {
   for (const v of V.wsFrames.valid) {
     it(v.name, () => {
-      // Cikti Go tarafiyla bayt bayt ayni olmali.
+      // The output has to be byte-for-byte the same as the Go side's.
       expect(toHex(encodeWsPayload(v.binary, v.fin, fromHex(v.payloadHex)))).toBe(v.outHex);
     });
   }
 });
 
-describe("decodeWsPayload — gecerli vektorler", () => {
+describe("decodeWsPayload — the valid vectors", () => {
   for (const v of V.wsFrames.valid) {
     it(v.name, () => {
       const chunk = decodeWsPayload(fromHex(v.outHex) as Uint8Array<ArrayBuffer>);
@@ -42,7 +42,7 @@ describe("decodeWsPayload — gecerli vektorler", () => {
   }
 });
 
-describe("decodeWsPayload — reddedilmesi gerekenler", () => {
+describe("decodeWsPayload — what has to be refused", () => {
   for (const v of V.wsFrames.decodeInvalid) {
     it(`${v.name} → ${v.error}`, () => {
       try {
@@ -56,24 +56,25 @@ describe("decodeWsPayload — reddedilmesi gerekenler", () => {
   }
 });
 
-describe("ws parcasi dis cerceveye sigiyor", () => {
-  it("sinirdaki parca tam MAX_PAYLOAD uretir", () => {
+describe("a ws chunk fits the outer frame", () => {
+  it("a chunk at the limit produces exactly MAX_PAYLOAD", () => {
     const out = encodeWsPayload(false, true, new Uint8Array(MAX_WS_PAYLOAD));
     expect(out.byteLength).toBe(MAX_PAYLOAD);
-    // Dis cerceve reddetmemeli.
+    // The outer frame must not refuse it.
     expect(() => encodeFrame(1, 0, out)).not.toThrow();
   });
 
-  it("sinir asimi ws-payload-too-large", () => {
+  it("going over the limit is ws-payload-too-large", () => {
     expect(() => encodeWsPayload(false, true, new Uint8Array(MAX_WS_PAYLOAD + 1))).toThrow(
       WsFrameError,
     );
   });
 });
 
-describe("decodeWsPayload tamponu paylasir", () => {
-  // Bilincli: decodeFrame zaten kopya uretiyor, ikinci kopya gereksiz.
-  it("donen payload bir gorunum", () => {
+describe("decodeWsPayload shares the buffer", () => {
+  // Deliberate: decodeFrame already makes a copy, a second one would be
+  // pointless.
+  it("the returned payload is a view", () => {
     const buf = new Uint8Array([0x02, 0x61, 0x62]) as Uint8Array<ArrayBuffer>;
     const chunk = decodeWsPayload(buf);
     buf[1] = 0x7a;

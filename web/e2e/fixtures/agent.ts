@@ -1,9 +1,11 @@
 /**
- * Ajani ve test sitesini child process olarak baslatan test yardimcilari.
+ * Test helpers that start the agent and the test site as child
+ * processes.
  *
- * Elle signaling akisini otomatiklestirir. YON (Faz 2 rol degisimi):
- * sayfanin urettigi offer ajanin stdin'ine yazilir, ajanin stdout'a bastigi
- * answer sayfaya verilir. Boylece kopyala-yapistir yolu gercekten test edilir.
+ * They automate the manual signaling flow. THE DIRECTION (the phase 2
+ * role swap): the offer the page produced is written to the agent's
+ * stdin, and the answer the agent printed to stdout is handed to the
+ * page. That way the copy-paste path really is tested.
  */
 
 import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from "node:child_process";
@@ -12,11 +14,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-/** agent/ dizini (web/e2e/fixtures -> web -> repo koku -> agent). */
+/** The agent/ directory (web/e2e/fixtures -> web -> repo root -> agent). */
 export const AGENT_DIR = resolve(here, "..", "..", "..", "agent");
 
-// Ajanin stdout'a bastigi isaretciler (agent/internal/cli/manual.go,
-// agent/internal/cli/testsite.go ile birebir ayni olmali).
+// The markers the agent prints to stdout (they have to match
+// agent/internal/cli/manual.go and agent/internal/cli/testsite.go
+// exactly).
 const OFFER_PROMPT = "---PEERPAGES-OFFER-WAITING---";
 const ANSWER_BEGIN = "---PEERPAGES-ANSWER-BEGIN---";
 const ANSWER_END = "---PEERPAGES-ANSWER-END---";
@@ -25,7 +28,7 @@ const SITE_LISTENING = "---PEERPAGES-TESTSITE-LISTENING---";
 
 const BINARY = process.platform === "win32" ? "peerpages.exe" : "peerpages";
 
-/** Ajan binary'sini gerekirse derler ve yolunu dondurur. */
+/** Builds the agent binary if needed and returns its path. */
 export function ensureAgentBinary(): string {
   const binPath = join(AGENT_DIR, BINARY);
   if (existsSync(binPath)) return binPath;
@@ -40,7 +43,7 @@ export function ensureAgentBinary(): string {
   return binPath;
 }
 
-/** Child process'in stdout'unu satir satir izleyip beklenen metni arayan yardimci. */
+/** A helper that watches a child process's stdout line by line, looking for the expected text. */
 export class LineWatcher {
   private buffer = "";
   private readonly lines: string[] = [];
@@ -74,7 +77,7 @@ export class LineWatcher {
     }
   }
 
-  /** Daha once gelmis satirlar dahil, kosula uyan ilk satiri bekler. */
+  /** Waits for the first line matching the condition, including lines that already arrived. */
   waitFor(match: (line: string) => boolean, timeoutMs: number, what: string): Promise<string> {
     const already = this.lines.find(match);
     if (already !== undefined) return Promise.resolve(already);
@@ -89,7 +92,7 @@ export class LineWatcher {
     });
   }
 
-  /** Belirli bir satirdan sonraki satiri dondurur (offer base64'u icin). */
+  /** Returns the line after a given one (for the offer base64). */
   lineAfter(marker: string): string | undefined {
     const idx = this.lines.indexOf(marker);
     if (idx < 0) return undefined;
@@ -106,11 +109,11 @@ export class LineWatcher {
 }
 
 /**
- * Ajan binary'sini tek seferlik calistirir ve ciktiyi dondurur.
+ * Runs the agent binary once and returns its output.
  *
- * `doctor` gibi bir kez kosup cikan komutlar icin: cikis kodu da onemli,
- * cunku bazi hatalar (TURN allocation alinamadi) yalnizca kodla
- * bildiriliyor.
+ * For commands that run once and exit, such as `doctor`: the exit code
+ * matters too, because some failures (no TURN allocation granted) are
+ * reported through the code alone.
  */
 export function runAgent(
   args: string[],
@@ -149,7 +152,7 @@ export interface TestSite {
   stop: () => void;
 }
 
-/** Yerel test sitesini baslatir ve URL'sini dondurur. */
+/** Starts the local test site and returns its URL. */
 export async function startTestSite(): Promise<TestSite> {
   const bin = ensureAgentBinary();
   const proc = spawn(bin, ["testsite", "--port", "0"], {
@@ -182,17 +185,17 @@ export async function startTestSite(): Promise<TestSite> {
 }
 
 export interface Agent {
-  /** Sayfanin urettigi offer'i ajana yapistirir ve answer'i bekler. */
+  /** Pastes the offer the page produced into the agent and waits for the answer. */
   exchange: (offer: string, timeoutMs?: number) => Promise<string>;
-  /** Tunelin acildigini bildiren isaretciyi bekler. */
+  /** Waits for the marker that reports the tunnel opened. */
   waitTunnelOpen: (timeoutMs?: number) => Promise<void>;
-  /** Ajan ciktisi (hata ayiklama icin). */
+  /** The agent's output (for debugging). */
   output: () => string[];
   stop: () => void;
   process: ChildProcessWithoutNullStreams;
 }
 
-/** Ajani baslatir ve offer'i yapistirmaya hazir hale gelmesini bekler. */
+/** Starts the agent and waits until it is ready for the offer to be pasted. */
 export async function startAgent(targetURL: string, extraArgs: string[] = []): Promise<Agent> {
   const bin = ensureAgentBinary();
   const proc = spawn(bin, ["serve", "--manual", "--target", targetURL, ...extraArgs], {
@@ -211,7 +214,7 @@ export async function startAgent(targetURL: string, extraArgs: string[] = []): P
   return {
     exchange: async (offer: string, timeoutMs = 60_000) => {
       proc.stdin.write(`${offer.trim()}\n`);
-      // ICE toplanmasi (STUN) birkac saniye surebilir.
+      // ICE gathering (STUN) can take a few seconds.
       await watcher.waitFor((l) => l.includes(ANSWER_END), timeoutMs, "ajan answer'i");
       const answer = watcher.lineAfter(ANSWER_BEGIN);
       if (!answer || answer.length < 20) {
@@ -230,7 +233,7 @@ export async function startAgent(targetURL: string, extraArgs: string[] = []): P
   };
 }
 
-/** big.bin'in beklenen sha256'sini ajandan sorar. */
+/** Asks the agent for the expected sha256 of big.bin. */
 export function bigFileSHA256(): string {
   const out = spawnSync("go", ["run", "./internal/testsite/gen", "-sha256"], {
     cwd: AGENT_DIR,

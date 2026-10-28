@@ -1,31 +1,31 @@
 <!doctype html>
-<html lang="tr">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PeerPages test sitesi</title>
+    <title>PeerPages test site</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <h1 id="baslik">PeerPages test sitesi</h1>
-    <p id="aciklama">
-      Bu sayfa tunel uzerinden geliyorsa HTML, CSS, JS, gorsel ve fetch
-      calisiyor demektir.
+    <h1 id="title">PeerPages test site</h1>
+    <p id="description">
+      If this page arrived over the tunnel, then HTML, CSS, JS, images and
+      fetch all work.
     </p>
 
-    <!-- Goreli yol: Service Worker'in kapsamindaki her istegi yakaladigini kanitlar -->
-    <img id="logo" src="logo.png" alt="test gorseli" width="64" height="64" />
+    <!-- A relative path: proves the Service Worker catches every request in its scope -->
+    <img id="logo" src="logo.png" alt="test image" width="64" height="64" />
 
     <section>
       <h2>API</h2>
-      <ul id="liste">
-        <li>JS henuz calismadi</li>
+      <ul id="items">
+        <li>the JS has not run yet</li>
       </ul>
     </section>
 
     <section>
-      <h2>Buyuk dosya</h2>
-      <p id="indirme-durum">beklemede</p>
+      <h2>Large file</h2>
+      <p id="download-status">waiting</p>
     </section>
 
     <script src="app.js"></script>

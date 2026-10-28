@@ -240,7 +240,7 @@ oturumu bıraktığı kontrol ediliyor.
 
 ```bash
 # Faz 3 e2e (coklu hedef, ekran, QR, bosta kalma)
-cd web && npx playwright test faz3.spec.ts 2>&1 | grep OLCUM
+cd web && npx playwright test phase3.spec.ts 2>&1 | grep OLCUM
 
 # Bundle boyutu
 cd web && MSYS_NO_PATHCONV=1 node scripts/build.mjs /PeerPages/
@@ -257,7 +257,7 @@ cd web && PEERPAGES_E2E_RELAYS="wss://nos.lol" npx playwright test nostr.spec.ts
 ### Yeniden bağlanma süresi
 
 Ajan öldürülüp **aynı anahtarla** yeniden başlatıldı; ziyaretçi sekmesinde
-hiçbir şeye tıklanmadı (`web/e2e/faz4.spec.ts`).
+hiçbir şeye tıklanmadı (`web/e2e/phase4.spec.ts`).
 
 | Ne | Süre |
 |---|---|
@@ -323,7 +323,7 @@ Ping RTT medyan 0.30 ms, küçük GET medyan 1.50 ms / p95 2.50 ms,
 
 ```bash
 # Faz 4 e2e (yeniden baglanma, relay dusmesi, SW bekleme penceresi)
-cd web && npx playwright test faz4.spec.ts 2>&1 | grep OLCUM
+cd web && npx playwright test phase4.spec.ts 2>&1 | grep OLCUM
 
 # Uc platform binary'si (yayin YAPMAZ)
 goreleaser check && goreleaser release --snapshot --clean
@@ -400,7 +400,7 @@ tek cümlede söylüyor: "NAT simetrik ama TURN hazır".
 
 ```bash
 # Faz 5 e2e (TURN uzerinden tunel, negatif kontrol, doctor raporu)
-cd web && npx playwright test faz5.spec.ts 2>&1 | grep OLCUM
+cd web && npx playwright test phase5.spec.ts 2>&1 | grep OLCUM
 
 # Go tarafi (tarayicisiz): relay-only + faketurn
 cd agent && go test ./internal/connect/ -run TURN -v
@@ -496,7 +496,7 @@ ziyaretçi onu hiç indirmiyor.
 
 ```bash
 # Faz 6 e2e (ws echo + olcumler, SSE, Vite HMR)
-cd web && npx playwright test faz6.spec.ts 2>&1 | grep OLCUM
+cd web && npx playwright test phase6.spec.ts 2>&1 | grep OLCUM
 
 # Zaman asimi davranisi (Go, tarayicisiz)
 cd agent && go test ./internal/proxy/ -run "Stream|Deadline|HeaderPhase" -v

@@ -9,22 +9,22 @@ import {
 } from "./fixtures/agent";
 
 /**
- * Faz 1 kabul kriterleri (BRIEF Faz 1):
+ * The phase 1 acceptance criteria (BRIEF phase 1):
  *
- *   "Ziyaretci tarayicisinda test sitesi (HTML, CSS, JS, gorsel, fetch ile
- *    JSON) github.io benzeri origin'de eksiksiz render oluyor; 5 MB dosya
- *    indirme calisiyor; sayfa yenilenince SW tunel yoksa baglanti ekranina
- *    dusuyor."
+ *   "In the visitor's browser the test site (HTML, CSS, JS, an image,
+ *    JSON over fetch) renders in full on a github.io-like origin; a 5 MB
+ *    file download works; on a refresh, with no tunnel, the SW falls back
+ *    to the connect screen."
  *
- * Zincir: tarayici -> Service Worker -> tunel sayfasi -> WebRTC -> ajan ->
- * localhost test sitesi. Arada signaling sunucusu YOK; offer/answer bu test
- * tarafindan stdin/stdout uzerinden tasiniyor (sayfa offer uretir, ajan
- * answer doner).
+ * The chain: browser -> Service Worker -> tunnel page -> WebRTC -> agent
+ * -> the localhost test site. There is NO signaling server in between;
+ * this test carries the offer and answer over stdin/stdout (the page
+ * creates the offer, the agent answers).
  */
 
 const BASE = "/PeerPages/";
-// Baglanti ekrani scope kokunde DEGIL: scope koku yerel sitenin koku
-// (karar ve gerekcesi BRIEF bolum 8).
+// The connect screen is NOT at the scope root: that root belongs to the
+// local site (the decision and its reasoning: BRIEF section 8).
 const CONNECT = `${BASE}connect/`;
 
 let site: TestSite;
@@ -38,8 +38,8 @@ test.afterAll(() => {
   site?.stop();
 });
 
-// Ajan TEST BASINA yeniden baslatilir: `peerpages serve` tek bir tunel
-// oturumu yurutur ve oturum kapaninca cikar, yani offer'i tek kullanimlik.
+// The agent is restarted PER TEST: `peerpages serve` runs a single
+// tunnel session and exits when it closes, so its offer is one-shot.
 test.beforeEach(async () => {
   agent = await startAgent(site.url);
 });
@@ -49,41 +49,44 @@ test.afterEach(() => {
 });
 
 /**
- * Baglanti ekranini acar, Service Worker'i kurar ve elle signaling ile tuneli
- * acar. Donen sayfa tunel SAHIBIDIR: kapanirsa tunel kapanir.
+ * Opens the connect screen, installs the Service Worker and opens the
+ * tunnel with manual signaling. The page it returns OWNS the tunnel: if it
+ * closes, the tunnel closes.
  *
- * YON: sayfa offer uretir -> ajana stdin ile gider -> ajan answer basar ->
- * sayfaya yapistirilir.
+ * THE DIRECTION: the page creates the offer -> it goes to the agent over
+ * stdin -> the agent prints the answer -> it is pasted into the page.
  */
 async function openTunnelPage(context: import("@playwright/test").BrowserContext) {
   const page = await context.newPage();
   page.on("console", (msg) => {
-    if (msg.type() === "error") console.log(`[sayfa hatasi] ${msg.text()}`);
+    if (msg.type() === "error") console.log(`[page error] ${msg.text()}`);
   });
 
   await page.goto(CONNECT);
 
-  // Service Worker'in kurulmasini bekle. Durum METNINE degil ADIM DURUMUNA
-  // bakiyoruz: metin hemen sonraki adima geciyor (ornegin "peer-id yok —
-  // elle signaling yolu"), yani kararli bir sinyal degil.
+  // Wait for the Service Worker to install. We look at the STEP STATE
+  // rather than the status TEXT: the text moves on to the next step right
+  // away (for example "no peer-id — the manual signaling path"), so it is
+  // not a stable signal.
   await expect(page.locator('.status__step[data-step="sw"]')).toHaveAttribute(
     "data-state",
     "done",
     { timeout: 30_000 },
   );
-  // URL'de peer-id olmadigi icin elle signaling paneli acik olmali.
+  // With no peer-id in the URL the manual signaling panel has to be
+  // open.
   await expect(page.locator("#panel-manual")).toBeVisible();
-  // ...ve tanitim blogu ONUN USTUNDE: bu ekrana README'den gelen biri once
-  // ne oldugunu gormeli (Faz 7).
+  // ...and the intro block ABOVE IT: someone arriving at this screen
+  // from the README should first see what it is (phase 7).
   await expect(page.locator("#panel-intro")).toBeVisible();
 
-  // SAYFA offer uretir (Faz 2 rol degisimi).
+  // The PAGE creates the offer (the phase 2 role swap).
   await page.locator("#btn-make-offer").click();
   await expect(page.locator("#offer-output")).not.toHaveValue("", { timeout: 40_000 });
   const offer = await page.locator("#offer-output").inputValue();
   expect(offer.length).toBeGreaterThan(20);
 
-  // Ajan answer doner; sayfaya yapistiriyoruz.
+  // The agent answers; we paste it into the page.
   const answer = await agent.exchange(offer);
   await page.locator("#answer-input").fill(answer);
   await page.locator("#btn-accept-answer").click();
@@ -93,18 +96,20 @@ async function openTunnelPage(context: import("@playwright/test").BrowserContext
   await page.waitForFunction(() => window.__peerpages?.hasTunnel() === true, null, {
     timeout: 30_000,
   });
-  // Tunel acilinca tanitim ve elle akis kalkar: ekranda yalnizca durum olur.
+  // Once the tunnel opens the intro and the manual flow go away: only
+  // the status is left on screen.
   await expect(page.locator("#panel-intro")).toBeHidden();
   await expect(page.locator("#panel-manual")).toBeHidden();
 
   return page;
 }
 
-test.describe("Faz 1 kabul kriterleri", () => {
-  test("tunel uzerinden test sitesi eksiksiz calisiyor", async ({ context }) => {
+test.describe("phase 1 acceptance criteria", () => {
+  test("the test site works in full over the tunnel", async ({ context }) => {
     const tunnelPage = await openTunnelPage(context);
 
-    // Tunel sayfasi acik kalmali; siteyi AYRI bir sekmede aciyoruz.
+    // The tunnel page has to stay open; we open the site in a SEPARATE
+    // tab.
     const visitor = await context.newPage();
     const errors: string[] = [];
     visitor.on("console", (msg) => {
@@ -114,19 +119,20 @@ test.describe("Faz 1 kabul kriterleri", () => {
     await visitor.goto(BASE);
 
     await test.step("HTML render oluyor", async () => {
-      await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi", {
+      await expect(visitor.locator("#title")).toHaveText("PeerPages test site", {
         timeout: 30_000,
       });
     });
 
     await test.step("CSS uygulandi", async () => {
-      // style.css tunelden gelmeden bu renk olusmaz.
+      // This colour cannot appear unless style.css came over the
+      // tunnel.
       await expect(visitor.locator("body")).toHaveCSS("background-color", "rgb(13, 17, 23)");
-      await expect(visitor.locator("#baslik")).toHaveCSS("color", "rgb(88, 166, 255)");
+      await expect(visitor.locator("#title")).toHaveCSS("color", "rgb(88, 166, 255)");
     });
 
     await test.step("JS calisti", async () => {
-      await expect(visitor.locator("body")).toHaveAttribute("data-js-calisti", "evet");
+      await expect(visitor.locator("body")).toHaveAttribute("data-js-ran", "yes");
     });
 
     await test.step("gorsel yuklendi", async () => {
@@ -137,9 +143,9 @@ test.describe("Faz 1 kabul kriterleri", () => {
     });
 
     await test.step("fetch ile JSON geldi", async () => {
-      await expect(visitor.locator("body")).toHaveAttribute("data-api-calisti", "evet");
-      await expect(visitor.locator("#liste .api-item")).toHaveCount(3);
-      await expect(visitor.locator("#liste .api-item").first()).toHaveText("alfa = 1");
+      await expect(visitor.locator("body")).toHaveAttribute("data-api-ran", "yes");
+      await expect(visitor.locator("#items .api-item")).toHaveCount(3);
+      await expect(visitor.locator("#items .api-item").first()).toHaveText("alfa = 1");
     });
 
     expect(errors, `sayfada konsol hatasi olmamali: ${errors.join(" | ")}`).toEqual([]);
@@ -148,11 +154,11 @@ test.describe("Faz 1 kabul kriterleri", () => {
     await tunnelPage.close();
   });
 
-  test("5 MB dosya indirme calisiyor", async ({ context }) => {
+  test("a 5 MB file download works", async ({ context }) => {
     const tunnelPage = await openTunnelPage(context);
     const visitor = await context.newPage();
     await visitor.goto(BASE);
-    await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+    await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
 
     const expectedSha = bigFileSHA256();
 
@@ -175,7 +181,7 @@ test.describe("Faz 1 kabul kriterleri", () => {
 
     const mbps = 5 / ((result.elapsedMs ?? 1) / 1000);
     console.log(
-      `OLCUM 5MB indirme (tarayici, SW+WebRTC): ${Math.round(result.elapsedMs ?? 0)} ms, ` +
+      `MEASURED 5MB download (browser, SW+WebRTC): ${Math.round(result.elapsedMs ?? 0)} ms, ` +
         `${mbps.toFixed(1)} MB/s`,
     );
 
@@ -183,17 +189,19 @@ test.describe("Faz 1 kabul kriterleri", () => {
     await tunnelPage.close();
   });
 
-  test("tunel yoksa navigasyon baglanti ekranina dusuyor", async ({ context }) => {
+  test("with no tunnel a navigation falls back to the connect screen", async ({ context }) => {
     const tunnelPage = await openTunnelPage(context);
 
     const visitor = await context.newPage();
     await visitor.goto(BASE);
-    await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+    await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
 
-    // Tunel sahibi sayfayi kapat: WebRTC baglantisi sayfada tutuluyordu.
+    // Close the tunnel-owner page: the WebRTC connection was held in
+    // it.
     await tunnelPage.close();
 
-    // Yenileme: SW tunel bulamayinca baglanti ekranina redirectmeli.
+    // The refresh: with no tunnel to find, the SW has to redirect to the
+    // connect screen.
     await visitor.reload();
     await expect(visitor.locator(".shell__title")).toHaveText("PeerPages", { timeout: 30_000 });
     await expect(visitor.locator("#panel-manual")).toBeVisible();
@@ -202,12 +210,12 @@ test.describe("Faz 1 kabul kriterleri", () => {
     await visitor.close();
   });
 
-  test("tunel yoksa alt kaynak 503 doner", async ({ context }) => {
-    // Once tuneli kurup SW'yi yukle, sonra tuneli kapat.
+  test("with no tunnel a subresource answers 503", async ({ context }) => {
+    // Build the tunnel and load the SW first, then close the tunnel.
     const tunnelPage = await openTunnelPage(context);
     const visitor = await context.newPage();
     await visitor.goto(BASE);
-    await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+    await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
     await tunnelPage.close();
 
     const status = await visitor.evaluate(async () => {
@@ -219,10 +227,10 @@ test.describe("Faz 1 kabul kriterleri", () => {
     await visitor.close();
   });
 
-  test("gecikme ve throughput olculuyor", async ({ context }) => {
+  test("latency and throughput are measured", async ({ context }) => {
     const tunnelPage = await openTunnelPage(context);
 
-    // ctrl kanalinda ping/pong RTT.
+    // The ping/pong RTT on the ctrl channel.
     const rtts: number[] = [];
     for (let i = 0; i < 10; i++) {
       const rtt = await tunnelPage.evaluate(() => window.__peerpages?.ping());
@@ -233,9 +241,9 @@ test.describe("Faz 1 kabul kriterleri", () => {
 
     const visitor = await context.newPage();
     await visitor.goto(BASE);
-    await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+    await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
 
-    // Kucuk GET gecikmesi (SW + tunel + yerel sunucu).
+    // Small GET latency (SW + tunnel + local server).
     const small = await visitor.evaluate(async () => {
       const samples: number[] = [];
       for (let i = 0; i < 20; i++) {
@@ -251,10 +259,10 @@ test.describe("Faz 1 kabul kriterleri", () => {
     const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ?? 0;
 
     console.log(
-      `OLCUM ctrl ping RTT (tarayici): medyan ${medianRtt.toFixed(2)} ms (n=${rtts.length})`,
+      `MEASURED ctrl ping RTT (browser): median ${medianRtt.toFixed(2)} ms (n=${rtts.length})`,
     );
     console.log(
-      `OLCUM kucuk GET (SW+tunel): medyan ${median(small).toFixed(2)} ms, ` +
+      `MEASURED small GET (SW+tunnel): median ${median(small).toFixed(2)} ms, ` +
         `p95 ${p95.toFixed(2)} ms (n=${small.length})`,
     );
 
@@ -262,20 +270,21 @@ test.describe("Faz 1 kabul kriterleri", () => {
     await tunnelPage.close();
   });
 
-  test("redirectmede Location goreli yola cevriliyor", async ({ context }) => {
+  test("on a redirect Location is rewritten to a relative path", async ({ context }) => {
     const tunnelPage = await openTunnelPage(context);
     const visitor = await context.newPage();
     await visitor.goto(BASE);
-    await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+    await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
 
-    // /redirect mutlak bir Location dondurur; ajan goreli yola cevirir,
-    // boylece tarayici bizim origin'imizde kalir.
+    // /redirect returns an absolute Location; the agent rewrites it to a
+    // relative path, which keeps the browser on our origin.
     const originBefore = new URL(visitor.url()).origin;
     await visitor.goto(`${BASE}redirect`);
-    await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+    await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
 
-    // Yonlendirme bizim origin'imizde kaldi: ajan mutlak Location'i goreli
-    // yola cevirdi, tarayici yerel sunucuya gitmeye calismadi.
+    // The redirect stayed on our origin: the agent rewrote the absolute
+    // Location to a relative path and the browser never tried to reach
+    // the local server.
     const after = new URL(visitor.url());
     expect(after.origin).toBe(originBefore);
     expect(after.pathname.startsWith(BASE)).toBe(true);
@@ -284,31 +293,32 @@ test.describe("Faz 1 kabul kriterleri", () => {
     await tunnelPage.close();
   });
 
-  test("SSE akis halinde geliyor", async ({ context }) => {
+  test("SSE arrives as a stream", async ({ context }) => {
     const tunnelPage = await openTunnelPage(context);
     const visitor = await context.newPage();
     await visitor.goto(BASE);
-    await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+    await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
 
     const text = await visitor.evaluate(async () => {
       const res = await fetch("sse", { cache: "no-store" });
       return res.text();
     });
-    expect(text).toContain("data: olay-0");
-    expect(text).toContain("data: olay-2");
+    expect(text).toContain("data: event-0");
+    expect(text).toContain("data: event-2");
 
     await visitor.close();
     await tunnelPage.close();
   });
 
-  test("ajan allowlist disina istek atmiyor", async ({ context }) => {
+  test("the agent makes no request outside the allowlist", async ({ context }) => {
     const tunnelPage = await openTunnelPage(context);
     const visitor = await context.newPage();
     await visitor.goto(BASE);
-    await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+    await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
 
-    // 1) Duz `..`: tarayici URL'yi normalize eder, istek scope DISINA cikar.
-    //    SW onu yakalamaz, statik sunucu 404 doner. Yani tunele hic girmez.
+    // 1) A plain `..`: the browser normalizes the URL and the request
+    //    leaves the scope. The SW does not catch it and the static server
+    //    answers 404, so it never enters the tunnel at all.
     const plain = await visitor.evaluate(async () => {
       const res = await fetch("../../etc/passwd", { cache: "no-store" });
       return { status: res.status, url: res.url };
@@ -316,12 +326,13 @@ test.describe("Faz 1 kabul kriterleri", () => {
     expect(plain.status).toBe(404);
     expect(new URL(plain.url).pathname.startsWith(BASE)).toBe(false);
 
-    // 2) Yuzde kodlu bolu (`%2f`): URL ayristiricisi bunu COZMEZ, yani yol
-    //    scope ICINDE kalir ve istek gercekten tunele girer. Ajan cozup
-    //    `..` gorur ve reddeder (BRIEF ilke 1).
-    //    Not: `%2e%2e` ise tarayici tarafinda `..`ya normalize edilip scope
-    //    disina dusuyor, bu yuzden ajana hic ulasmiyor. Ajanin kodlanmis
-    //    gezinmeyi reddettigi Go tarafinda dogrulaniyor
+    // 2) A percent-encoded slash (`%2f`): the URL parser does NOT decode
+    //    it, so the path stays INSIDE the scope and the request really
+    //    does enter the tunnel. The agent decodes it, sees the `..` and
+    //    refuses (BRIEF principle 1).
+    //    Note: `%2e%2e` is normalized to `..` on the browser side and
+    //    falls outside the scope, so it never reaches the agent. That the
+    //    agent refuses encoded traversal is verified on the Go side
     //    (internal/proxy TestIntegrationSSRFOverTunnel).
     const encoded = await visitor.evaluate(async () => {
       const res = await fetch("..%2f..%2fetc/passwd", { cache: "no-store" });

@@ -162,7 +162,7 @@ Yeni sekmede sırayla kontrol et:
 
 | # | Ne | Beklenen |
 |---|---|---|
-| 1 | Sayfa başlığı | "PeerPages test sitesi" görünüyor |
+| 1 | Sayfa başlığı | "PeerPages test site" görünüyor |
 | 2 | CSS | Arka plan koyu (`rgb(13,17,23)`), başlık mavi |
 | 3 | JS | "API" listesinde `alfa = 1`, `beta = 2`, `gama = 3` |
 | 4 | Görsel | 64×64 damalı logo yüklendi |

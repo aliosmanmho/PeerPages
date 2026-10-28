@@ -4,21 +4,21 @@ import { startTestSite, type TestSite } from "./fixtures/agent";
 import { type FakeRelay, type NostrAgent, startFakeRelay, startNostrAgent } from "./fixtures/nostr";
 
 /**
- * Faz 2 kabul kriterinin otomatik karsiligi:
+ * The automated counterpart of the phase 2 acceptance criterion:
  *
- *   "Ziyaretci sadece URL ile baglaniyor; kopyala-yapistir yok."
+ *   "The visitor connects with the URL alone; no copy-paste."
  *
- * Zincir: tarayici -> Service Worker -> tunel sayfasi -> WebRTC -> ajan ->
- * localhost test sitesi. Signaling NOSTR uzerinden; ne signaling sunucusu
- * ne de elle tasima var.
+ * The chain: browser -> Service Worker -> tunnel page -> WebRTC -> agent
+ * -> the localhost test site. Signaling goes over NOSTR; there is neither
+ * a signaling server nor any carrying by hand.
  *
- * Relay varsayilan olarak SAHTE (surec ici): gercek internet relay'lerine
- * bagimli bir CI testi kirilgan olur. Gercek relay'lerle dogrulamak icin:
+ * The relay is FAKE by default (in process): a CI test that depends on
+ * real internet relays is fragile. To verify against real relays:
  *
  *   PEERPAGES_E2E_RELAYS="wss://nos.lol,wss://nostr.mom" npx playwright test nostr.spec.ts
  *
- * Iki cihaz / iki ag dogrulamasi docs/MANUAL-TEST.md'de elle yapiliyor; bunu
- * tek makineden otomatiklestirmek mumkun degil.
+ * The two-device / two-network verification happens by hand in
+ * docs/MANUAL-TEST.md; it cannot be automated from a single machine.
  */
 
 const BASE = "/PeerPages/";
@@ -26,10 +26,11 @@ const CONNECT = `${BASE}connect/`;
 const APP_URL = "http://localhost:4173/PeerPages/";
 
 /**
- * Gercek relay'lerle kosmak icin ortam degiskeni.
+ * The environment variable for running against real relays.
  *
- * Verilirse sahte relay baslatilmaz; ajan da sayfa da bu relay'leri kullanir.
- * Sahte relay'e ozgu test (ephemeral dusurme) atlanir.
+ * When it is set no fake relay is started, and both the agent and the
+ * page use those relays. The test specific to the fake relay (dropping
+ * ephemeral events) is skipped.
  */
 const REAL_RELAYS = (process.env.PEERPAGES_E2E_RELAYS ?? "")
   .split(",")
@@ -39,10 +40,10 @@ const USING_REAL_RELAYS = REAL_RELAYS.length > 0;
 
 let site: TestSite;
 let relay: FakeRelay | null = null;
-/** Ajanin ve sayfanin kullanacagi relay listesi. */
+/** The relay list the agent and the page will use. */
 let relayURLs: string[] = [];
 
-/** `?relay=` sorgu dizesi (BRIEF bolum 4: liste kullanici degistirebilir). */
+/** The `?relay=` query string (BRIEF section 4: the user can change the list). */
 function relayQuery(urls: string[] = relayURLs): string {
   return urls.map((u) => `relay=${encodeURIComponent(u)}`).join("&");
 }
@@ -64,11 +65,11 @@ test.afterAll(() => {
 });
 
 /**
- * Ajani baslatir ve ziyaretci sayfasini URL ile acar.
+ * Starts the agent and opens the visitor page by URL.
  *
- * `?relay=` ziyaretcinin relay listesini degistirmesi icin (BRIEF bolum 4);
- * burada sahte relay'e yonlendirmek icin kullaniliyor, yani test icin ayri
- * bir arka kapi yok.
+ * `?relay=` is there so a visitor can change their relay list (BRIEF
+ * section 4); here it is used to point at the fake relay, so there is no
+ * separate back door for the test.
  */
 async function openByURL(
   context: BrowserContext,
@@ -77,7 +78,7 @@ async function openByURL(
 ): Promise<Page> {
   const page = await context.newPage();
   page.on("console", (msg) => {
-    if (msg.type() === "error") console.log(`[sayfa hatasi] ${msg.text()}`);
+    if (msg.type() === "error") console.log(`[page error] ${msg.text()}`);
   });
 
   const query = `?${relayQuery()}${extraQuery}`;
@@ -93,8 +94,8 @@ async function expectTunnelOpen(page: Page): Promise<void> {
   });
 }
 
-test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
-  test("ziyaretci yalnizca URL ile baglaniyor", async ({ context }) => {
+test.describe("phase 2 acceptance criteria — connecting over Nostr", () => {
+  test("the visitor connects with the URL alone", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs,
@@ -105,30 +106,31 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
       const started = Date.now();
       const tunnelPage = await openByURL(context, agent);
 
-      // Kopyala-yapistir YOK: tunel kendiliginden acilmali.
+      // NO copy-paste: the tunnel has to open on its own.
       await expectTunnelOpen(tunnelPage);
       const elapsed = Date.now() - started;
       const relayKind = USING_REAL_RELAYS ? "gercek relay" : "sahte relay, loopback";
-      console.log(`OLCUM URL'den tunele kadar: ${elapsed} ms (${relayKind})`);
+      console.log(`MEASURED from URL to tunnel: ${elapsed} ms (${relayKind})`);
 
-      // peer-id ekranda kisaltilmis gosteriliyor.
+      // The peer-id is shown shortened on screen.
       await expect(tunnelPage.locator("#nostr-peer")).toContainText(agent.npub.slice(0, 12));
 
-      // Elle signaling paneli gorunmemeli: bu yolda gerekli degil.
+      // The manual signaling panel must not show: it is not needed on
+      // this path.
       await expect(tunnelPage.locator("#panel-manual")).toBeHidden();
-      // Tanitim blogu da gorunmemeli: URL'de peer-id VAR, yani ziyaretci
-      // ne yapacagini zaten biliyor (Faz 7).
+      // The intro block must not show either: there IS a peer-id in the
+      // URL, so the visitor already knows what to do (phase 7).
       await expect(tunnelPage.locator("#panel-intro")).toBeHidden();
 
-      // Site gercekten tunelden geliyor mu?
+      // Does the site really come over the tunnel?
       const visitor = await context.newPage();
       await visitor.goto(BASE);
-      await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi", {
+      await expect(visitor.locator("#title")).toHaveText("PeerPages test site", {
         timeout: 30_000,
       });
       await expect(visitor.locator("body")).toHaveCSS("background-color", "rgb(13, 17, 23)");
-      await expect(visitor.locator("body")).toHaveAttribute("data-api-calisti", "evet");
-      await expect(visitor.locator("#liste .api-item")).toHaveCount(3);
+      await expect(visitor.locator("body")).toHaveAttribute("data-api-ran", "yes");
+      await expect(visitor.locator("#items .api-item")).toHaveCount(3);
 
       await visitor.close();
       await tunnelPage.close();
@@ -137,7 +139,7 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
     }
   });
 
-  test("5 MB dosya Nostr ile kurulan tunelden iniyor", async ({ context }) => {
+  test("a 5 MB file downloads over a tunnel built with Nostr", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs,
@@ -150,7 +152,7 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
 
       const visitor = await context.newPage();
       await visitor.goto(BASE);
-      await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+      await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
 
       const result = await visitor.evaluate(async () => {
         const started = performance.now();
@@ -164,7 +166,7 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
       expect(result.bytes).toBe(5 * 1024 * 1024);
       const mbps = 5 / ((result.elapsedMs ?? 1) / 1000);
       console.log(
-        `OLCUM 5MB indirme (Nostr yolu): ${Math.round(result.elapsedMs ?? 0)} ms, ${mbps.toFixed(1)} MB/s`,
+        `MEASURED 5MB download (the Nostr path): ${Math.round(result.elapsedMs ?? 0)} ms, ${mbps.toFixed(1)} MB/s`,
       );
 
       await visitor.close();
@@ -174,7 +176,7 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
     }
   });
 
-  test("paylasilan sir ile baglaniyor", async ({ context }) => {
+  test("it connects with a shared secret", async ({ context }) => {
     const secret = "kedi-balik-7";
     const agent = await startNostrAgent({
       targetURL: site.url,
@@ -184,7 +186,8 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
     });
 
     try {
-      // Ajanin bastigi URL sirri zaten icerir (#npub:secret).
+      // The URL the agent printed already carries the secret
+      // (#npub:secret).
       expect(agent.visitorURL).toContain(`:${secret}`);
 
       const tunnelPage = await openByURL(context, agent);
@@ -196,22 +199,24 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
     }
   });
 
-  // peer-id'yi bilip sirri bilmeyen biri BAGLANAMAZ (BRIEF bolum 4).
-  test("sir gerekliyken sirsiz ziyaretci baglanamiyor", async ({ context }) => {
+  // Someone who knows the peer-id but not the secret CANNOT CONNECT
+  // (BRIEF section 4).
+  test("with a secret required a visitor without one cannot connect", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs,
       appURL: APP_URL,
-      secret: "dogru-sir",
+      secret: "right-secret",
     });
 
     try {
       const page = await context.newPage();
-      // Sirri URL'den CIKARIYORUZ: yalnizca npub kaliyor.
+      // We STRIP the secret from the URL: only the npub is left.
       const npubOnly = agent.visitorURL.slice(agent.visitorURL.indexOf("#") + 1).split(":")[0];
       await page.goto(`${CONNECT}?${relayQuery()}#${npubOnly}`);
 
-      // Tunel acilmamali ve kullaniciya anlamli bir hata gosterilmeli.
+      // The tunnel must not open and the user has to be shown a
+      // meaningful error.
       await expect(page.locator("#status-msg")).toHaveAttribute("data-tone", "error", {
         timeout: 60_000,
       });
@@ -223,7 +228,7 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
     }
   });
 
-  test("ajan calismiyorsa anlamli hata gosteriliyor", async ({ context }) => {
+  test("with the agent not running a meaningful error is shown", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs,
@@ -236,7 +241,8 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
     const hash = visitorURL.slice(visitorURL.indexOf("#"));
     await page.goto(`${CONNECT}?${relayQuery()}${hash}`);
 
-    // 30 sn zaman asimi sonunda "ajan yanit vermedi" gorulmeli.
+    // After the 30 s timeout "the agent did not answer" has to show
+    // up.
     await expect(page.locator("#status-msg")).toContainText("The agent did not answer", {
       timeout: 60_000,
     });
@@ -245,21 +251,22 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
     await page.close();
   });
 
-  test("bozuk peer-id anlamli hata veriyor", async ({ context }) => {
+  test("a malformed peer-id gives a meaningful error", async ({ context }) => {
     const page = await context.newPage();
     await page.goto(`${CONNECT}#npub1bozukbozukbozuk`);
 
     await expect(page.locator("#status-msg")).toHaveAttribute("data-tone", "error", {
       timeout: 30_000,
     });
-    // Elle signaling paneli de gosterilmemeli: kullanici yanlis URL'yi fark
-    // etmeden elle ugrasmaya baslamasin.
+    // The manual signaling panel must not be shown either: the user
+    // should not start fiddling by hand before noticing the URL is
+    // wrong.
     await expect(page.locator("#panel-manual")).toBeHidden();
 
     await page.close();
   });
 
-  test("gecersiz relay adresi anlamli hata veriyor", async ({ context }) => {
+  test("an invalid relay address gives a meaningful error", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs,
@@ -279,10 +286,10 @@ test.describe("Faz 2 kabul kriterleri — Nostr ile baglanma", () => {
     }
   });
 
-  // Ephemeral event'i dusuren relay: yayin kabul edilir ama iletilmez.
-  // Ziyaretci bunu "ajan yanit vermedi" olarak gorur; `doctor` ise nedeni
-  // soyler (BRIEF bolum 8).
-  test("ephemeral dusuren relay ile baglanti kurulamiyor", async ({ context }) => {
+  // A relay that drops ephemeral events: the publish is accepted but
+  // never forwarded. The visitor sees that as "the agent did not answer";
+  // `doctor` says why (BRIEF section 8).
+  test("no connection is made through a relay that drops ephemeral events", async ({ context }) => {
     test.skip(USING_REAL_RELAYS, "bu test sahte relay'in davranisini tasiyor");
     const dropper = await startFakeRelay(["--drop-ephemeral"]);
 

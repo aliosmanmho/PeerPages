@@ -65,7 +65,7 @@ karşılığı).
 
 Çalışması için **hiçbir ayar gerekmez**: Vite'ın istemcisi ws adresini
 sayfanın kendi origin'inden türetir, shim de o adresi tünele alır. E2E
-testinde doğrulanıyor (`web/e2e/faz6.spec.ts`): kaynak dosya değişince sayfa
+testinde doğrulanıyor (`web/e2e/phase6.spec.ts`): kaynak dosya değişince sayfa
 **yenilenmeden** güncelleniyor.
 
 Yine de iki şey bilmeye değer:

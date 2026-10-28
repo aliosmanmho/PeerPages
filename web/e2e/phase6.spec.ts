@@ -5,16 +5,17 @@ import { type FakeRelay, type NostrAgent, startFakeRelay, startNostrAgent } from
 import { startViteApp, type ViteApp } from "./fixtures/vite";
 
 /**
- * Faz 6 kabul kriteri:
+ * The phase 6 acceptance criterion:
  *
- *   "Vite HMR ve Socket.IO ornegi tunel uzerinden calisiyor."
+ *   "The Vite HMR and Socket.IO examples work over the tunnel."
  *
- * Vite HMR'i GERCEKTEN kosuyoruz (asagidaki son test): vite zaten
- * devDependency ve HMR'in kendi el sikismasi (alt protokol `vite-hmr`,
- * token, modul guncelleme mesajlari) sahte bir ucla kanitlanamaz.
- * Socket.IO iki yeni bagimlilik getirecegi icin elle dogrulamada
- * (docs/MANUAL-TEST.md); koprunun davranisi ise test sitesinin /ws yankisi
- * ile hizli ve kirilgan olmayan sekilde olculuyor.
+ * We REALLY run Vite HMR (the last test below): vite is already a
+ * devDependency, and HMR's own handshake (the `vite-hmr` subprotocol, the
+ * token, the module update messages) cannot be proven with a fake
+ * endpoint. Socket.IO would bring two new dependencies, so it sits in the
+ * manual verification (docs/MANUAL-TEST.md); the bridge's own behaviour
+ * is measured fast and without fragility against the test site's /ws
+ * echo.
  */
 
 const BASE = "/PeerPages/";
@@ -37,7 +38,7 @@ test.afterAll(() => {
 async function openTunnel(context: BrowserContext, agent: NostrAgent): Promise<Page> {
   const page = await context.newPage();
   page.on("console", (msg) => {
-    if (msg.type() === "error") console.log(`[tunel sekmesi] ${msg.text()}`);
+    if (msg.type() === "error") console.log(`[tunnel tab] ${msg.text()}`);
   });
   const hash = agent.visitorURL.slice(agent.visitorURL.indexOf("#"));
   await page.goto(`${CONNECT}?relay=${encodeURIComponent(relay.url)}${hash}`);
@@ -48,8 +49,8 @@ async function openTunnel(context: BrowserContext, agent: NostrAgent): Promise<P
   return page;
 }
 
-test.describe("Faz 6 — WebSocket koprusu", () => {
-  test("ws echo metin ve ikili mesajlari tasiyor", async ({ context }) => {
+test.describe("phase 6 — the WebSocket bridge", () => {
+  test("the ws echo carries text and binary messages", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs: [relay.url],
@@ -61,12 +62,13 @@ test.describe("Faz 6 — WebSocket koprusu", () => {
       const tunnelPage = await openTunnel(context, agent);
       const visitor = await context.newPage();
       visitor.on("console", (msg) => {
-        if (msg.type() === "error") console.log(`[ziyaretci] ${msg.text()}`);
+        if (msg.type() === "error") console.log(`[visitor] ${msg.text()}`);
       });
       await visitor.goto(BASE);
-      await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+      await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
 
-      // Shim enjekte edilmis olmali: sayfanin kendi script'lerinden once.
+      // The shim has to have been injected, before the page's own
+      // scripts.
       expect(await visitor.evaluate(() => "__peerpagesWsShim" in window)).toBe(true);
 
       const started = Date.now();
@@ -93,7 +95,8 @@ test.describe("Faz 6 — WebSocket koprusu", () => {
         sock.send(new Uint8Array([1, 2, 3, 250]));
         const bin = new Uint8Array((await next()).data as ArrayBuffer);
 
-        // 16 KiB ustu mesaj: parcali gider ve parcali gelir.
+        // A message over 16 KiB: it goes out in chunks and comes back in
+        // chunks.
         const big = new Uint8Array(40_000);
         for (let i = 0; i < big.length; i++) big[i] = i % 256;
         sock.send(big);
@@ -125,7 +128,7 @@ test.describe("Faz 6 — WebSocket koprusu", () => {
         };
       });
 
-      console.log(`OLCUM ws yanki turu: ${Date.now() - started} ms`);
+      console.log(`MEASURED ws echo round trip: ${Date.now() - started} ms`);
       expect(result.opened).toBe(true);
       expect(result.protocol).toBe("json");
       expect(result.text).toBe("merhaba");
@@ -134,7 +137,8 @@ test.describe("Faz 6 — WebSocket koprusu", () => {
       expect(result.bigOk).toBe(true);
       expect(result.closeCode).toBe(1000);
 
-      // Olcum: kucuk mesaj gidis-donusu ve 1 MB aktarim.
+      // The measurement: a small message round trip and a 1 MB
+      // transfer.
       const perf = await visitor.evaluate(async () => {
         const sock = new WebSocket("ws");
         sock.binaryType = "arraybuffer";
@@ -153,7 +157,7 @@ test.describe("Faz 6 — WebSocket koprusu", () => {
         const rtts: number[] = [];
         for (let i = 0; i < 20; i++) {
           const t0 = performance.now();
-          sock.send(`olcum-${i}`);
+          sock.send(`measure-${i}`);
           await next();
           rtts.push(performance.now() - t0);
         }
@@ -170,7 +174,7 @@ test.describe("Faz 6 — WebSocket koprusu", () => {
       });
       if (perf) {
         console.log(
-          `OLCUM ws kucuk mesaj RTT: medyan ${perf.median.toFixed(2)} ms (n=20); ` +
+          `MEASURED ws small message RTT: median ${perf.median.toFixed(2)} ms (n=20); ` +
             `1 MB gidis-donus: ${perf.bigMs.toFixed(0)} ms`,
         );
       }
@@ -182,9 +186,9 @@ test.describe("Faz 6 — WebSocket koprusu", () => {
     }
   });
 
-  // Bayrak verilmediyse HTML'e DOKUNULMAMALI. Bu test olmadan enjeksiyonun
-  // sessizce her zaman acik olmasi mumkun olurdu.
-  test("bayrak verilmediyse shim enjekte edilmiyor", async ({ context }) => {
+  // Without the flag the HTML must NOT BE TOUCHED. Without this test the
+  // injection could be silently always on.
+  test("without the flag no shim is injected", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs: [relay.url],
@@ -195,10 +199,10 @@ test.describe("Faz 6 — WebSocket koprusu", () => {
       const tunnelPage = await openTunnel(context, agent);
       const visitor = await context.newPage();
       await visitor.goto(BASE);
-      await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+      await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
 
       expect(await visitor.evaluate(() => "__peerpagesWsShim" in window)).toBe(false);
-      // HTML bayt bayt ayni: hicbir script eklenmemis.
+      // The HTML is byte-for-byte the same: no script was added.
       const html = await visitor.content();
       expect(html).not.toContain("ws-shim.js");
 
@@ -209,9 +213,9 @@ test.describe("Faz 6 — WebSocket koprusu", () => {
     }
   });
 
-  // Kopru acik ama hedefte ws ucu yok: ziyaretci anlamli bir kapanis kodu
-  // gormeli (sessizce askida kalmamali).
-  test("ws ucu olmayan yolda anlamli kapanis kodu", async ({ context }) => {
+  // The bridge is on but the target has no ws endpoint: the visitor has
+  // to see a meaningful close code (rather than hanging silently).
+  test("a meaningful close code on a path with no ws endpoint", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs: [relay.url],
@@ -223,7 +227,7 @@ test.describe("Faz 6 — WebSocket koprusu", () => {
       const tunnelPage = await openTunnel(context, agent);
       const visitor = await context.newPage();
       await visitor.goto(BASE);
-      await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+      await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
 
       const code = await visitor.evaluate(
         () =>
@@ -234,7 +238,7 @@ test.describe("Faz 6 — WebSocket koprusu", () => {
             setTimeout(() => resolve(-2), 20_000);
           }),
       );
-      // 1008 politika (yerel sunucu el sikismayi reddetti) ya da 1011.
+      // 1008 policy (the local server refused the handshake) or 1011.
       expect([1008, 1011]).toContain(code);
 
       await visitor.close();
@@ -245,11 +249,11 @@ test.describe("Faz 6 — WebSocket koprusu", () => {
   });
 });
 
-test.describe("Faz 6 — SSE akis halinde", () => {
-  // Faz 1'deki test `res.text()` ile TUM govdeyi bekliyordu, yani "akis
-  // halinde geldi" iddiasini olcmuyordu. Burada ilk olayin akis
-  // KAPANMADAN once geldigini olcuyoruz.
-  test("ilk olay akis kapanmadan geliyor", async ({ context }) => {
+test.describe("phase 6 — SSE as a stream", () => {
+  // The phase 1 test awaited the WHOLE body with `res.text()`, so it did
+  // not measure the "it arrived as a stream" claim. Here we measure that
+  // the first event arrives BEFORE the stream closes.
+  test("the first event arrives before the stream closes", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs: [relay.url],
@@ -260,7 +264,7 @@ test.describe("Faz 6 — SSE akis halinde", () => {
       const tunnelPage = await openTunnel(context, agent);
       const visitor = await context.newPage();
       await visitor.goto(BASE);
-      await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+      await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
 
       const result = await visitor.evaluate(
         () =>
@@ -291,11 +295,11 @@ test.describe("Faz 6 — SSE akis halinde", () => {
       );
 
       console.log(
-        `OLCUM SSE ilk olay: ${result.firstAt.toFixed(0)} ms, ucuncu: ${result.lastAt.toFixed(0)} ms`,
+        `MEASURED SSE first event: ${result.firstAt.toFixed(0)} ms, third: ${result.lastAt.toFixed(0)} ms`,
       );
       expect(result.events).toEqual(["event-0", "event-1", "event-2"]);
-      // Ilk olay, ucuncusunden belirgin sekilde ONCE gelmeli: tamponlanmis
-      // bir cevap ikisini ayni anda verirdi.
+      // The first event has to arrive clearly BEFORE the third: a
+      // buffered response would give both at once.
       expect(result.firstAt).toBeLessThan(result.lastAt - 300);
 
       await visitor.close();
@@ -306,10 +310,10 @@ test.describe("Faz 6 — SSE akis halinde", () => {
   });
 });
 
-test.describe("Faz 6 — Vite HMR", () => {
-  // Kabul kriterinin asil yarisi. Hicbir HMR ayari verilmiyor: kullanicinin
-  // yapilandirmasina dokunmadan calismasi gerekiyor.
-  test("kaynak degisince sayfa YENILENMEDEN guncelleniyor", async ({ context }) => {
+test.describe("phase 6 — Vite HMR", () => {
+  // The real half of the acceptance criterion. No HMR setting is passed:
+  // it has to work without touching the user's configuration.
+  test("when a source changes the page updates WITHOUT RELOADING", async ({ context }) => {
     let app: ViteApp | undefined;
     let agent: NostrAgent | undefined;
 
@@ -328,33 +332,34 @@ test.describe("Faz 6 — Vite HMR", () => {
         if (msg.type() === "error") console.log(`[vite sayfasi] ${msg.text()}`);
       });
       await visitor.goto(BASE);
-      await expect(visitor.locator("#baslik")).toHaveText("Vite HMR fixture", {
+      await expect(visitor.locator("#title")).toHaveText("Vite HMR fixture", {
         timeout: 60_000,
       });
-      await expect(visitor.locator("#mesaj")).toHaveText("ILK-SURUM", { timeout: 60_000 });
+      await expect(visitor.locator("#message")).toHaveText("FIRST-VERSION", { timeout: 60_000 });
 
-      // HMR baglantisi kuruldu mu: tunel sekmesi acik oturumu sayiyor.
+      // Did the HMR connection come up: the tunnel tab counts the open
+      // session.
       await tunnelPage.waitForFunction(() => (window.__peerpages?.wsSessions() ?? 0) > 0, null, {
         timeout: 60_000,
       });
       await expect(tunnelPage.locator("#metrics")).toContainText("WebSocket");
 
-      // Sayfanin yenilenmedigini kanitlamak icin bir isaret birak: yenileme
-      // olursa bu kaybolur.
+      // Leave a mark to prove the page did not reload: a reload would
+      // lose it.
       await visitor.evaluate(() => {
-        (window as unknown as Record<string, unknown>).__isaret = "duruyor";
+        (window as unknown as Record<string, unknown>).__marker = "still-here";
       });
 
       const started = Date.now();
-      app.setMessage("IKINCI-SURUM");
+      app.setMessage("SECOND-VERSION");
 
-      await expect(visitor.locator("#mesaj")).toHaveText("IKINCI-SURUM", { timeout: 60_000 });
-      console.log(`OLCUM HMR guncellemesi: ${Date.now() - started} ms`);
+      await expect(visitor.locator("#message")).toHaveText("SECOND-VERSION", { timeout: 60_000 });
+      console.log(`MEASURED HMR update: ${Date.now() - started} ms`);
 
       const marker = await visitor.evaluate(
-        () => (window as unknown as Record<string, unknown>).__isaret,
+        () => (window as unknown as Record<string, unknown>).__marker,
       );
-      expect(marker).toBe("duruyor");
+      expect(marker).toBe("still-here");
 
       await visitor.close();
       await tunnelPage.close();

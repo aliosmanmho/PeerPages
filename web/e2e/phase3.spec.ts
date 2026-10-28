@@ -5,37 +5,39 @@ import { startTestSite, type TestSite } from "./fixtures/agent";
 import { type FakeRelay, type NostrAgent, startFakeRelay, startNostrAgent } from "./fixtures/nostr";
 
 /**
- * Faz 3 kabul kriterinin otomatik karsiligi:
+ * The automated counterpart of the phase 3 acceptance criterion:
  *
- *   "Tek ajan iki projeyi yayinliyor; ekranda anlamli durum bilgisi var."
+ *   "A single agent shares two projects; the screen carries meaningful
+ *    status information."
  *
- * Ikinci hedef icin kucuk bir node sunucusu kullaniyoruz: iki kopya ayni
- * test sitesini sunsa "her ziyaretci KENDI sitesini goruyor" iddiasi
- * dogrulanamazdi — cevaplarin birbirinden ayirt edilebilmesi gerekiyor.
+ * We use a small node server for the second target: if two copies served
+ * the same test site, the claim "every visitor sees THEIR OWN site" could
+ * not be verified — the responses have to be distinguishable.
  *
- * Iki cihaz / iki ag dogrulamasi (ve QR'in gercekten okunabildigi)
- * docs/MANUAL-TEST.md'de elle yapiliyor; tek makineden otomatiklestirilemez.
+ * The two-device / two-network verification (and that the QR really is
+ * readable) happens by hand in docs/MANUAL-TEST.md; it cannot be
+ * automated from a single machine.
  */
 
 const BASE = "/PeerPages/";
 const CONNECT = `${BASE}connect/`;
 const APP_URL = "http://localhost:4173/PeerPages/";
 
-const ADMIN_MARKER = "YONETIM PANELI";
+const ADMIN_MARKER = "ADMIN PANEL";
 
 let site: TestSite;
 let relay: FakeRelay;
 let admin: { url: string; stop: () => void };
 
-/** Ikinci hedef: kendini tanitan minik bir sunucu. */
+/** The second target: a tiny server that announces itself. */
 async function startAdminSite(): Promise<{ url: string; stop: () => void }> {
   const server: Server = createServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(`<!doctype html><html><body><h1 id="baslik">${ADMIN_MARKER}</h1></body></html>`);
+    res.end(`<!doctype html><html><body><h1 id="title">${ADMIN_MARKER}</h1></body></html>`);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address();
-  if (addr === null || typeof addr === "string") throw new Error("admin sitesi adresi yok");
+  if (addr === null || typeof addr === "string") throw new Error("the admin site has no address");
   return {
     url: `http://127.0.0.1:${addr.port}`,
     stop: () => server.close(),
@@ -58,7 +60,7 @@ function relayQuery(): string {
   return `relay=${encodeURIComponent(relay.url)}`;
 }
 
-/** Ajanin bastigi URL'yi (hedefiyle birlikte) acar. */
+/** Opens the URL the agent printed (with its target). */
 async function openByURL(
   context: BrowserContext,
   agent: NostrAgent,
@@ -70,7 +72,7 @@ async function openByURL(
   }
   const page = await context.newPage();
   page.on("console", (msg) => {
-    if (msg.type() === "error") console.log(`[sayfa hatasi] ${msg.text()}`);
+    if (msg.type() === "error") console.log(`[page error] ${msg.text()}`);
   });
   const hash = printed.slice(printed.indexOf("#"));
   await page.goto(`${CONNECT}?${relayQuery()}${hash}`);
@@ -84,7 +86,7 @@ async function expectTunnelOpen(page: Page): Promise<void> {
   });
 }
 
-/** Iki hedefle ajan baslatir. */
+/** Starts the agent with two targets. */
 function startTwoTargetAgent(): Promise<NostrAgent> {
   return startNostrAgent({
     targetURL: site.url,
@@ -94,39 +96,40 @@ function startTwoTargetAgent(): Promise<NostrAgent> {
   });
 }
 
-test.describe("Faz 3 kabul kriterleri — coklu hedef", () => {
-  test("tek ajan iki projeyi yayinliyor", async ({ context }) => {
+test.describe("phase 3 acceptance criteria — several targets", () => {
+  test("a single agent shares two projects", async ({ context }) => {
     const agent = await startTwoTargetAgent();
 
     try {
-      // Ajan her hedef icin ayri URL basmali.
+      // The agent has to print a separate URL for every target.
       expect(Object.keys(agent.urls).sort()).toEqual(["admin", "default"]);
       expect(agent.urls.admin).toContain(`#${agent.npub}/admin`);
       expect(agent.urls.default).toContain(`#${agent.npub}`);
       expect(agent.urls.default).not.toContain("/admin");
 
-      // 1) Varsayilan hedef: test sitesi.
+      // 1) The default target: the test site.
       const defaultTab = await openByURL(context, agent, "default");
       await expectTunnelOpen(defaultTab);
 
       const visitor = await context.newPage();
       await visitor.goto(BASE);
-      await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi", {
+      await expect(visitor.locator("#title")).toHaveText("PeerPages test site", {
         timeout: 30_000,
       });
       await visitor.close();
 
-      // Tunel sahibi sekmeyi kapat: ikinci hedef icin temiz baslayalim.
+      // Close the tunnel-owner tab, so the second target starts
+      // clean.
       await defaultTab.close();
 
-      // 2) admin hedefi: AYNI ajan, BASKA proje.
+      // 2) The admin target: the SAME agent, a DIFFERENT project.
       const adminTab = await openByURL(context, agent, "admin");
       await expectTunnelOpen(adminTab);
       await expect(adminTab.locator("#nostr-peer")).toContainText("/ admin");
 
       const adminVisitor = await context.newPage();
       await adminVisitor.goto(BASE);
-      await expect(adminVisitor.locator("#baslik")).toHaveText(ADMIN_MARKER, { timeout: 30_000 });
+      await expect(adminVisitor.locator("#title")).toHaveText(ADMIN_MARKER, { timeout: 30_000 });
       await adminVisitor.close();
       await adminTab.close();
     } finally {
@@ -134,9 +137,9 @@ test.describe("Faz 3 kabul kriterleri — coklu hedef", () => {
     }
   });
 
-  // Sessizce default'a dusmek yok: ziyaretci yanlis projeyi gezdigini fark
-  // etmeyebilir.
-  test("bilinmeyen hedef anlamli hata veriyor", async ({ context }) => {
+  // No silent fallback to the default: the visitor may not notice they
+  // are browsing the wrong project.
+  test("an unknown target gives a meaningful error", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs: [relay.url],
@@ -159,11 +162,12 @@ test.describe("Faz 3 kabul kriterleri — coklu hedef", () => {
     }
   });
 
-  test("gecersiz hedef adi URL'de yakalaniyor", async ({ context }) => {
-    // Gecerli bir npub gerekiyor: peer-id kontrolu hedef kontrolunden ONCE
-    // geliyor, yoksa test hedefi degil checksum hatasini olcer. Ajani
-    // yalnizca npub icin baslatip hemen kapatiyoruz — bu kontrol tamamen
-    // ISTEMCI tarafinda, ajana hic mesaj gitmemeli.
+  test("an invalid target name is caught in the URL", async ({ context }) => {
+    // A valid npub is needed: the peer-id check comes BEFORE the target
+    // check, so otherwise the test would measure the checksum error
+    // rather than the target. We start the agent only to get an npub and
+    // shut it down right away — this check is entirely on the CLIENT
+    // side and no message should reach the agent.
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs: [relay.url],
@@ -182,26 +186,28 @@ test.describe("Faz 3 kabul kriterleri — coklu hedef", () => {
   });
 });
 
-test.describe("Faz 3 — baglanti ekrani", () => {
-  test("durum bilgisi, kopyala butonu ve QR gosteriliyor", async ({ context }) => {
+test.describe("phase 3 — the connect screen", () => {
+  test("the status, the copy button and the QR are shown", async ({ context }) => {
     const agent = await startTwoTargetAgent();
 
     try {
       const page = await openByURL(context, agent, "admin");
       await expectTunnelOpen(page);
 
-      // Ölçümler: gecikme olculuyor, hedef listesi hello'dan geliyor.
+      // The measurements: latency is measured and the target list comes
+      // from hello.
       const metrics = page.locator("#metrics");
-      await expect(metrics).toContainText("Gecikme");
+      await expect(metrics).toContainText("Latency");
       await expect(metrics).toContainText("ms", { timeout: 30_000 });
       await expect(metrics).toContainText("admin, default");
-      await expect(metrics).toContainText("Aktif hedef");
+      await expect(metrics).toContainText("Active target");
 
-      // Paylasim bloku: adres ve iki buton.
+      // The sharing block: the address and two buttons.
       await expect(page.locator("#share-url")).toContainText(agent.npub.slice(0, 12));
       await expect(page.locator("#btn-copy-url")).toBeVisible();
 
-      // QR paneli kapali baslar, butonla acilir ve canvas gercekten cizilir.
+      // The QR panel starts closed, opens with the button, and the
+      // canvas really is drawn.
       await expect(page.locator("#qr")).toBeHidden();
       await page.locator("#btn-qr").click();
       await expect(page.locator("#qr")).toBeVisible();
@@ -220,12 +226,12 @@ test.describe("Faz 3 — baglanti ekrani", () => {
       });
 
       expect(drawn).not.toBeNull();
-      // Bos ya da tamamen siyah bir canvas'i da yakalayalim: QR'in koyu
-      // modul orani makul bir araliktadir.
+      // Catch an empty or all-black canvas too: a QR's dark module ratio
+      // sits in a plausible range.
       expect(drawn?.darkRatio ?? 0).toBeGreaterThan(0.2);
       expect(drawn?.darkRatio ?? 1).toBeLessThan(0.6);
       console.log(
-        `OLCUM QR canvas: ${drawn?.size} px, koyu oran ${(drawn?.darkRatio ?? 0).toFixed(3)}`,
+        `MEASURED QR canvas: ${drawn?.size} px, dark ratio ${(drawn?.darkRatio ?? 0).toFixed(3)}`,
       );
 
       await page.close();
@@ -234,7 +240,7 @@ test.describe("Faz 3 — baglanti ekrani", () => {
     }
   });
 
-  test("istek sayaclari artiyor", async ({ context }) => {
+  test("the request counters go up", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs: [relay.url],
@@ -247,7 +253,7 @@ test.describe("Faz 3 — baglanti ekrani", () => {
 
       const visitor = await context.newPage();
       await visitor.goto(BASE);
-      await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi", {
+      await expect(visitor.locator("#title")).toHaveText("PeerPages test site", {
         timeout: 30_000,
       });
       await visitor.close();
@@ -256,8 +262,8 @@ test.describe("Faz 3 — baglanti ekrani", () => {
       expect(stats?.requests ?? 0).toBeGreaterThan(0);
       expect(stats?.tunnel?.bytesIn ?? 0).toBeGreaterThan(0);
 
-      // Ekranda da gorunmeli.
-      await expect(page.locator("#metrics")).toContainText("Istek");
+      // It has to show up on screen too.
+      await expect(page.locator("#metrics")).toContainText("Requests");
       await page.close();
     } finally {
       agent.stop();
@@ -265,11 +271,11 @@ test.describe("Faz 3 — baglanti ekrani", () => {
   });
 });
 
-test.describe("Faz 3 — ziyaretci gidince kaynak birakiliyor", () => {
-  // Ajan tarafi bosta kalma denetimi: sekme kapandiginda (ya da haber
-  // ulasmadiginda) oturum kendi saatiyle kapanir. Burada kisa sureler
-  // veriyoruz, yoksa test 30 saniye beklemek zorunda kalir.
-  test("sahip sekme kapaninca oturum kapaniyor", async ({ context }) => {
+test.describe("phase 3 — resources are released once the visitor is gone", () => {
+  // The agent-side idle check: when the tab closes (or the notice never
+  // arrives) the session closes by its own clock. We pass short durations
+  // here, or the test would have to wait 30 seconds.
+  test("when the owner tab closes the session closes", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs: [relay.url],
@@ -280,13 +286,14 @@ test.describe("Faz 3 — ziyaretci gidince kaynak birakiliyor", () => {
       const page = await openByURL(context, agent, "default");
       await expectTunnelOpen(page);
 
-      // Sayfa kapanirken `bye` yolluyor; ajan oturumu birakmali.
+      // The page sends a `bye` as it closes; the agent has to release
+      // the session.
       await page.close();
 
       await expect
         .poll(
           () =>
-            agent.output().some((l) => l.includes("tunel kapandi") || l.includes("oturum bosta")),
+            agent.output().some((l) => l.includes("tunnel closed") || l.includes("session idle")),
           { timeout: 60_000, message: "ajan oturumu birakmadi" },
         )
         .toBe(true);

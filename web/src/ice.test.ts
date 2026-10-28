@@ -11,48 +11,49 @@ import {
 } from "./ice";
 
 describe("normalizeStunURL", () => {
-  it("port verilmisse oldugu gibi birakir", () => {
+  it("with a port given it leaves it as it is", () => {
     expect(normalizeStunURL("stun:stun.l.google.com:19302")).toBe("stun:stun.l.google.com:19302");
   });
 
-  it("portsuz adrese varsayilani ekler", () => {
+  it("it adds the default to an address with no port", () => {
     expect(normalizeStunURL("stun:example.com")).toBe("stun:example.com:3478");
     expect(normalizeStunURL("stuns:example.com")).toBe("stuns:example.com:5349");
   });
 
-  it("IPv6'da koseli parantezi bozmaz", () => {
+  it("it does not break the brackets on IPv6", () => {
     expect(normalizeStunURL("stun:[2001:db8::1]")).toBe("stun:[2001:db8::1]:3478");
     expect(normalizeStunURL("stun:[2001:db8::1]:3478")).toBe("stun:[2001:db8::1]:3478");
   });
 
-  it("bosluklari kirpar", () => {
+  it("it trims whitespace", () => {
     expect(normalizeStunURL("  stun:example.com:3478 ")).toBe("stun:example.com:3478");
   });
 
-  it("gecersiz adresleri reddeder", () => {
+  it("it refuses invalid addresses", () => {
     for (const bad of ["", "   ", "example.com:3478", "turn:example.com", "http://example.com"]) {
       expect(() => normalizeStunURL(bad)).toThrow(IceConfigError);
     }
   });
 
-  // TURN sayfaya HIC gelmiyor: kimlik bilgisi ajanda kaliyor (BRIEF §8).
-  it("TURN adresini kabul etmez", () => {
+  // TURN NEVER reaches the page: the credentials stay on the agent
+  // (BRIEF section 8).
+  it("it does not accept a TURN address", () => {
     expect(() => normalizeStunURL("turn:turn.example.com:3478")).toThrow(IceConfigError);
   });
 
-  it("yol ve query reddedilir", () => {
+  it("a path and a query are refused", () => {
     expect(() => normalizeStunURL("stun:example.com:3478/yol")).toThrow(IceConfigError);
     expect(() => normalizeStunURL("stun:example.com:3478?transport=tcp")).toThrow(IceConfigError);
   });
 });
 
 describe("stunFromSearch", () => {
-  it("parametre yoksa null doner (varsayilan liste)", () => {
+  it("with no parameter it returns null (the default list)", () => {
     expect(stunFromSearch("")).toBeNull();
     expect(stunFromSearch("?relay=wss://nos.lol")).toBeNull();
   });
 
-  it("tekrarlanan ve virgullu listeyi birlestirir", () => {
+  it("it merges a repeated and comma-separated list", () => {
     const got = stunFromSearch(
       "?stun=stun:a.example.com:3478&stun=stun:b.example.com,stun:c.example.com",
     );
@@ -63,47 +64,47 @@ describe("stunFromSearch", () => {
     ]);
   });
 
-  it("tekrarlari ayiklar", () => {
+  it("it removes duplicates", () => {
     expect(stunFromSearch("?stun=stun:a.example.com&stun=stun:a.example.com:3478")).toEqual([
       "stun:a.example.com:3478",
     ]);
   });
 
-  // Testlerin yalnizca host adayi toplamasinin tek yolu bu.
-  it("bos deger ICE sunucusunu kapatir", () => {
+  // That is the only way for the tests to gather host candidates only.
+  it("an empty value turns the ICE server off", () => {
     expect(stunFromSearch("?stun=")).toEqual([]);
   });
 
-  // Sessizce varsayilana donmek, kullanicinin verdigi listenin yok
-  // sayildigini gizlerdi.
-  it("gecersiz adres verilirse hata atar", () => {
+  // Falling back to the default silently would hide that the list the
+  // user gave was ignored.
+  it("it throws when given an invalid address", () => {
     expect(() => stunFromSearch("?stun=bozuk")).toThrow(IceConfigError);
   });
 });
 
 describe("iceServers", () => {
-  it("liste verilmezse varsayilani kullanir", () => {
+  it("with no list given it uses the default", () => {
     const got = iceServers(null);
     expect(got).toHaveLength(1);
     expect(got[0]?.urls).toEqual([...DEFAULT_STUN]);
   });
 
-  it("bos liste hic sunucu vermez", () => {
+  it("an empty list gives no server at all", () => {
     expect(iceServers([])).toEqual([]);
   });
 
-  it("verilen listeyi kullanir", () => {
+  it("it uses the given list", () => {
     expect(iceServers(["stun:a.example.com:3478"])[0]?.urls).toEqual(["stun:a.example.com:3478"]);
   });
 
-  // Go tarafindaki ice.DefaultSTUN ile ayni olmali; NAT tahmini icin iki
-  // sunucu gerekiyor.
-  it("varsayilan listede iki sunucu var", () => {
+  // It has to match ice.DefaultSTUN on the Go side; the NAT guess needs
+  // two servers.
+  it("the default list holds two servers", () => {
     expect(DEFAULT_STUN.length).toBeGreaterThanOrEqual(2);
   });
 });
 
-/** getStats() cevabini taklit eder. */
+/** Imitates a getStats() answer. */
 function fakeStats(entries: Array<Record<string, unknown>>): RTCStatsReport {
   const map = new Map<string, Record<string, unknown>>();
   for (const e of entries) map.set(e.id as string, e);
@@ -111,7 +112,7 @@ function fakeStats(entries: Array<Record<string, unknown>>): RTCStatsReport {
 }
 
 describe("routeFromStats", () => {
-  it("relay adayini TURN olarak tanir", () => {
+  it("it recognises a relay candidate as TURN", () => {
     const stats = fakeStats([
       {
         id: "pair1",
@@ -127,9 +128,10 @@ describe("routeFromStats", () => {
     expect(routeFromStats(stats)).toBe("relay");
   });
 
-  // Karsi taraf relay kullaniyorsa trafik yine relay'den geciyor: TURN
-  // yalnizca AJAN tarafinda, yani beklenen durum tam olarak bu.
-  it("uzak taraf relay ise relay doner", () => {
+  // If the other side uses a relay the traffic still goes over the
+  // relay: TURN is on the AGENT side only, so this is exactly the
+  // expected case.
+  it("when the remote side is a relay it returns relay", () => {
     const stats = fakeStats([
       {
         id: "p",
@@ -145,7 +147,7 @@ describe("routeFromStats", () => {
     expect(routeFromStats(stats)).toBe("relay");
   });
 
-  it("host adayini dogrudan sayar", () => {
+  it("it counts a host candidate as direct", () => {
     const stats = fakeStats([
       {
         id: "p",
@@ -160,7 +162,7 @@ describe("routeFromStats", () => {
     expect(routeFromStats(stats)).toBe("host");
   });
 
-  it("secilmemis ciftleri yok sayar", () => {
+  it("it ignores the pairs that were not selected", () => {
     const stats = fakeStats([
       {
         id: "p",
@@ -175,11 +177,11 @@ describe("routeFromStats", () => {
     expect(routeFromStats(stats)).toBe("unknown");
   });
 
-  it("bos raporda unknown doner", () => {
+  it("on an empty report it returns unknown", () => {
     expect(routeFromStats(fakeStats([]))).toBe("unknown");
   });
 
-  it("aday kaydi eksikse unknown doner", () => {
+  it("with the candidate record missing it returns unknown", () => {
     const stats = fakeStats([
       {
         id: "p",
@@ -194,11 +196,11 @@ describe("routeFromStats", () => {
 });
 
 describe("routeLabel", () => {
-  it("relay icin TURN'u adiyla soyler", () => {
+  it("for a relay it names TURN", () => {
     expect(routeLabel("relay")).toContain("TURN");
   });
 
-  it("her yol icin metin var", () => {
+  it("there is a text for every route", () => {
     for (const r of ["host", "srflx", "prflx", "relay", "unknown"] as const) {
       expect(routeLabel(r).length).toBeGreaterThan(0);
     }

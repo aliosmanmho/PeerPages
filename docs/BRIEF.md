@@ -152,7 +152,7 @@ Signaling'i **kopyala-yapıştır** ile yap (sunucu yok, Nostr yok): ajan `offer
   Gerekçe ve sınırlar: §8.
 
 **Kabul:** Tek ajan iki projeyi yayınlıyor; ekranda anlamlı durum bilgisi var.
-**Durum:** karşılandı — `web/e2e/faz3.spec.ts` (6 test) bunu otomatik doğruluyor.
+**Durum:** karşılandı — `web/e2e/phase3.spec.ts` (6 test) bunu otomatik doğruluyor.
 
 ### Faz 4 — Dağıtım ve dayanıklılık (1 gün) — **tamamlandı**
 - Otomatik yeniden bağlanma (relay düşmesi, uyku/uyanma).
@@ -173,7 +173,7 @@ Signaling'i **kopyala-yapıştır** ile yap (sunucu yok, Nostr yok): ajan `offer
 - Windows'ta servis olarak çalışma notu (NSSM/Task Scheduler) — `docs/INSTALL.md`, sadece dokümantasyon.
 
 **Kabul:** Laptop uyuyup uyanınca tünel kendini toparlıyor; release workflow üç platform binary'si üretiyor.
-**Durum:** yeniden bağlanma karşılandı — `web/e2e/faz4.spec.ts` (4 test) ajanın yeniden başlamasını,
+**Durum:** yeniden bağlanma karşılandı — `web/e2e/phase4.spec.ts` (4 test) ajanın yeniden başlamasını,
 relay düşüp dönmesini ve kopma boşluğunu otomatik doğruluyor; **gerçek uyku/uyanma elle denenmeli**
 (`docs/MANUAL-TEST.md`). Binary tarafı yerelde doğrulandı (6 arşiv + checksums); **workflow GitHub'da
 koşturulmadı**, çünkü hiç push/etiket yok (§8).
@@ -195,7 +195,7 @@ koşturulmadı**, çünkü hiç push/etiket yok (§8).
 
 **Kabul:** Simetrik NAT simülasyonunda (ör. mobil hotspot ↔ kurumsal ağ) TURN ile bağlanıyor.
 **Durum:** karşılandı — ajan `--ice-relay-only` ile yalnızca relay adayı topladığında doğrudan
-yol **imkânsız** olur; `web/e2e/faz5.spec.ts` (4 test) ve `agent/internal/connect/turn_test.go`
+yol **imkânsız** olur; `web/e2e/phase5.spec.ts` (4 test) ve `agent/internal/connect/turn_test.go`
 tünelin bu durumda açıldığını, negatif kontrolde (TURN yok) açılmadığını doğruluyor.
 Gerçek iki ağ denemesi ve Cloudflare hesabı sende (`docs/MANUAL-TEST.md`, `docs/TURN.md`).
 
@@ -204,7 +204,7 @@ Gerçek iki ağ denemesi ve Cloudflare hesabı sende (`docs/MANUAL-TEST.md`, `do
 - WebSocket: sayfaya enjekte edilen küçük bir shim `window.WebSocket`'i sarar, data channel üzerinde `ws-open/ws-frame/ws-close` mesajlarıyla ajan tarafında gerçek WS'e köprüler. Shim yalnızca `--inject-ws-shim` ile açılır (HTML'e müdahale ediyoruz, varsayılan kapalı).
 
 **Kabul:** Vite HMR ve Socket.IO örneği tünel üzerinden çalışıyor.
-**Durum:** Vite HMR **karşılandı ve otomatik** — `web/e2e/faz6.spec.ts` fixture bir projede
+**Durum:** Vite HMR **karşılandı ve otomatik** — `web/e2e/phase6.spec.ts` fixture bir projede
 `vite dev` başlatıp kaynak dosyayı değiştiriyor, sayfa **yenilenmeden** güncelleniyor (38 ms).
 SSE'nin artımlı aktığı da artık ölçülüyor (ilk olay 2 ms, üçüncü 804 ms); Faz 6'ya kadar
 ajandaki 60 saniyelik zaman aşımı tüm cevabı sarıyor ve uzun akışları sessizce kesiyordu.

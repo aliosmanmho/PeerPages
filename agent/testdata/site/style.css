@@ -1,4 +1,4 @@
-/* e2e testi bu rengi computed style ile dogruluyor: CSS gercekten uygulandi mi */
+/* The e2e test checks this colour through the computed style: was the CSS really applied */
 body {
   margin: 2rem;
   background: rgb(13, 17, 23);
@@ -6,7 +6,7 @@ body {
   font: 16px/1.5 system-ui, sans-serif;
 }
 
-#baslik {
+#title {
   color: rgb(88, 166, 255);
 }
 

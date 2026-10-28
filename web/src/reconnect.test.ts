@@ -3,13 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_BACKOFF_MS, Supervisor, type SupervisorState } from "./reconnect";
 
 /**
- * Faz 4: tunel kopunca sayfa kendi kendine yeniden baglanmali.
+ * Phase 4: when the tunnel drops the page has to reconnect on its own.
  *
- * Testler gercek zamanlayici kullaniyor ama geri sayim milisaniyelere
- * indiriliyor; durum makinesi DOM'dan ve signaling'den bagimsiz.
+ * The tests use real timers but the backoff is brought down to
+ * milliseconds; the state machine is free of the DOM and of signaling.
  */
 
-/** Olay dinleyicilerini elle tetiklenebilen kucuk bir hedef. */
+/** A small event target whose listeners can be fired by hand. */
 class FakeEvents implements Pick<EventTarget, "addEventListener" | "removeEventListener"> {
   private readonly handlers = new Map<string, Set<EventListenerOrEventListenerObject>>();
 
@@ -50,7 +50,7 @@ function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
 }
 
 describe("Supervisor", () => {
-  it("kopmadan sonra yeniden baglanir", async () => {
+  it("it reconnects after a drop", async () => {
     const events = new FakeEvents();
     let attempts = 0;
     const sup = new Supervisor({
@@ -77,7 +77,7 @@ describe("Supervisor", () => {
     sup.stop();
   });
 
-  it("basarisiz denemeleri geri sayimla tekrarlar", async () => {
+  it("it retries failed attempts with backoff", async () => {
     const events = new FakeEvents();
     let attempts = 0;
     const sup = new Supervisor({
@@ -97,12 +97,13 @@ describe("Supervisor", () => {
 
     await waitFor(() => sup.currentState === "connected");
     expect(attempts).toBe(3);
-    // Ucuncu denemede baglandi: tek bir yeniden baglanma sayilir.
+    // It connected on the third attempt: that counts as one
+    // reconnect.
     expect(sup.reconnects).toBe(1);
     sup.stop();
   });
 
-  it("ayni kopma icin iki haber geri sayimi uzatmaz", async () => {
+  it("two reports of the same drop do not extend the backoff", async () => {
     const events = new FakeEvents();
     const states: SupervisorState[] = [];
     let attempts = 0;
@@ -119,7 +120,8 @@ describe("Supervisor", () => {
 
     sup.start();
     sup.markConnected();
-    // WebRTC durumu VE canlilik ping'i ayni kopmayi bildirebilir.
+    // The WebRTC state AND the liveness ping can both report the same
+    // drop.
     sup.markLost("connectionstatechange");
     sup.markLost("ping");
     sup.markLost("ping");
@@ -130,8 +132,9 @@ describe("Supervisor", () => {
     sup.stop();
   });
 
-  // Uyku/uyanma yolu: cihaz geri gelince 30 saniye beklemenin anlami yok.
-  it("online olayi beklemeyi keser", async () => {
+  // The sleep/wake path: once the device is back, waiting 30 seconds is
+  // pointless.
+  it("the online event stops the wait", async () => {
     const events = new FakeEvents();
     let attempts = 0;
     const sup = new Supervisor({
@@ -139,7 +142,8 @@ describe("Supervisor", () => {
         attempts += 1;
         sup.markConnected();
       },
-      // Uzun geri sayim: olay tetiklenmezse test zaman asimina ugrardi.
+      // A long backoff: if the event did not fire the test would time
+      // out.
       backoffMs: [60_000],
       events,
       isVisible: () => true,
@@ -156,7 +160,7 @@ describe("Supervisor", () => {
     sup.stop();
   });
 
-  it("sekme gorunur degilse uyanma olayi denemeyi baslatmaz", async () => {
+  it("while the tab is not visible a wake event starts no attempt", async () => {
     const events = new FakeEvents();
     let attempts = 0;
     const sup = new Supervisor({
@@ -180,7 +184,7 @@ describe("Supervisor", () => {
     sup.stop();
   });
 
-  it("retryNow beklemeden dener", async () => {
+  it("retryNow tries without waiting", async () => {
     const events = new FakeEvents();
     let attempts = 0;
     const sup = new Supervisor({
@@ -202,7 +206,7 @@ describe("Supervisor", () => {
     sup.stop();
   });
 
-  it("stop dinleyicileri ve bekleyen denemeyi birakir", async () => {
+  it("stop releases the listeners and the pending attempt", async () => {
     const events = new FakeEvents();
     let attempts = 0;
     const sup = new Supervisor({
@@ -227,7 +231,7 @@ describe("Supervisor", () => {
     expect(sup.currentState).toBe("idle");
   });
 
-  it("start cagrilmadan kopma haberi bir sey baslatmaz", async () => {
+  it("without start being called a drop report starts nothing", async () => {
     const connect = vi.fn(async () => {});
     const sup = new Supervisor({ connect, backoffMs: [5], events: new FakeEvents() });
 
@@ -237,7 +241,7 @@ describe("Supervisor", () => {
     expect(sup.currentState).toBe("idle");
   });
 
-  it("varsayilan geri sayim artarak ilerler ve 30 sn'de durur", () => {
+  it("the default backoff grows and stops at 30 s", () => {
     expect(DEFAULT_BACKOFF_MS[0]).toBe(1000);
     for (let i = 1; i < DEFAULT_BACKOFF_MS.length; i++) {
       expect(DEFAULT_BACKOFF_MS[i] ?? 0).toBeGreaterThan(DEFAULT_BACKOFF_MS[i - 1] ?? 0);

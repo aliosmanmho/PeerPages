@@ -4,22 +4,24 @@ import { isAppShellPath } from "./base";
 describe("isAppShellPath", () => {
   const base = "/PeerPages/";
 
-  it("app shell dosyalarini tanir", () => {
+  it("it recognises the app shell files", () => {
     expect(isAppShellPath("/PeerPages/connect/", base)).toBe(true);
     expect(isAppShellPath("/PeerPages/connect", base)).toBe(true);
     expect(isAppShellPath("/PeerPages/connect/index.html", base)).toBe(true);
     expect(isAppShellPath("/PeerPages/sw.js", base)).toBe(true);
     expect(isAppShellPath("/PeerPages/assets/connect-abc123.js", base)).toBe(true);
     expect(isAppShellPath("/PeerPages/favicon.ico", base)).toBe(true);
-    // Faz 6: shim app shell'in dosyasi, tunelden GECMEMELI.
+    // Phase 6: the shim is an app shell file and must NOT go through the
+    // tunnel.
     expect(isAppShellPath("/PeerPages/ws-shim.js", base)).toBe(true);
   });
 
   /**
-   * Scope kokunun KENDISI app shell degil: orasi yerel sitenin koku ve tunel
-   * acikken tunelden gecer (BRIEF bolum 8 karari).
+   * The scope root ITSELF is not app shell: that is the local site's root
+   * and with the tunnel open it goes through the tunnel (the decision in
+   * BRIEF section 8).
    */
-  it("scope kokunu ve site yollarini tunele birakir", () => {
+  it("it leaves the scope root and the site paths to the tunnel", () => {
     expect(isAppShellPath("/PeerPages/", base)).toBe(false);
     expect(isAppShellPath("/PeerPages/index.html", base)).toBe(false);
     expect(isAppShellPath("/PeerPages/api/items", base)).toBe(false);
@@ -27,13 +29,13 @@ describe("isAppShellPath", () => {
     expect(isAppShellPath("/PeerPages/logo.png", base)).toBe(false);
   });
 
-  it("scope disindaki yollari reddeder", () => {
+  it("it refuses paths outside the scope", () => {
     expect(isAppShellPath("/baska/", base)).toBe(false);
     expect(isAppShellPath("/", base)).toBe(false);
     expect(isAppShellPath("/connect/", base)).toBe(false);
   });
 
-  it("kok base ile calisir", () => {
+  it("it works with the root base", () => {
     expect(isAppShellPath("/connect/", "/")).toBe(true);
     expect(isAppShellPath("/sw.js", "/")).toBe(true);
     expect(isAppShellPath("/", "/")).toBe(false);

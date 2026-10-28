@@ -1,14 +1,16 @@
 name: Pages
 
-# App shell'i GitHub Pages'e dagitir (Faz 7).
+# Deploys the app shell to GitHub Pages (phase 7).
 #
-# Neden ayri workflow ve neden testleri tekrarlamiyor: ci.yml zaten lint +
-# birim test + e2e kosuyor. Dagitimi e2e'ye baglamak (Chromium indirip ~4
-# dakika) yayini yavaslatir ve dagitimin KENDI hatasini e2e gurultusunun
-# arkasina saklar. Kirmizi bir commit'in yayina gitmesini istemiyorsan
-# branch protection kullan; bu workflow'un isi tek sey yapmak.
+# Why a separate workflow, and why it does not repeat the tests: ci.yml
+# already runs lint, the unit tests and e2e. Tying the deploy to e2e
+# (downloading Chromium, about 4 minutes) would slow publishing down and
+# hide the deploy's OWN failure behind the e2e noise. If you do not want a
+# red commit reaching the live site, use branch protection; this
+# workflow's job is to do one thing.
 #
-# `web/dist` repoda TUTULMAZ (.gitignore): cikti burada uretilir.
+# `web/dist` is NOT KEPT in the repo (.gitignore): the output is built
+# here.
 on:
   push:
     branches: [main]
@@ -23,15 +25,15 @@ permissions:
   pages: write
   id-token: write
 
-# Dagitimlar siraya girer ve YARIDA KESILMEZ: yarim yayinlanmis bir site,
-# iptal edilmis bir derlemeden kotudur.
+# The deploys queue up and are NOT CANCELLED midway: a half-published
+# site is worse than a cancelled build.
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: derle ve yayinla
+    name: build and publish
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -44,16 +46,17 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      # Iki depo degiskeni (Settings -> Variables):
-      #   PAGES_CNAME  custom domain (or. demo.ornek.com). Doluysa site
-      #                alan adinin KOKUNDE yayinlanir, yani base "/" olur ve
-      #                CNAME dosyasi yazilir.
-      #   PAGES_BASE   proje sayfasi alt yolu; verilmezse "/PeerPages/".
+      # Two repository variables (Settings -> Variables):
+      #   PAGES_CNAME  a custom domain (for example demo.example.com). When
+      #                set, the site is published at the ROOT of that
+      #                domain, so base becomes "/" and a CNAME file is
+      #                written.
+      #   PAGES_BASE   the project page subpath; "/PeerPages/" when unset.
       #
-      # Kok dagitimin teknik kazanci: yerel sitenin KOK-MUTLAK yollari
-      # (/style.css) Service Worker kapsami icinde kalir (BRIEF §8'deki
-      # yapisal sinir kalkar).
-      - name: Base yolunu sec
+      # The technical gain of a root deploy: the local site's
+      # ROOT-ABSOLUTE paths (/style.css) stay inside the Service Worker
+      # scope (the structural boundary in BRIEF section 8 goes away).
+      - name: Pick the base path
         id: base
         env:
           PAGES_CNAME: ${{ vars.PAGES_CNAME }}
@@ -65,17 +68,17 @@ jobs:
             echo "value=${PAGES_BASE:-/PeerPages/}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Bagimliliklar
+      - name: Dependencies
         working-directory: web
         run: npm ci
 
-      - name: Derle (app shell + sw.js + ws-shim.js)
+      - name: Build (the app shell, sw.js and ws-shim.js)
         working-directory: web
         run: node scripts/build.mjs "${{ steps.base.outputs.value }}"
 
-      # Beklenen cikti dosyalari: sessizce eksik bir dagitim, yayinda
-      # "SW kurulamadi" olarak gorunurdu.
-      - name: Cikti kontrolu
+      # The expected output files: a deploy quietly missing one would
+      # show up on the live site as "the SW could not be installed".
+      - name: Check the output
         working-directory: web
         run: |
           test -f dist/index.html
@@ -83,12 +86,12 @@ jobs:
           test -f dist/sw.js
           test -f dist/ws-shim.js
 
-      - name: CNAME (custom domain verildiyse)
+      - name: CNAME (when a custom domain was given)
         if: vars.PAGES_CNAME != ''
         run: echo "${{ vars.PAGES_CNAME }}" > web/dist/CNAME
 
-      # enablement: true -> Pages depo ayarlarindan elle acilmak zorunda
-      # degil, ilk kosumda kendisi aciyor.
+      # enablement: true -> Pages does not have to be turned on by hand
+      # in the repository settings, the first run turns it on itself.
       - uses: actions/configure-pages@v5
         with:
           enablement: true

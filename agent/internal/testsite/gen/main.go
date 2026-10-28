@@ -1,12 +1,13 @@
-// Command gen Faz 1 test sitesi icin uretilen dosyalari olusturur.
+// Command gen creates the generated files for the phase 1 test site.
 //
-// Su an yalnizca 5 MB'lik big.bin: repoda tutulmuyor, deterministik olarak
-// uretiliyor. `make testdata` ve scripts/*.ps1 bunu cagirir.
+// Today that is only the 5 MB big.bin: it is not kept in the repo and is
+// generated deterministically. `make testdata` and scripts/*.ps1 call
+// this.
 //
-// Kullanim:
+// Usage:
 //
-//	go run ./internal/testsite/gen            # agent/testdata/site icine
-//	go run ./internal/testsite/gen -dir yol   # baska bir dizine
+//	go run ./internal/testsite/gen            # into agent/testdata/site
+//	go run ./internal/testsite/gen -dir path  # into another directory
 package main
 
 import (
@@ -18,8 +19,8 @@ import (
 )
 
 func main() {
-	dir := flag.String("dir", "testdata/site", "test sitesi dizini")
-	printHash := flag.Bool("sha256", false, "big.bin'in beklenen sha256'sini yazdir")
+	dir := flag.String("dir", "testdata/site", "the test site directory")
+	printHash := flag.Bool("sha256", false, "print the expected sha256 of big.bin")
 	flag.Parse()
 
 	if *printHash {
@@ -29,12 +30,12 @@ func main() {
 
 	path, created, err := testsite.GenerateBig(*dir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "big.bin uretilemedi: %v\n", err)
+		fmt.Fprintf(os.Stderr, "big.bin could not be generated: %v\n", err)
 		os.Exit(1)
 	}
 	if created {
-		fmt.Printf("uretildi: %s (%d bayt, sha256=%s)\n", path, testsite.BigFileSize, testsite.BigFileSHA256())
+		fmt.Printf("generated: %s (%d bytes, sha256=%s)\n", path, testsite.BigFileSize, testsite.BigFileSHA256())
 		return
 	}
-	fmt.Printf("zaten var: %s (%d bayt)\n", path, testsite.BigFileSize)
+	fmt.Printf("already there: %s (%d bytes)\n", path, testsite.BigFileSize)
 }

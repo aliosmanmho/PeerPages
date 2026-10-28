@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "PeerPages signaling protokolunun paylasilan test vektorleri. Hem web/src/nostr (TS) hem agent/internal/signaling (Go) BU dosyayi okur. Vektorler ucuncu bir bagimsiz uygulama (python) ile uretildi. Ayrintilar: protocol/signaling.md",
+  "note": "The shared test vectors of the PeerPages signaling protocol. Both web/src/nostr (TS) and agent/internal/signaling (Go) read THIS file. The vectors were produced with a third, independent implementation (python). Details: protocol/signaling.md",
   "limits": {
     "sidLength": 16,
     "maxSDP": 65536,
@@ -65,32 +65,32 @@
         "canonical": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"a<b>&c\"}"
       },
       {
-        "name": "sid-tum-hex",
+        "name": "sid-all-hex",
         "text": "{\"v\":1,\"t\":\"bye\",\"sid\":\"00000000000000ff\",\"reason\":\"x\"}",
         "canonical": "{\"v\":1,\"t\":\"bye\",\"sid\":\"00000000000000ff\",\"reason\":\"x\"}"
       },
       {
-        "name": "mid-bir",
+        "name": "mid-one",
         "text": "{\"v\":1,\"t\":\"candidate\",\"sid\":\"0123456789abcdef\",\"cand\":\"candidate:842163049 1 udp 1677729535 91.93.232.50 18212 typ srflx raddr 0.0.0.0 rport 0 generation 0\",\"mid\":\"1\"}",
         "canonical": "{\"v\":1,\"t\":\"candidate\",\"sid\":\"0123456789abcdef\",\"cand\":\"candidate:842163049 1 udp 1677729535 91.93.232.50 18212 typ srflx raddr 0.0.0.0 rport 0 generation 0\",\"mid\":\"1\"}"
       },
       {
-        "name": "offer-hedefli",
+        "name": "offer-with-target",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"admin\"}",
         "canonical": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"admin\"}"
       },
       {
-        "name": "offer-hedef-tek-karakter",
+        "name": "offer-target-single-char",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"a\"}",
         "canonical": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"a\"}"
       },
       {
-        "name": "offer-hedef-tam-sinir",
+        "name": "offer-target-at-the-limit",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
         "canonical": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
       },
       {
-        "name": "offer-hedef-tireli",
+        "name": "offer-target-with-dash",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"web-2_eski\"}",
         "canonical": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\",\"target\":\"web-2_eski\"}"
       },
@@ -102,22 +102,22 @@
     ],
     "invalid": [
       {
-        "name": "bos-metin",
+        "name": "empty-text",
         "text": "",
         "error": "bad-json"
       },
       {
-        "name": "bozuk-json",
+        "name": "malformed-json",
         "text": "{\"v\":1,\"t\":\"bye\"",
         "error": "bad-json"
       },
       {
-        "name": "json-dizi",
+        "name": "json-array",
         "text": "[1,2]",
         "error": "bad-json"
       },
       {
-        "name": "json-sayi",
+        "name": "json-number",
         "text": "7",
         "error": "bad-json"
       },
@@ -127,216 +127,216 @@
         "error": "bad-json"
       },
       {
-        "name": "t-yok",
+        "name": "t-missing",
         "text": "{\"v\":1,\"sid\":\"0123456789abcdef\"}",
         "error": "missing-field"
       },
       {
-        "name": "t-sayi",
+        "name": "t-number",
         "text": "{\"v\":1,\"t\":5,\"sid\":\"0123456789abcdef\"}",
         "error": "bad-field"
       },
       {
-        "name": "t-bos",
+        "name": "t-empty",
         "text": "{\"v\":1,\"t\":\"\",\"sid\":\"0123456789abcdef\"}",
         "error": "unknown-type"
       },
       {
-        "name": "t-bilinmeyen",
+        "name": "t-unknown",
         "text": "{\"v\":1,\"t\":\"zipzip\",\"sid\":\"0123456789abcdef\"}",
         "error": "unknown-type"
       },
       {
-        "name": "v-yok",
+        "name": "v-missing",
         "text": "{\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"x\"}",
         "error": "missing-field"
       },
       {
-        "name": "v-yanlis",
+        "name": "v-wrong",
         "text": "{\"v\":2,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"x\"}",
         "error": "bad-field"
       },
       {
-        "name": "v-metin",
+        "name": "v-text",
         "text": "{\"v\":\"1\",\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"x\"}",
         "error": "bad-field"
       },
       {
-        "name": "sid-yok",
+        "name": "sid-missing",
         "text": "{\"v\":1,\"t\":\"bye\",\"reason\":\"x\"}",
         "error": "missing-field"
       },
       {
-        "name": "sid-kisa",
+        "name": "sid-short",
         "text": "{\"v\":1,\"t\":\"bye\",\"sid\":\"abc\",\"reason\":\"x\"}",
         "error": "bad-field"
       },
       {
-        "name": "sid-uzun",
+        "name": "sid-long",
         "text": "{\"v\":1,\"t\":\"bye\",\"sid\":\"aaaaaaaaaaaaaaaaa\",\"reason\":\"x\"}",
         "error": "bad-field"
       },
       {
-        "name": "sid-buyuk-harf",
+        "name": "sid-uppercase",
         "text": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789ABCDEF\",\"reason\":\"x\"}",
         "error": "bad-field"
       },
       {
-        "name": "sid-hex-degil",
+        "name": "sid-not-hex",
         "text": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdeg\",\"reason\":\"x\"}",
         "error": "bad-field"
       },
       {
-        "name": "sid-sayi",
+        "name": "sid-number",
         "text": "{\"v\":1,\"t\":\"bye\",\"sid\":123,\"reason\":\"x\"}",
         "error": "bad-field"
       },
       {
-        "name": "offer-sdp-yok",
+        "name": "offer-sdp-missing",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\"}",
         "error": "missing-field"
       },
       {
-        "name": "offer-sdp-bos",
+        "name": "offer-sdp-empty",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"\"}",
         "error": "bad-field"
       },
       {
-        "name": "offer-sdp-sayi",
+        "name": "offer-sdp-number",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":1}",
         "error": "bad-field"
       },
       {
-        "name": "answer-sdp-yok",
+        "name": "answer-sdp-missing",
         "text": "{\"v\":1,\"t\":\"answer\",\"sid\":\"0123456789abcdef\"}",
         "error": "missing-field"
       },
       {
-        "name": "candidate-cand-yok",
+        "name": "candidate-cand-missing",
         "text": "{\"v\":1,\"t\":\"candidate\",\"sid\":\"0123456789abcdef\",\"mid\":\"0\"}",
         "error": "missing-field"
       },
       {
-        "name": "candidate-cand-bos",
+        "name": "candidate-cand-empty",
         "text": "{\"v\":1,\"t\":\"candidate\",\"sid\":\"0123456789abcdef\",\"cand\":\"\",\"mid\":\"0\"}",
         "error": "bad-field"
       },
       {
-        "name": "candidate-mid-yok",
+        "name": "candidate-mid-missing",
         "text": "{\"v\":1,\"t\":\"candidate\",\"sid\":\"0123456789abcdef\",\"cand\":\"candidate:1\"}",
         "error": "missing-field"
       },
       {
-        "name": "candidate-mid-bos",
+        "name": "candidate-mid-empty",
         "text": "{\"v\":1,\"t\":\"candidate\",\"sid\":\"0123456789abcdef\",\"cand\":\"candidate:1\",\"mid\":\"\"}",
         "error": "bad-field"
       },
       {
-        "name": "candidate-mid-uzun",
+        "name": "candidate-mid-long",
         "text": "{\"v\":1,\"t\":\"candidate\",\"sid\":\"0123456789abcdef\",\"cand\":\"candidate:1\",\"mid\":\"mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\"}",
         "error": "bad-field"
       },
       {
-        "name": "offer-hedef-bos",
+        "name": "offer-target-empty",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":\"\"}",
         "error": "bad-field"
       },
       {
-        "name": "offer-hedef-sayi",
+        "name": "offer-target-number",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":5}",
         "error": "bad-field"
       },
       {
-        "name": "offer-hedef-null",
+        "name": "offer-target-null",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":null}",
         "error": "bad-field"
       },
       {
-        "name": "offer-hedef-uzun",
+        "name": "offer-target-long",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
         "error": "bad-field"
       },
       {
-        "name": "offer-hedef-tire-ile-basliyor",
+        "name": "offer-target-starts-with-dash",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":\"-admin\"}",
         "error": "bad-field"
       },
       {
-        "name": "offer-hedef-slash",
+        "name": "offer-target-slash",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":\"a/b\"}",
         "error": "bad-field"
       },
       {
-        "name": "offer-hedef-nokta",
+        "name": "offer-target-dot",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":\"a.b\"}",
         "error": "bad-field"
       },
       {
-        "name": "offer-hedef-bosluk",
+        "name": "offer-target-space",
         "text": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\",\"target\":\"a b\"}",
         "error": "bad-field"
       },
       {
-        "name": "bye-reason-yok",
+        "name": "bye-reason-missing",
         "text": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\"}",
         "error": "missing-field"
       },
       {
-        "name": "bye-reason-bos",
+        "name": "bye-reason-empty",
         "text": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"\"}",
         "error": "bad-field"
       },
       {
-        "name": "bye-reason-uzun",
+        "name": "bye-reason-long",
         "text": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\"}",
         "error": "bad-field"
       }
     ],
     "generated": [
       {
-        "name": "sdp-tam-sinir",
+        "name": "sdp-at-the-limit",
         "kind": "offer-sdp",
         "len": 65536,
         "accept": true
       },
       {
-        "name": "sdp-sinir-asimi",
+        "name": "sdp-over-the-limit",
         "kind": "offer-sdp",
         "len": 65537,
         "accept": false
       },
       {
-        "name": "cand-tam-sinir",
+        "name": "cand-at-the-limit",
         "kind": "candidate-cand",
         "len": 1024,
         "accept": true
       },
       {
-        "name": "cand-sinir-asimi",
+        "name": "cand-over-the-limit",
         "kind": "candidate-cand",
         "len": 1025,
         "accept": false
       },
       {
-        "name": "reason-tam-sinir",
+        "name": "reason-at-the-limit",
         "kind": "bye-reason",
         "len": 64,
         "accept": true
       },
       {
-        "name": "reason-sinir-asimi",
+        "name": "reason-over-the-limit",
         "kind": "bye-reason",
         "len": 65,
         "accept": false
       },
       {
-        "name": "mid-tam-sinir",
+        "name": "mid-at-the-limit",
         "kind": "candidate-mid",
         "len": 32,
         "accept": true
       },
       {
-        "name": "mid-sinir-asimi",
+        "name": "mid-over-the-limit",
         "kind": "candidate-mid",
         "len": 33,
         "accept": false
@@ -350,21 +350,21 @@
     },
     "valid": [
       {
-        "name": "bye-sirli",
+        "name": "bye-sealed",
         "secret": "kedi-balik-7",
         "nonceHex": "000102030405060708090a0b",
         "plaintext": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"visitor-left\"}",
         "payload": "pps1.AAECAwQFBgcICQoLbXnAQZfJJRBl3UJVQU3PRVfEu3D03vbjoLChXUk3AZGnsY565fv7ORJBgNc9pMzQQnwR8JdDKdk8fPly7ggLJtqev0ODuFhh86sGR2ZFcsMpiQ"
       },
       {
-        "name": "offer-sirli",
+        "name": "offer-sealed",
         "secret": "kedi-balik-7",
         "nonceHex": "0b0a090807060504030201ff",
         "plaintext": "{\"v\":1,\"t\":\"offer\",\"sid\":\"0123456789abcdef\",\"sdp\":\"v=0\\r\\no=- 1 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n\"}",
         "payload": "pps1.CwoJCAcGBQQDAgH_9qaTNpN2xFjck5WAY0z1zstNMjnLIMr6EtgfzzaZHBd1cQBK_0zvfXBPIGxXiXJ03selw0vBPZBOr2g-HE-nVUXojQmjPKPWBE66mRNwlJSqsv69SH0yklAFNELn-UYx17FOwFs6VGGbUbR5P_3ev14TGCj9-finigA8osGXjoWrY7WhOkoe51FwWLG-VfXQntc-2ikZUvh1g-LVyK1QMXkcAVwsfKJPPgOTPg"
       },
       {
-        "name": "utf8-sirli",
+        "name": "utf8-sealed",
         "secret": "gizli-şifre-çğ",
         "nonceHex": "000102030405060708090a0b",
         "plaintext": "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",\"reason\":\"visitor-left\"}",
@@ -373,31 +373,31 @@
     ],
     "invalid": [
       {
-        "name": "yanlis-sir",
+        "name": "wrong-secret",
         "secret": "baska-sir",
         "payload": "pps1.AAECAwQFBgcICQoLbXnAQZfJJRBl3UJVQU3PRVfEu3D03vbjoLChXUk3AZGnsY565fv7ORJBgNc9pMzQQnwR8JdDKdk8fPly7ggLJtqev0ODuFhh86sGR2ZFcsMpiQ",
         "error": "bad-secret"
       },
       {
-        "name": "bozuk-base64",
+        "name": "malformed-base64",
         "secret": "kedi-balik-7",
         "payload": "pps1.!!!not-base64!!!",
         "error": "bad-secret"
       },
       {
-        "name": "cok-kisa",
+        "name": "too-short",
         "secret": "kedi-balik-7",
         "payload": "pps1.a2lzYQ",
         "error": "bad-secret"
       },
       {
-        "name": "etiket-bozuk",
+        "name": "broken-tag",
         "secret": "kedi-balik-7",
         "payload": "pps1.AAECAwQFBgcICQoLbXnAQZfJJRBl3UJVQU3PRVfEu3D03vbjoLChXUk3AZGnsY565fv7ORJBgNc9pMzQQnwR8JdDKdk8fPly7ggLJtqev0ODuFhh86sGR2ZFcsMpiA",
         "error": "bad-secret"
       },
       {
-        "name": "bos-govde",
+        "name": "empty-body",
         "secret": "kedi-balik-7",
         "payload": "pps1.",
         "error": "bad-secret"

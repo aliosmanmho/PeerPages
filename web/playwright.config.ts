@@ -1,36 +1,39 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Faz 1 kabul kriterlerini gercek bir tarayicida dogrulayan e2e kurulumu.
+ * The e2e setup that verifies the acceptance criteria in a real browser.
  *
- * Kurulum:
- *  - `vite preview` derlenmis app shell'i `/PeerPages/` alt yolunda servis
- *    eder (GitHub Pages benzeri bir alt yol). localhost guvenli baglam
- *    sayildigi icin Service Worker calisir.
- *  - Test kendisi ajani ve test sitesini child process olarak baslatir,
- *    offer/answer'i stdout/stdin uzerinden tasir (fixtures/agent.ts).
+ * The setup:
+ *  - `vite preview` serves the built app shell under the `/PeerPages/`
+ *    subpath (a GitHub Pages-like subpath). Because localhost counts as a
+ *    secure context, the Service Worker works.
+ *  - The tests start the agent and the test site as child processes
+ *    themselves and carry the offer and answer over stdout/stdin
+ *    (fixtures/agent.ts).
  *
- * Signaling sunucusu ve Nostr YOK (BRIEF Faz 1).
+ * The manual path needs NO signaling server and no Nostr (BRIEF phase 1);
+ * the Nostr path uses an in-process fake relay.
  */
 
 const PORT = 4173;
 const BASE = "/PeerPages/";
-// `localhost` kullaniliyor cunku vite preview IPv6 (::1) uzerinde dinliyor;
-// 127.0.0.1'e baglanilamiyor. localhost da guvenli baglam sayildigi icin
-// Service Worker calisir.
+// `localhost` is used because vite preview listens on IPv6 (::1) and
+// 127.0.0.1 cannot be reached. localhost counts as a secure context too,
+// so the Service Worker works.
 const ORIGIN = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: "e2e",
-  // Web'i dogru alt yolla derler, test verisini uretir, ajani derler.
+  // It builds the web app with the right subpath, generates the test data
+  // and builds the agent.
   globalSetup: "./e2e/global-setup.ts",
-  // Tek tunel, tek origin: paralel kosum birbirine girer.
+  // One tunnel, one origin: running in parallel would collide.
   workers: 1,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  // README gorsellerini ureten `demo.spec.ts` normal kosumda ATLANIR: bir
-  // test degil, bir uretim betigi. Elle kostur:
-  //   Git Bash : PEERPAGES_DEMO=1 npx playwright test demo
+  // `demo.spec.ts`, which produces the README images, is SKIPPED in a
+  // normal run: it is a production script, not a test. Run it by hand:
+  //   Git Bash  : PEERPAGES_DEMO=1 npx playwright test demo
   //   PowerShell: $env:PEERPAGES_DEMO=1; npx playwright test demo
   grepInvert: process.env.PEERPAGES_DEMO ? undefined : /@demo/,
   retries: process.env.CI ? 1 : 0,
@@ -41,7 +44,7 @@ export default defineConfig({
   use: {
     baseURL: `${ORIGIN}${BASE}`,
     trace: process.env.CI ? "retain-on-failure" : "off",
-    // 5 MB indirme ve ICE kurulumu icin comert sinirlar.
+    // Generous limits for the 5 MB download and the ICE setup.
     actionTimeout: 30_000,
     navigationTimeout: 30_000,
   },
@@ -54,10 +57,11 @@ export default defineConfig({
   ],
 
   webServer: {
-    // Derleme BURADA yapiliyor, globalSetup'ta degil: Playwright webServer'i
-    // globalSetup'tan ONCE baslatiyor ve dist henuz yoksa preview cikiyor.
-    // `base` CLI yerine ortam degiskeniyle veriliyor (scripts/build.mjs);
-    // boylece derleme ile preview ayni degeri kullaniyor.
+    // The build happens HERE rather than in globalSetup: Playwright
+    // starts webServer BEFORE globalSetup, and with no dist yet the
+    // preview exits. `base` is passed through an environment variable
+    // rather than the CLI (scripts/build.mjs), so the build and the
+    // preview use the same value.
     command: `node scripts/build.mjs ${BASE} && npx vite preview --port ${PORT} --strictPort`,
     env: { PEERPAGES_BASE: BASE },
     url: `${ORIGIN}${BASE}`,

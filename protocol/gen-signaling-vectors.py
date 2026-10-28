@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
-"""protocol/signaling-testvectors.json ureticisi.
+"""The generator of protocol/signaling-testvectors.json.
 
-Bu betik UCUNCU bir BAGIMSIZ uygulamadir: vektorleri ne Go ne TS uretir,
-ikisi de bu dosyaya karsi dogrulanir (Faz 1'deki ayni duzen). Boylece iki
-uygulamanin ayni hatayi birlikte yapmasi mumkun olmaz.
+This script is a THIRD, INDEPENDENT implementation: neither Go nor TS
+produces the vectors, both are verified against this file (the same
+arrangement as in phase 1). That way the two implementations cannot make
+the same mistake together.
 
-Kullanim (protocol/ dizininden ya da herhangi bir yerden):
+Usage (from the protocol/ directory or anywhere else):
 
     pip install cryptography
     python gen-signaling-vectors.py
 
-Cikti: bu dosyanin yanindaki signaling-testvectors.json
+Output: signaling-testvectors.json next to this file.
 
-Kripto: HKDF-SHA256 + ChaCha20-Poly1305 (python `cryptography` paketi).
-Tanim: protocol/signaling.md
+The crypto: HKDF-SHA256 + ChaCha20-Poly1305 (the python `cryptography`
+package). The specification: protocol/signaling.md
 """
 import base64
 import collections
@@ -54,8 +55,9 @@ ORDER = {
 
 
 def canonical(msg):
-    # Opsiyonel alan (bugun yalnizca offer.target) yoksa HIC yazilmaz:
-    # hedefsiz offer'in kanonik bicimi alan eklenmeden onceki haliyle ayni.
+    # An optional field (today only offer.target) is NOT WRITTEN at all
+    # when absent: the canonical form of a target-less offer stays the same
+    # as it was before the field existed.
     out = OD()
     for k in ORDER[msg["t"]]:
         if k in msg:
@@ -87,7 +89,7 @@ def bad(name, text, err):
 
 
 def j(s):
-    """Tek tirnaklari cift tirnaga cevirir; JSON metni yazmayi kolaylastirir."""
+    """Turns single quotes into double quotes; it makes writing JSON text easier."""
     return s.replace("'", '"')
 
 
@@ -98,10 +100,10 @@ CAND = "candidate:842163049 1 udp 1677729535 91.93.232.50 18212 typ srflx raddr 
 doc = OD()
 doc["version"] = VERSION
 doc["note"] = (
-    "PeerPages signaling protokolunun paylasilan test vektorleri. Hem "
-    "web/src/nostr (TS) hem agent/internal/signaling (Go) BU dosyayi okur. "
-    "Vektorler ucuncu bir bagimsiz uygulama (python) ile uretildi. "
-    "Ayrintilar: protocol/signaling.md"
+    "The shared test vectors of the PeerPages signaling protocol. Both "
+    "web/src/nostr (TS) and agent/internal/signaling (Go) read THIS file. "
+    "The vectors were produced with a third, independent implementation "
+    "(python). Details: protocol/signaling.md"
 )
 doc["limits"] = OD([
     ("sidLength", 16),
@@ -124,7 +126,7 @@ doc["secret"] = OD([
     ("base64", "url, dolgu yok"),
 ])
 
-# --- kanonik mesajlar ---
+# --- the canonical messages ---
 msgs = OD()
 msgs["valid"] = [
     ok("offer", {"v": 1, "t": "offer", "sid": SID, "sdp": SDP_OFFER}),
@@ -132,13 +134,13 @@ msgs["valid"] = [
     ok("candidate", {"v": 1, "t": "candidate", "sid": SID, "cand": CAND, "mid": "0"}),
     ok("bye", {"v": 1, "t": "bye", "sid": SID, "reason": "visitor-left"}),
     ok("bye-agent", {"v": 1, "t": "bye", "sid": "fedcba9876543210", "reason": "agent-shutdown"}),
-    # Kacis kurallari: SDP zaten \r\n tasiyor; ASCII disi ve HTML karakterleri
-    # de kacirilmamali.
+    # The escaping rules: an SDP already carries \r\n; non-ASCII and HTML
+    # characters must not be escaped either.
     ok("reason-utf8", {"v": 1, "t": "bye", "sid": SID, "reason": "cok uzun surdu: cgu"}),
     ok("reason-html", {"v": 1, "t": "bye", "sid": SID, "reason": "a<b>&c"}),
     ok("sid-tum-hex", {"v": 1, "t": "bye", "sid": "00000000000000ff", "reason": "x"}),
     ok("mid-bir", {"v": 1, "t": "candidate", "sid": SID, "cand": CAND, "mid": "1"}),
-    # Faz 3: offer'da opsiyonel hedef adi.
+    # Phase 3: the optional target name in an offer.
     ok("offer-hedefli", {"v": 1, "t": "offer", "sid": SID, "sdp": SDP_OFFER, "target": "admin"}),
     ok("offer-hedef-tek-karakter",
        {"v": 1, "t": "offer", "sid": SID, "sdp": SDP_OFFER, "target": "a"}),
@@ -148,7 +150,8 @@ msgs["valid"] = [
        {"v": 1, "t": "offer", "sid": SID, "sdp": SDP_OFFER, "target": "web-2_eski"}),
     ok("bye-unknown-target", {"v": 1, "t": "bye", "sid": SID, "reason": "unknown-target"}),
 ]
-# Turkce karakterleri acikca koy (kaynak dosya ASCII kalsin diye kacarak).
+# Non-ASCII characters put in explicitly (escaped, so this source file
+# stays ASCII).
 msgs["valid"][5]["text"] = canonical(
     {"v": 1, "t": "bye", "sid": SID, "reason": "cok uzun s\u00fcrd\u00fc: \u00e7\u011f\u00fc"})
 msgs["valid"][5]["canonical"] = msgs["valid"][5]["text"]
@@ -189,7 +192,8 @@ msgs["invalid"] = [
         j("{'v':1,'t':'candidate','sid':'" + SID + "','cand':'candidate:1','mid':'" + "m" * 33 + "'}"),
         "bad-field"),
 
-    # Faz 3: hedef adi var ama gecersiz. (Alanin HIC olmamasi gecerlidir.)
+    # Phase 3: a target name that is present but invalid. (The field being
+    # absent entirely is valid.)
     bad("offer-hedef-bos",
         j("{'v':1,'t':'offer','sid':'" + SID + "','sdp':'v=0','target':''}"), "bad-field"),
     bad("offer-hedef-sayi",
@@ -214,7 +218,8 @@ msgs["invalid"] = [
         j("{'v':1,'t':'bye','sid':'" + SID + "','reason':'" + "r" * 65 + "'}"), "bad-field"),
 ]
 
-# Sinir vakalari: uzunluk tam sinirda KABUL, bir fazlasi RED.
+# The boundary cases: a length exactly at the limit is ACCEPTED, one more
+# is REFUSED.
 msgs["generated"] = [
     OD([("name", "sdp-tam-sinir"), ("kind", "offer-sdp"), ("len", MAX_SDP), ("accept", True)]),
     OD([("name", "sdp-sinir-asimi"), ("kind", "offer-sdp"), ("len", MAX_SDP + 1), ("accept", False)]),
@@ -227,7 +232,7 @@ msgs["generated"] = [
 ]
 doc["messages"] = msgs
 
-# --- sir katmani ---
+# --- the secret layer ---
 SECRET = "kedi-balik-7"
 NONCE1 = "000102030405060708090a0b"
 NONCE2 = "0b0a090807060504030201ff"
@@ -257,17 +262,17 @@ sealed["invalid"] = [
         ("error", "bad-secret")]),
     OD([("name", "cok-kisa"), ("secret", SECRET), ("payload", PREFIX + base64.urlsafe_b64encode(b"kisa").decode().rstrip("=")),
         ("error", "bad-secret")]),
-    # Son karakteri degistirip AEAD etiketini bozuyoruz.
+    # We change the last character to break the AEAD tag.
     OD([("name", "etiket-bozuk"), ("secret", SECRET),
         ("payload", PREFIX + _body[:-1] + ("A" if _body[-1] != "A" else "B")),
         ("error", "bad-secret")]),
     OD([("name", "bos-govde"), ("secret", SECRET), ("payload", PREFIX), ("error", "bad-secret")]),
 ]
-# Sir beklenirken duz JSON gelirse de reddedilmeli.
+# Plain JSON arriving where a secret is expected has to be refused too.
 sealed["plainWhenSecretExpected"] = OD([
     ("secret", SECRET), ("payload", bye_text), ("error", "bad-secret"),
 ])
-# Sir yokken pps1 gelirse de reddedilmeli.
+# A pps1 payload arriving with no secret has to be refused too.
 sealed["sealedWhenNoSecret"] = OD([
     ("payload", _good), ("error", "bad-secret"),
 ])
@@ -275,6 +280,6 @@ doc["sealed"] = sealed
 
 out = json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
 io.open(OUT, "w", encoding="utf-8", newline="\n").write(out)
-print("yazildi: %d bayt | gecerli=%d gecersiz=%d sinir=%d | sirli gecerli=%d gecersiz=%d" % (
+print("written: %d bytes | valid=%d invalid=%d boundary=%d | sealed valid=%d invalid=%d" % (
     len(out.encode("utf-8")), len(msgs["valid"]), len(msgs["invalid"]), len(msgs["generated"]),
     len(sealed["valid"]), len(sealed["invalid"])))

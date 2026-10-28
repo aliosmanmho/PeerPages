@@ -13,8 +13,8 @@ linters:
   settings:
     gosec:
       excludes:
-        # G107: URL'ler allowlist'ten gelir (internal/target), degisken olmasi
-        # kacinilmaz; SSRF korumasi orada test ediliyor.
+        # G107: the URLs come from the allowlist (internal/target), so a
+        # variable is unavoidable; the SSRF protection is tested there.
         - G107
   exclusions:
     rules:

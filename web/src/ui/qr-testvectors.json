@@ -1,11 +1,11 @@
 {
-  "note": "PeerPages QR kodlayicisinin test vektorleri. web/src/ui/qr.ts BU dosyaya karsi dogrulanir. Vektorler ucuncu bir bagimsiz uygulama (python qrcode) ile uretildi. Kapsam: byte modu, seviye M, surum 1-10.",
+  "note": "The test vectors of the PeerPages QR encoder. web/src/ui/qr.ts is verified against THIS file. The vectors were produced with a third, independent implementation (python qrcode). The scope: byte mode, level M, versions 1-10.",
   "errorCorrection": "M",
   "mode": "byte",
   "maxVersion": 10,
   "forced": [
     {
-      "name": "kisa-ascii",
+      "name": "short-ascii",
       "text": "PEERPAGES",
       "mask": 0,
       "version": 1,
@@ -35,7 +35,7 @@
       ]
     },
     {
-      "name": "tek-karakter",
+      "name": "single-char",
       "text": "a",
       "mask": 3,
       "version": 1,
@@ -65,7 +65,7 @@
       ]
     },
     {
-      "name": "maske-0",
+      "name": "mask-0",
       "text": "PeerPages QR",
       "mask": 0,
       "version": 1,
@@ -95,7 +95,7 @@
       ]
     },
     {
-      "name": "maske-1",
+      "name": "mask-1",
       "text": "PeerPages QR",
       "mask": 1,
       "version": 1,
@@ -125,7 +125,7 @@
       ]
     },
     {
-      "name": "maske-2",
+      "name": "mask-2",
       "text": "PeerPages QR",
       "mask": 2,
       "version": 1,
@@ -155,7 +155,7 @@
       ]
     },
     {
-      "name": "maske-3",
+      "name": "mask-3",
       "text": "PeerPages QR",
       "mask": 3,
       "version": 1,
@@ -185,7 +185,7 @@
       ]
     },
     {
-      "name": "maske-4",
+      "name": "mask-4",
       "text": "PeerPages QR",
       "mask": 4,
       "version": 1,
@@ -215,7 +215,7 @@
       ]
     },
     {
-      "name": "maske-5",
+      "name": "mask-5",
       "text": "PeerPages QR",
       "mask": 5,
       "version": 1,
@@ -245,7 +245,7 @@
       ]
     },
     {
-      "name": "maske-6",
+      "name": "mask-6",
       "text": "PeerPages QR",
       "mask": 6,
       "version": 1,
@@ -275,7 +275,7 @@
       ]
     },
     {
-      "name": "maske-7",
+      "name": "mask-7",
       "text": "PeerPages QR",
       "mask": 7,
       "version": 1,
@@ -305,7 +305,7 @@
       ]
     },
     {
-      "name": "ziyaretci-url",
+      "name": "visitor-url",
       "text": "https://kullanici.github.io/PeerPages/#npub1yl4dshpq3h2kqmcx8dz3xhdmgpkcrxu6l9rdj5vxk9chpsd0pdnn4ldqqq",
       "mask": 2,
       "version": 6,
@@ -355,7 +355,7 @@
       ]
     },
     {
-      "name": "ziyaretci-url-hedefli",
+      "name": "visitor-url-with-target",
       "text": "https://kullanici.github.io/PeerPages/#npub1yl4dshpq3h2kqmcx8dz3xhdmgpkcrxu6l9rdj5vxk9chpsd0pdnn4ldqqq/admin",
       "mask": 5,
       "version": 7,
@@ -443,7 +443,7 @@
       ]
     },
     {
-      "name": "surum-7-uzeri",
+      "name": "version-7-and-above",
       "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
       "mask": 4,
       "version": 8,
@@ -501,7 +501,7 @@
       ]
     },
     {
-      "name": "surum-10",
+      "name": "version-10",
       "text": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
       "mask": 6,
       "version": 10,
@@ -569,7 +569,7 @@
   ],
   "auto": [
     {
-      "name": "auto-kisa",
+      "name": "auto-short",
       "text": "PEERPAGES",
       "version": 1,
       "size": 21,
@@ -647,7 +647,7 @@
       ]
     },
     {
-      "name": "auto-url-hedefli",
+      "name": "auto-url-with-target",
       "text": "https://kullanici.github.io/PeerPages/#npub1yl4dshpq3h2kqmcx8dz3xhdmgpkcrxu6l9rdj5vxk9chpsd0pdnn4ldqqq/admin",
       "version": 7,
       "size": 45,
@@ -729,7 +729,7 @@
       ]
     },
     {
-      "name": "auto-uzun",
+      "name": "auto-long",
       "text": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
       "version": 6,
       "size": 41,
@@ -780,6 +780,6 @@
   ],
   "limits": {
     "maxBytes": 213,
-    "note": "surum 10, seviye M, byte modu"
+    "note": "version 10, level M, byte mode"
   }
 }

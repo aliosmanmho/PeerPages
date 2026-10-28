@@ -3,13 +3,15 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * E2E oncesi hazirlik: `npx playwright test` tek basina yeterli olsun.
+ * The preparation before e2e, so that `npx playwright test` is enough on
+ * its own.
  *
- *  1. 5 MB'lik test verisi uretilir (repoda tutulmuyor).
- *  2. Ajan binary'si derlenir (testler onu child process olarak baslatiyor).
+ *  1. The 5 MB test data is generated (it is not kept in the repo).
+ *  2. The agent binary is built (the tests start it as a child process).
  *
- * Web derlemesi BURADA DEGIL, webServer komutunda yapiliyor: Playwright
- * webServer'i globalSetup'tan once baslatiyor ve dist yoksa preview cikiyor.
+ * The web build happens NOT HERE but in the webServer command: Playwright
+ * starts webServer before globalSetup, and with no dist the preview
+ * exits.
  */
 
 const webDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -23,11 +25,11 @@ function run(cmd: string, args: string[], cwd: string, what: string): void {
     shell: process.platform === "win32",
   });
   if (res.status !== 0) {
-    throw new Error(`${what} basarisiz (${cmd} ${args.join(" ")})`);
+    throw new Error(`${what} failed (${cmd} ${args.join(" ")})`);
   }
 }
 
 export default function globalSetup(): void {
-  run("go", ["run", "./internal/testsite/gen"], agentDir, "test verisi uretimi");
-  run("go", ["build", "-o", BINARY, "."], agentDir, "ajan derlemesi");
+  run("go", ["run", "./internal/testsite/gen"], agentDir, "generating the test data");
+  run("go", ["build", "-o", BINARY, "."], agentDir, "building the agent");
 }

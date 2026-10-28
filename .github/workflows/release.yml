@@ -1,10 +1,10 @@
 name: Release
 
-# `v*` etiketi atilinca uc platform icin binary uretir.
+# On a `v*` tag it produces binaries for all three platforms.
 #
-# Etiket atmak YAYIN YAPMAZ: goreleaser release'i TASLAK olarak acar
-# (.goreleaser.yaml → release.draft). Notlari gozden gecirip elle
-# yayinlanir.
+# Pushing a tag DOES NOT PUBLISH: goreleaser opens the release as a DRAFT
+# (.goreleaser.yaml -> release.draft). The notes get reviewed and it is
+# published by hand.
 on:
   push:
     tags: ["v*"]
@@ -19,16 +19,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # goreleaser etiketler arasi degisiklik listesi icin tam gecmise
-          # ihtiyac duyar.
+          # goreleaser needs the full history for the change list
+          # between tags.
           fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version: "1.x"
           cache-dependency-path: agent/go.sum
-      # Yayindan once testler: etiket atilmis olsa bile kirmizi kod
-      # release'e gitmesin.
-      - name: Ajan testleri
+      # The tests before publishing: even with a tag pushed, red code
+      # must not reach a release.
+      - name: The agent tests
         working-directory: agent
         run: go test ./...
       - uses: goreleaser/goreleaser-action@v6

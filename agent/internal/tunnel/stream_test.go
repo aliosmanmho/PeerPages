@@ -9,12 +9,12 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/protocol"
 )
 
-// Uzun yasayan HTTP akislari (SSE) ayri butceden sayilir: bir SSE cevabi
-// MaxConcurrent slotunu omru boyunca tutsa, 64 SSE istegi tuneli normal
-// istekler icin kullanilamaz hale getirirdi.
+// Long-lived HTTP streams (SSE) count against a separate budget: if an
+// SSE response held its MaxConcurrent slot for its whole life, 64 SSE
+// requests would make the tunnel unusable for ordinary requests.
 
-// sseProxy /sse icin bitmeyen bir event-stream cevabi, digerleri icin kisa
-// bir metin doner.
+// sseProxy answers /sse with an endless event-stream response and
+// everything else with a short text.
 func sseProxy() proxyFunc {
 	return func(ctx context.Context, req protocol.Req, _ io.Reader, sink ResponseSink) {
 		if req.Path != "/sse" {
@@ -30,17 +30,17 @@ func sseProxy() proxyFunc {
 			"content-type":  "text/event-stream",
 			"cache-control": "no-store",
 		}); err != nil {
-			// Butce dolu: sink zaten abort yolladi.
+			// The budget is full: the sink already sent an abort.
 			return
 		}
 		_ = sink.Write([]byte("data: ilk\n\n"))
-		// Akis ziyaretci ya da oturum kapanana kadar surer.
+		// The stream runs until the visitor or the session closes.
 		<-ctx.Done()
 		_ = sink.Abort("upstream-canceled")
 	}
 }
 
-// waitRes bir id icin res ya da abort bekler.
+// waitRes waits for a res or an abort for an id.
 func (v *visitor) waitRes(t *testing.T, id uint32, d time.Duration) (*protocol.Res, string) {
 	t.Helper()
 	deadline := time.After(d)
@@ -59,15 +59,15 @@ func (v *visitor) waitRes(t *testing.T, id uint32, d time.Duration) (*protocol.R
 				}
 			}
 		case <-v.dataCh:
-			// Govde cerceveleri bu testte onemsiz.
+			// The body frames do not matter in this test.
 		case <-deadline:
-			t.Fatalf("id %d icin cevap %s icinde gelmedi", id, d)
+			t.Fatalf("no response for id %d arrived within %s", id, d)
 			return nil, ""
 		}
 	}
 }
 
-// Acik bir SSE akisi normal istek butcesini KILITLEMEMELI.
+// An open SSE stream must NOT LOCK UP the ordinary request budget.
 func TestSSEReleasesRequestBudget(t *testing.T) {
 	sess, v := connect(t, Config{
 		Proxy:         sseProxy(),
@@ -83,10 +83,11 @@ func TestSSEReleasesRequestBudget(t *testing.T) {
 	}
 	res, reason := v.waitRes(t, 1, 5*time.Second)
 	if res == nil {
-		t.Fatalf("SSE cevabi gelmedi: %s", reason)
+		t.Fatalf("no SSE response arrived: %s", reason)
 	}
 
-	// MaxConcurrent 1 ve SSE akisi hala acik; yine de normal istek gecmeli.
+	// MaxConcurrent is 1 and the SSE stream is still open; an ordinary
+	// request still has to get through.
 	if err := v.sendCtrl(protocol.Req{
 		ID: 2, Method: "GET", Path: "/x", Headers: map[string]string{}, HasBody: false,
 	}); err != nil {
@@ -94,12 +95,13 @@ func TestSSEReleasesRequestBudget(t *testing.T) {
 	}
 	res, reason = v.waitRes(t, 2, 5*time.Second)
 	if res == nil {
-		t.Fatalf("normal istek reddedildi: %s (SSE slotu birakmamis olabilir)", reason)
+		t.Fatalf("an ordinary request was refused: %s (the SSE may not have released its slot)", reason)
 	}
 }
 
-// Akis butcesi dolduysa SSE cevabi SEBEBIYLE reddedilmeli: sessizce askida
-// kalmak ya da 502 donmek yanlis teshise yol acar.
+// With the stream budget full the SSE response has to be refused WITH A
+// REASON: hanging silently, or answering 502, leads to a wrong
+// diagnosis.
 func TestSSEBudgetFullAborts(t *testing.T) {
 	sess, v := connect(t, Config{
 		Proxy:         sseProxy(),
@@ -114,7 +116,7 @@ func TestSSEBudgetFullAborts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res, reason := v.waitRes(t, 1, 5*time.Second); res == nil {
-		t.Fatalf("ilk SSE cevabi gelmedi: %s", reason)
+		t.Fatalf("the first SSE response did not arrive: %s", reason)
 	}
 
 	if err := v.sendCtrl(protocol.Req{
@@ -124,14 +126,14 @@ func TestSSEBudgetFullAborts(t *testing.T) {
 	}
 	res, reason := v.waitRes(t, 2, 5*time.Second)
 	if res != nil {
-		t.Fatalf("butce dolu olmasina ragmen ikinci SSE kabul edildi (status %d)", res.Status)
+		t.Fatalf("a second SSE was accepted although the budget is full (status %d)", res.Status)
 	}
 	if reason != "too-many-streams" {
-		t.Errorf("abort sebebi %q, beklenen %q", reason, "too-many-streams")
+		t.Errorf("the abort reason is %q, expected %q", reason, "too-many-streams")
 	}
 }
 
-// content-type ayristirmasi: parametreler ve bosluklar yok sayilmali.
+// content-type parsing: parameters and whitespace have to be ignored.
 func TestIsEventStream(t *testing.T) {
 	for _, tc := range []struct {
 		in   string
@@ -146,7 +148,7 @@ func TestIsEventStream(t *testing.T) {
 		{"application/json; x=text/event-stream", false},
 	} {
 		if got := isEventStream(tc.in); got != tc.want {
-			t.Errorf("isEventStream(%q) = %v, beklenen %v", tc.in, got, tc.want)
+			t.Errorf("isEventStream(%q) = %v, expected %v", tc.in, got, tc.want)
 		}
 	}
 }

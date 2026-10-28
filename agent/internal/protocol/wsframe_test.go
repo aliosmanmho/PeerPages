@@ -10,7 +10,7 @@ func wsCode(t *testing.T, err error) WSFrameErrorCode {
 	t.Helper()
 	var we *WSFrameError
 	if !errors.As(err, &we) {
-		t.Fatalf("WSFrameError beklenirdi, geldi: %T (%v)", err, err)
+		t.Fatalf("a WSFrameError was expected, got: %T (%v)", err, err)
 	}
 	return we.Code
 }
@@ -18,15 +18,15 @@ func wsCode(t *testing.T, err error) WSFrameErrorCode {
 func TestWSVectorsMatchConstants(t *testing.T) {
 	v := loadVectors(t)
 	if v.WSFrames.Limits.HeaderBytes != WSHeaderBytes {
-		t.Errorf("wsFrames.headerBytes: vektor %d, Go %d",
+		t.Errorf("wsFrames.headerBytes: vector %d, Go %d",
 			v.WSFrames.Limits.HeaderBytes, WSHeaderBytes)
 	}
 	if v.WSFrames.Limits.MaxPayload != MaxWSPayload {
-		t.Errorf("wsFrames.maxPayload: vektor %d, Go %d",
+		t.Errorf("wsFrames.maxPayload: vector %d, Go %d",
 			v.WSFrames.Limits.MaxPayload, MaxWSPayload)
 	}
 	if len(v.WSFrames.Valid) < 6 || len(v.WSFrames.DecodeInvalid) < 4 {
-		t.Fatalf("ws vektorleri beklenenden az: %d/%d",
+		t.Fatalf("fewer ws vectors than expected: %d/%d",
 			len(v.WSFrames.Valid), len(v.WSFrames.DecodeInvalid))
 	}
 }
@@ -40,10 +40,10 @@ func TestEncodeWSPayloadVectors(t *testing.T) {
 				Payload: mustHex(t, vec.PayloadHex),
 			})
 			if err != nil {
-				t.Fatalf("EncodeWSPayload hata: %v", err)
+				t.Fatalf("EncodeWSPayload error: %v", err)
 			}
 			if want := mustHex(t, vec.OutHex); !bytes.Equal(got, want) {
-				t.Errorf("cikti farkli:\n  geldi:    %x\n  beklenen: %x", got, want)
+				t.Errorf("the output differs:\n  got:      %x\n  expected: %x", got, want)
 			}
 		})
 	}
@@ -54,14 +54,14 @@ func TestDecodeWSPayloadVectors(t *testing.T) {
 		t.Run(vec.Name, func(t *testing.T) {
 			got, err := DecodeWSPayload(mustHex(t, vec.OutHex))
 			if err != nil {
-				t.Fatalf("DecodeWSPayload hata: %v", err)
+				t.Fatalf("DecodeWSPayload error: %v", err)
 			}
 			if got.Binary != vec.Binary || got.Fin != vec.Fin {
-				t.Errorf("bayraklar farkli: binary=%v fin=%v, beklenen binary=%v fin=%v",
+				t.Errorf("the flags differ: binary=%v fin=%v, expected binary=%v fin=%v",
 					got.Binary, got.Fin, vec.Binary, vec.Fin)
 			}
 			if want := mustHex(t, vec.PayloadHex); !bytes.Equal(got.Payload, want) {
-				t.Errorf("payload farkli:\n  geldi:    %x\n  beklenen: %x", got.Payload, want)
+				t.Errorf("the payload differs:\n  got:      %x\n  expected: %x", got.Payload, want)
 			}
 		})
 	}
@@ -72,33 +72,34 @@ func TestDecodeWSPayloadInvalidVectors(t *testing.T) {
 		t.Run(vec.Name, func(t *testing.T) {
 			chunk, err := DecodeWSPayload(mustHex(t, vec.Hex))
 			if err == nil {
-				t.Fatalf("hata beklenirdi (%s), donen: %#v", vec.Error, chunk)
+				t.Fatalf("an error was expected (%s), returned: %#v", vec.Error, chunk)
 			}
 			if code := wsCode(t, err); string(code) != vec.Error {
-				t.Errorf("hata kodu %q, beklenen %q (detay: %v)", code, vec.Error, err)
+				t.Errorf("error code %q, expected %q (detail: %v)", code, vec.Error, err)
 			}
 		})
 	}
 }
 
-// Ws parcasi dis cerceveye sigmak zorunda: 1 bayt bayrak + parca <= MaxPayload.
+// A ws chunk has to fit the outer frame: 1 flag byte + the chunk <=
+// MaxPayload.
 func TestWSPayloadFitsOuterFrame(t *testing.T) {
 	big := make([]byte, MaxWSPayload)
 	out, err := EncodeWSPayload(WSChunk{Fin: true, Payload: big})
 	if err != nil {
-		t.Fatalf("sinirdaki parca kodlanamadi: %v", err)
+		t.Fatalf("the chunk at the limit could not be encoded: %v", err)
 	}
 	if len(out) != MaxPayload {
-		t.Errorf("sinirdaki ws payload %d bayt, beklenen %d", len(out), MaxPayload)
+		t.Errorf("the ws payload at the limit is %d bytes, expected %d", len(out), MaxPayload)
 	}
 	if _, err := EncodeFrame(1, 0, out); err != nil {
-		t.Errorf("sinirdaki ws payload dis cerceveye sigmadi: %v", err)
+		t.Errorf("the ws payload at the limit did not fit the outer frame: %v", err)
 	}
 
 	if _, err := EncodeWSPayload(WSChunk{Fin: true, Payload: make([]byte, MaxWSPayload+1)}); err == nil {
-		t.Error("sinir asimi kabul edildi")
+		t.Error("an oversize payload was accepted")
 	} else if code := wsCode(t, err); code != CodeWSPayloadTooLarge {
-		t.Errorf("hata kodu %q, beklenen %q", code, CodeWSPayloadTooLarge)
+		t.Errorf("error code %q, expected %q", code, CodeWSPayloadTooLarge)
 	}
 }
 
@@ -122,8 +123,9 @@ func TestAppendWSPayloadMatchesEncode(t *testing.T) {
 	}
 }
 
-// DecodeWSPayload kopya uretmez: donen dilim verilen tamponun gorunumudur.
-// Bu bilincli (DecodeFrame zaten kopyaliyor) ve sozlesmenin parcasi.
+// DecodeWSPayload makes no copy: the returned slice is a view of the
+// given buffer. That is deliberate (DecodeFrame copies already) and part
+// of the contract.
 func TestDecodeWSPayloadSharesBuffer(t *testing.T) {
 	buf := []byte{WSFlagFin, 'a', 'b'}
 	chunk, err := DecodeWSPayload(buf)
@@ -132,6 +134,6 @@ func TestDecodeWSPayloadSharesBuffer(t *testing.T) {
 	}
 	buf[1] = 'z'
 	if chunk.Payload[0] != 'z' {
-		t.Error("payload kopyalanmis: sozlesme degismis olabilir, wsframe.go yorumuna bak")
+		t.Error("the payload was copied: the contract may have changed, see the comment in wsframe.go")
 	}
 }

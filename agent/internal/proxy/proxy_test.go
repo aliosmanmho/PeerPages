@@ -18,7 +18,8 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
 
-// fakeSink tunnel.ResponseSink'in test uygulamasi; WebRTC gerekmez.
+// fakeSink is the test implementation of tunnel.ResponseSink; no WebRTC
+// needed.
 type fakeSink struct {
 	mu      sync.Mutex
 	status  int
@@ -33,7 +34,7 @@ func (f *fakeSink) SendRes(status int, headers map[string]string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.resSent {
-		return errors.New("res zaten yollandi")
+		return errors.New("res was already sent")
 	}
 	f.resSent = true
 	f.status = status
@@ -45,7 +46,7 @@ func (f *fakeSink) Write(p []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.resSent {
-		return errors.New("res yollanmadan govde")
+		return errors.New("a body with no res sent")
 	}
 	_, err := f.body.Write(p)
 	return err
@@ -79,7 +80,7 @@ func newProxyFor(t *testing.T, serverURL string) *Proxy {
 	t.Helper()
 	targets, err := target.Parse([]string{serverURL})
 	if err != nil {
-		t.Fatalf("hedef ayristirilamadi: %v", err)
+		t.Fatalf("the target could not be parsed: %v", err)
 	}
 	p, err := New(Config{
 		Targets:    targets,
@@ -89,7 +90,7 @@ func newProxyFor(t *testing.T, serverURL string) *Proxy {
 		Logger:     quietLogger(),
 	})
 	if err != nil {
-		t.Fatalf("proxy kurulamadi: %v", err)
+		t.Fatalf("the proxy could not be built: %v", err)
 	}
 	return p
 }
@@ -101,21 +102,21 @@ func TestNewValidation(t *testing.T) {
 	}
 	ok := Config{Targets: targets, TargetName: "default", MaxBody: 1, Logger: quietLogger()}
 	if _, err := New(ok); err != nil {
-		t.Fatalf("gecerli yapilandirma reddedildi: %v", err)
+		t.Fatalf("a valid configuration was refused: %v", err)
 	}
 
 	bad := map[string]func(*Config){
-		"hedef nil":        func(c *Config) { c.Targets = nil },
-		"hedef adi bos":    func(c *Config) { c.TargetName = "" },
-		"bilinmeyen hedef": func(c *Config) { c.TargetName = "yok" },
-		"maxbody sifir":    func(c *Config) { c.MaxBody = 0 },
-		"logger nil":       func(c *Config) { c.Logger = nil },
+		"a nil target":             func(c *Config) { c.Targets = nil },
+		"the target name is empty": func(c *Config) { c.TargetName = "" },
+		"an unknown target":        func(c *Config) { c.TargetName = "missing" },
+		"maxbody sifir":            func(c *Config) { c.MaxBody = 0 },
+		"logger nil":               func(c *Config) { c.Logger = nil },
 	}
 	for name, mutate := range bad {
 		c := ok
 		mutate(&c)
 		if _, err := New(c); err == nil {
-			t.Errorf("%s: reddedilmeliydi", name)
+			t.Errorf("%s: should have been refused", name)
 		}
 	}
 }
@@ -123,13 +124,13 @@ func TestNewValidation(t *testing.T) {
 func TestServeGET(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/merhaba" {
-			t.Errorf("hedefe giden yol: %q", r.URL.Path)
+			t.Errorf("the path that reached the target: %q", r.URL.Path)
 		}
 		if r.URL.RawQuery != "x=1" {
 			t.Errorf("query: %q", r.URL.RawQuery)
 		}
 		w.Header().Set("content-type", "text/plain")
-		w.Header().Set("x-ozel", "deger")
+		w.Header().Set("x-ozel", "value")
 		_, _ = io.WriteString(w, "merhaba dunya")
 	}))
 	defer srv.Close()
@@ -148,20 +149,21 @@ func TestServeGET(t *testing.T) {
 		t.Errorf("status %d", status)
 	}
 	if string(body) != "merhaba dunya" {
-		t.Errorf("govde: %q", body)
+		t.Errorf("body: %q", body)
 	}
 	if !ended {
-		t.Error("end gelmedi")
+		t.Error("no end arrived")
 	}
 	if headers["content-type"] != "text/plain" {
 		t.Errorf("content-type: %q", headers["content-type"])
 	}
-	if headers["x-ozel"] != "deger" {
+	if headers["x-ozel"] != "value" {
 		t.Errorf("x-ozel: %q", headers["x-ozel"])
 	}
 }
 
-// Host basligi hedeften yazilir: ziyaretcinin origin'i yerel sunucuya sizmaz.
+// The Host header is written from the target: the visitor's origin does
+// not leak to the local server.
 func TestServeRewritesHost(t *testing.T) {
 	var gotHost string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -177,10 +179,10 @@ func TestServeRewritesHost(t *testing.T) {
 	}, nil, &fakeSink{})
 
 	if strings.Contains(gotHost, "github.io") {
-		t.Errorf("ziyaretcinin host'u hedefe sizdi: %q", gotHost)
+		t.Errorf("the visitor's host leaked to the target: %q", gotHost)
 	}
 	if !strings.Contains(gotHost, "127.0.0.1") && !strings.Contains(gotHost, "localhost") {
-		t.Errorf("host hedeften yazilmaliydi, geldi: %q", gotHost)
+		t.Errorf("the host should have been written from the target, got: %q", gotHost)
 	}
 }
 
@@ -189,10 +191,10 @@ func TestServePOSTWithBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Errorf("govde okunamadi: %v", err)
+			t.Errorf("the body could not be read: %v", err)
 		}
 		if string(got) != want {
-			t.Errorf("govde farkli: %d bayt, beklenen %d", len(got), len(want))
+			t.Errorf("the body differs: %d bytes, expected %d", len(got), len(want))
 		}
 		if r.Method != "POST" {
 			t.Errorf("method: %s", r.Method)
@@ -216,11 +218,12 @@ func TestServePOSTWithBody(t *testing.T) {
 		t.Errorf("status %d", status)
 	}
 	if !ended {
-		t.Error("end gelmedi")
+		t.Error("no end arrived")
 	}
 }
 
-// En kritik test: ziyaretci path uzerinden baska bir hosta istek attirabilmemeli.
+// The most critical test: a visitor must not be able to make a request
+// to another host through the path.
 func TestServeRejectsSSRFPaths(t *testing.T) {
 	var reached bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -247,15 +250,16 @@ func TestServeRejectsSSRFPaths(t *testing.T) {
 
 		status, _, _, _, _ := sink.snapshot()
 		if status != http.StatusBadRequest {
-			t.Errorf("path %q: status %d, 400 beklenirdi", path, status)
+			t.Errorf("path %q: status %d, 400 was expected", path, status)
 		}
 		if reached {
-			t.Errorf("path %q: hedefe istek gitti, gitmemeliydi", path)
+			t.Errorf("path %q: a request reached the target and should not have", path)
 		}
 	}
 }
 
-// Yonlendirmeler izlenmez; Location goreli yola cevrilir.
+// Redirects are not followed; Location is rewritten to a relative
+// path.
 func TestServeRewritesLocation(t *testing.T) {
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -276,14 +280,14 @@ func TestServeRewritesLocation(t *testing.T) {
 
 	status, headers, _, _, _ := sink.snapshot()
 	if status != http.StatusFound {
-		t.Errorf("yonlendirme izlenmemeliydi, status %d", status)
+		t.Errorf("the redirect should not have been followed, status %d", status)
 	}
 	if headers["location"] != "/varis?x=1" {
-		t.Errorf("location yeniden yazilmali, geldi: %q", headers["location"])
+		t.Errorf("location has to be rewritten, got: %q", headers["location"])
 	}
 }
 
-// Hedef kapaliysa 502; yerel hata metni sizmaz.
+// With the target down it is 502, and no local error text leaks.
 func TestServeUpstreamDown(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	url := srv.URL
@@ -308,17 +312,17 @@ func TestServeUpstreamDown(t *testing.T) {
 
 	status, _, body, ended, _ := sink.snapshot()
 	if status != http.StatusBadGateway {
-		t.Errorf("status %d, 502 beklenirdi", status)
+		t.Errorf("status %d, 502 was expected", status)
 	}
 	if !ended {
-		t.Error("end gelmedi")
+		t.Error("no end arrived")
 	}
 	if strings.Contains(string(body), url) {
-		t.Errorf("hedef URL'si ziyaretciye sizdi: %q", body)
+		t.Errorf("the target URL leaked to the visitor: %q", body)
 	}
 }
 
-// Cevap govdesi akis halinde gider: tam govde beklenmez.
+// The response body streams: the full body is never awaited.
 func TestServeStreamsResponse(t *testing.T) {
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -329,10 +333,10 @@ func TestServeStreamsResponse(t *testing.T) {
 			t.Error("flush desteklenmiyor")
 			return
 		}
-		_, _ = io.WriteString(w, "ilk-parca")
+		_, _ = io.WriteString(w, "first-chunk")
 		flusher.Flush()
 		<-release
-		_, _ = io.WriteString(w, "ikinci-parca")
+		_, _ = io.WriteString(w, "second-chunk")
 	}))
 	defer srv.Close()
 
@@ -347,37 +351,38 @@ func TestServeStreamsResponse(t *testing.T) {
 		}, nil, sink)
 	}()
 
-	// Ilk parca, hedef cevabi bitirmeden gelmeli.
+	// The first chunk has to arrive before the target finishes its
+	// response.
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, _, body, _, _ := sink.snapshot(); strings.Contains(string(body), "ilk-parca") {
+		if _, _, body, _, _ := sink.snapshot(); strings.Contains(string(body), "first-chunk") {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if _, _, body, ended, _ := sink.snapshot(); !strings.Contains(string(body), "ilk-parca") {
-		t.Fatalf("ilk parca akmadi (govde: %q, ended=%v)", body, ended)
+	if _, _, body, ended, _ := sink.snapshot(); !strings.Contains(string(body), "first-chunk") {
+		t.Fatalf("the first chunk did not flow (body: %q, ended=%v)", body, ended)
 	} else if ended {
-		t.Error("hedef cevabi bitmeden end gelmemeliydi")
+		t.Error("end should not have arrived before the target's response finished")
 	}
 
 	close(release)
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
-		t.Fatal("Serve bitmedi")
+		t.Fatal("Serve did not finish")
 	}
 
 	_, _, body, ended, _ := sink.snapshot()
-	if string(body) != "ilk-parcaikinci-parca" {
-		t.Errorf("govde: %q", body)
+	if string(body) != "first-chunksecond-chunk" {
+		t.Errorf("body: %q", body)
 	}
 	if !ended {
-		t.Error("end gelmedi")
+		t.Error("no end arrived")
 	}
 }
 
-// Govde tavani: ajan en fazla MaxBody bayt iletir.
+// The body limit: the agent forwards at most MaxBody bytes.
 func TestServeLimitsRequestBody(t *testing.T) {
 	var got int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -404,7 +409,7 @@ func TestServeLimitsRequestBody(t *testing.T) {
 	}, strings.NewReader(strings.Repeat("a", 1000)), &fakeSink{})
 
 	if got > 100 {
-		t.Errorf("tavan asildi: hedefe %d bayt gitti, sinir 100", got)
+		t.Errorf("the limit was passed: %d bytes reached the target, the limit is 100", got)
 	}
 }
 
@@ -429,9 +434,9 @@ func TestServeContextCancel(t *testing.T) {
 
 	_, _, _, _, abort := sink.snapshot()
 	if abort == "" {
-		t.Error("iptal halinde abort beklenirdi")
+		t.Error("an abort was expected on cancellation")
 	}
 }
 
-// Derleme zamani kontrolu: Proxy gercekten tunnel.Proxy'yi uyguluyor.
+// A compile-time check: Proxy really does implement tunnel.Proxy.
 var _ tunnel.Proxy = (*Proxy)(nil)

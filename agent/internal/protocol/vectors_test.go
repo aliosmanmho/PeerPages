@@ -9,7 +9,8 @@ import (
 	"testing"
 )
 
-// vectorsPath — TS tarafi (web/src/protocol/*.test.ts) AYNI dosyayi okur.
+// vectorsPath — the TS side (web/src/protocol/*.test.ts) reads the SAME
+// file.
 const vectorsPath = "../../../protocol/testvectors.json"
 
 type pattern struct {
@@ -115,26 +116,26 @@ func loadVectors(t *testing.T) *testVectors {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Clean(vectorsPath))
 	if err != nil {
-		t.Fatalf("test vektorleri okunamadi (%s): %v", vectorsPath, err)
+		t.Fatalf("the test vectors could not be read (%s): %v", vectorsPath, err)
 	}
 	var v testVectors
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&v); err != nil {
-		t.Fatalf("test vektorleri ayristirilamadi: %v", err)
+		t.Fatalf("the test vectors could not be parsed: %v", err)
 	}
 	return &v
 }
 
-// buildPattern vektordeki uretim tarifini bayta cevirir. TS tarafindaki
-// buildPattern ile ayni kurallar.
+// buildPattern turns a vector's generation recipe into bytes. The same
+// rules as buildPattern on the TS side.
 func buildPattern(t *testing.T, p pattern) []byte {
 	t.Helper()
 	out := make([]byte, p.Len)
 	switch p.Kind {
 	case "repeat":
 		if p.Byte == nil {
-			t.Fatalf("repeat deseni icin byte gerekli")
+			t.Fatalf("the repeat pattern requires byte")
 		}
 		for i := range out {
 			out[i] = byte(*p.Byte)
@@ -144,7 +145,7 @@ func buildPattern(t *testing.T, p pattern) []byte {
 			out[i] = byte(i % 256)
 		}
 	default:
-		t.Fatalf("bilinmeyen desen: %q", p.Kind)
+		t.Fatalf("unknown pattern: %q", p.Kind)
 	}
 	return out
 }
@@ -153,7 +154,7 @@ func mustHex(t *testing.T, s string) []byte {
 	t.Helper()
 	b, err := hex.DecodeString(s)
 	if err != nil {
-		t.Fatalf("hex cozulemedi (%q): %v", s, err)
+		t.Fatalf("the hex could not be decoded (%q): %v", s, err)
 	}
 	return b
 }

@@ -22,11 +22,11 @@ func TestConfigValidate(t *testing.T) {
 		Logger:        quietLogger(),
 	}
 	if err := ok.validate(); err != nil {
-		t.Fatalf("gecerli yapilandirma reddedildi: %v", err)
+		t.Fatalf("a valid configuration was refused: %v", err)
 	}
 
 	bad := map[string]func(*Config){
-		"hedef yok":        func(c *Config) { c.Targets = nil },
+		"no target":        func(c *Config) { c.Targets = nil },
 		"concurrent sifir": func(c *Config) { c.MaxConcurrent = 0 },
 		"maxbody sifir":    func(c *Config) { c.MaxBody = 0 },
 		"proxy nil":        func(c *Config) { c.Proxy = nil },
@@ -36,7 +36,7 @@ func TestConfigValidate(t *testing.T) {
 		c := ok
 		mutate(&c)
 		if err := c.validate(); err == nil {
-			t.Errorf("%s: reddedilmeliydi", name)
+			t.Errorf("%s: should have been refused", name)
 		}
 	}
 
@@ -44,7 +44,7 @@ func TestConfigValidate(t *testing.T) {
 	c := ok
 	c.ICEServers = nil
 	if err := c.validate(); err != nil {
-		t.Errorf("bos ICE listesi kabul edilmeliydi: %v", err)
+		t.Errorf("an empty ICE list should have been accepted: %v", err)
 	}
 }
 
@@ -59,7 +59,7 @@ func TestHelloOnConnect(t *testing.T) {
 	msg := v.nextCtrl(t, settle)
 	hello, ok := msg.(protocol.Hello)
 	if !ok {
-		t.Fatalf("ilk mesaj hello olmali, geldi: %s", msg.Type())
+		t.Fatalf("the first message has to be hello, got: %s", msg.Type())
 	}
 	if hello.V != protocol.Version {
 		t.Errorf("hello.v = %d", hello.V)
@@ -77,14 +77,14 @@ func TestPingPong(t *testing.T) {
 		Proxy: proxyFunc(func(context.Context, protocol.Req, io.Reader, ResponseSink) {}),
 	})
 	if _, ok := v.nextCtrl(t, settle).(protocol.Hello); !ok {
-		t.Fatal("hello beklenirdi")
+		t.Fatal("a hello was expected")
 	}
 
 	if err := v.sendCtrl(protocol.Ping{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := v.nextCtrl(t, settle).(protocol.Pong); !ok {
-		t.Error("ping'e pong gelmeliydi")
+		t.Error("a pong should have answered the ping")
 	}
 }
 
@@ -116,23 +116,23 @@ func TestRequestResponseRoundtrip(t *testing.T) {
 
 	got := v.collect(t, 1, settle)
 	if got.aborted != "" {
-		t.Fatalf("abort geldi: %s", got.aborted)
+		t.Fatalf("an abort arrived: %s", got.aborted)
 	}
 	if got.res == nil || got.res.Status != 200 {
-		t.Fatalf("res yanlis: %#v", got.res)
+		t.Fatalf("the res is wrong: %#v", got.res)
 	}
 	if got.res.Headers["content-type"] != "text/plain" {
 		t.Errorf("content-type = %q", got.res.Headers["content-type"])
 	}
 	if !got.ended {
-		t.Error("end gelmedi")
+		t.Error("no end arrived")
 	}
 	if !bytes.Equal(got.body, want) {
-		t.Errorf("govde farkli: %d bayt geldi, %d beklenen", len(got.body), len(want))
+		t.Errorf("the body differs: %d bytes arrived, %d expected", len(got.body), len(want))
 	}
 	// Kanallar arasinda siralama yok: cerceveler end'den sonra da gelebilir.
 	// Testin gecmesi, alicinin frames/len sayaclarini dogru kullandigini gosterir.
-	t.Logf("end'den sonra gelen cerceve sayisi: %d", got.lateFrames)
+	t.Logf("frames that arrived after end: %d", got.lateFrames)
 }
 
 // Istek govdesi: ziyaretci data cerceveleri yollar, ajan tarafinda okunur.
@@ -145,7 +145,7 @@ func TestRequestBodyStreaming(t *testing.T) {
 		Proxy: proxyFunc(func(_ context.Context, _ protocol.Req, r io.Reader, sink ResponseSink) {
 			b, err := io.ReadAll(r)
 			if err != nil {
-				t.Errorf("govde okunamadi: %v", err)
+				t.Errorf("the body could not be read: %v", err)
 			}
 			gotBody <- b
 			_ = sink.SendRes(201, map[string]string{})
@@ -176,15 +176,15 @@ func TestRequestBodyStreaming(t *testing.T) {
 	select {
 	case got := <-gotBody:
 		if !bytes.Equal(got, body) {
-			t.Errorf("govde farkli: %d bayt, beklenen %d", len(got), len(body))
+			t.Errorf("the body differs: %d bytes, expected %d", len(got), len(body))
 		}
 	case <-time.After(settle):
-		t.Fatal("govde zamaninda gelmedi")
+		t.Fatal("the body did not arrive in time")
 	}
 
 	res := v.collect(t, 5, settle)
 	if res.res == nil || res.res.Status != 201 {
-		t.Errorf("res yanlis: %#v", res.res)
+		t.Errorf("the res is wrong: %#v", res.res)
 	}
 }
 
@@ -194,7 +194,7 @@ func TestRequestBodyTooLarge(t *testing.T) {
 		MaxBody: 1024,
 		Proxy: proxyFunc(func(_ context.Context, _ protocol.Req, r io.Reader, sink ResponseSink) {
 			if _, err := io.ReadAll(r); err == nil {
-				t.Error("govde okumasi hata vermeliydi")
+				t.Error("reading the body should have returned an error")
 			}
 			_ = sink.Abort("body-too-large")
 		}),
@@ -213,7 +213,7 @@ func TestRequestBodyTooLarge(t *testing.T) {
 
 	got := v.collect(t, 9, settle)
 	if got.aborted == "" {
-		t.Error("abort beklenirdi")
+		t.Error("an abort was expected")
 	}
 }
 
@@ -246,12 +246,12 @@ func TestBadSeqAborts(t *testing.T) {
 		case m := <-v.ctrlCh:
 			if ab, ok := m.(protocol.Abort); ok && ab.ID == 11 {
 				if ab.Reason != "bad-seq" {
-					t.Errorf("abort nedeni %q, beklenen bad-seq", ab.Reason)
+					t.Errorf("the abort reason is %q, expected bad-seq", ab.Reason)
 				}
 				return
 			}
 		case <-deadline:
-			t.Fatal("bad-seq icin abort gelmedi")
+			t.Fatal("no abort arrived for bad-seq")
 		}
 	}
 }
@@ -286,12 +286,12 @@ func TestDuplicateIDAborts(t *testing.T) {
 		case m := <-v.ctrlCh:
 			if ab, ok := m.(protocol.Abort); ok && ab.ID == 7 {
 				if ab.Reason != "duplicate-id" {
-					t.Errorf("abort nedeni %q", ab.Reason)
+					t.Errorf("the abort reason is %q", ab.Reason)
 				}
 				return
 			}
 		case <-deadline:
-			t.Fatal("duplicate-id icin abort gelmedi")
+			t.Fatal("no abort arrived for duplicate-id")
 		}
 	}
 }
@@ -326,12 +326,12 @@ func TestMaxConcurrent(t *testing.T) {
 		case m := <-v.ctrlCh:
 			if ab, ok := m.(protocol.Abort); ok && ab.ID == 2 {
 				if ab.Reason != "too-many-requests" {
-					t.Errorf("abort nedeni %q", ab.Reason)
+					t.Errorf("the abort reason is %q", ab.Reason)
 				}
 				return
 			}
 		case <-deadline:
-			t.Fatal("too-many-requests icin abort gelmedi")
+			t.Fatal("no abort arrived for too-many-requests")
 		}
 	}
 }
@@ -351,7 +351,7 @@ func TestProxyThatDoesNotCloseGetsAborted(t *testing.T) {
 	}
 	got := v.collect(t, 3, settle)
 	if got.aborted != "agent-did-not-close" {
-		t.Errorf("abort nedeni %q, beklenen agent-did-not-close", got.aborted)
+		t.Errorf("the abort reason is %q, expected agent-did-not-close", got.aborted)
 	}
 }
 
@@ -380,11 +380,11 @@ func TestGarbageCtrlDoesNotKillSession(t *testing.T) {
 	}
 	got := v.collect(t, 4, settle)
 	if got.res == nil || got.res.Status != 204 {
-		t.Errorf("oturum bozuldu: %#v", got)
+		t.Errorf("the session broke: %#v", got)
 	}
 	select {
 	case <-sess.Done():
-		t.Error("oturum kapanmamaliydi")
+		t.Error("the session should not have closed")
 	default:
 	}
 }
@@ -399,7 +399,7 @@ func waitForRes(t *testing.T, v *visitor, id uint32) {
 				return
 			}
 		case <-deadline:
-			t.Fatalf("istek %d icin res gelmedi", id)
+			t.Fatalf("no res arrived for request %d", id)
 		}
 	}
 }
@@ -415,7 +415,7 @@ func TestFramesBeforeReqAreBuffered(t *testing.T) {
 		Proxy: proxyFunc(func(_ context.Context, _ protocol.Req, r io.Reader, sink ResponseSink) {
 			b, err := io.ReadAll(r)
 			if err != nil {
-				t.Errorf("govde okunamadi: %v", err)
+				t.Errorf("the body could not be read: %v", err)
 			}
 			gotBody <- b
 			_ = sink.SendRes(200, map[string]string{})
@@ -450,10 +450,10 @@ func TestFramesBeforeReqAreBuffered(t *testing.T) {
 	select {
 	case got := <-gotBody:
 		if !bytes.Equal(got, body) {
-			t.Errorf("erken cerceveler kaybedildi: %d bayt geldi, %d beklenen", len(got), len(body))
+			t.Errorf("the early frames were lost: %d bytes arrived, %d expected", len(got), len(body))
 		}
 	case <-time.After(settle):
-		t.Fatal("govde gelmedi: erken cerceveler tamponlanmiyor")
+		t.Fatal("no body arrived: the early frames are not being buffered")
 	}
 }
 
@@ -490,10 +490,10 @@ func TestEndBeforeFramesWaitsForCounters(t *testing.T) {
 	select {
 	case got := <-gotBody:
 		if !bytes.Equal(got, body) {
-			t.Errorf("end erken kapatti: %q geldi, %q beklenen", got, body)
+			t.Errorf("end closed early: got %q, expected %q", got, body)
 		}
 	case <-time.After(settle):
-		t.Fatal("govde gelmedi")
+		t.Fatal("no body arrived")
 	}
 }
 
@@ -502,7 +502,7 @@ func TestBodyLengthMismatchAborts(t *testing.T) {
 	_, v := connect(t, Config{
 		Proxy: proxyFunc(func(_ context.Context, _ protocol.Req, r io.Reader, sink ResponseSink) {
 			if _, err := io.ReadAll(r); err == nil {
-				t.Error("govde okumasi hata vermeliydi")
+				t.Error("reading the body should have returned an error")
 			}
 			_ = sink.Abort("mismatch")
 		}),
@@ -528,12 +528,12 @@ func TestBodyLengthMismatchAborts(t *testing.T) {
 		case m := <-v.ctrlCh:
 			if ab, ok := m.(protocol.Abort); ok && ab.ID == 25 {
 				if ab.Reason != "body-length-mismatch" && ab.Reason != "mismatch" {
-					t.Errorf("abort nedeni %q", ab.Reason)
+					t.Errorf("the abort reason is %q", ab.Reason)
 				}
 				return
 			}
 		case <-deadline:
-			t.Fatal("uzunluk uyusmazligi icin abort gelmedi")
+			t.Fatal("no abort arrived for the length mismatch")
 		}
 	}
 }

@@ -276,7 +276,7 @@ func (p *Provider) Servers() ([]webrtc.ICEServer, webrtc.ICETransportPolicy) {
 // API error.
 func (p *Provider) Run(ctx context.Context) {
 	if p.opts.KeyID == "" {
-		return // statik yapilandirma: yenilenecek bir sey yok
+		return // static configuration: there is nothing to refresh
 	}
 
 	for {

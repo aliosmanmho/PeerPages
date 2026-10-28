@@ -50,6 +50,6 @@ func newFakeTurnCmd() *cobra.Command {
 	fl := cmd.Flags()
 	fl.IntVar(&port, "port", 0, "the port to listen on (0 = pick a free one)")
 	fl.StringVar(&user, "user", "peerpages", "the accepted user name")
-	fl.StringVar(&pass, "pass", "test-sifre", "the accepted password")
+	fl.StringVar(&pass, "pass", "test-password", "the accepted password")
 	return cmd
 }

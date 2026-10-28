@@ -24,30 +24,31 @@ func TestKeyCreatesAndShows(t *testing.T) {
 
 	out, _, err := runKeyCmd(t, "--path", path, "--app-url", "https://ornek.github.io/PeerPages/")
 	if err != nil {
-		t.Fatalf("key hata: %v\n%s", err, out)
+		t.Fatalf("key error: %v\n%s", err, out)
 	}
 
 	if !strings.Contains(out, "npub1") {
-		t.Errorf("npub basilmaliydi:\n%s", out)
+		t.Errorf("the npub should have been printed:\n%s", out)
 	}
 	if !strings.Contains(out, "https://ornek.github.io/PeerPages/#npub1") {
-		t.Errorf("ziyaretci URL'si basilmaliydi:\n%s", out)
+		t.Errorf("the visitor URL should have been printed:\n%s", out)
 	}
 	if !strings.Contains(out, "short form") {
-		t.Errorf("kisa gosterim basilmaliydi:\n%s", out)
+		t.Errorf("the short form should have been printed:\n%s", out)
 	}
-	// Gizli anahtar istenmediyse EKRANA GELMEMELI.
+	// Unless it was asked for, the secret key MUST NOT REACH THE
+	// SCREEN.
 	if strings.Contains(out, "nsec1") {
-		t.Errorf("gizli anahtar istenmeden basilmamali:\n%s", out)
+		t.Errorf("the secret key must not be printed unasked:\n%s", out)
 	}
 
 	if _, serr := os.Stat(path); serr != nil {
-		t.Errorf("anahtar dosyasi olusmaliydi: %v", serr)
+		t.Errorf("the key file should have been created: %v", serr)
 	}
 }
 
-// Ayni dizinde iki kez cagirmak ayni peer-id'yi vermeli: aksi halde
-// kullanicinin paylastigi URL sessizce gecersiz olur.
+// Two calls in the same directory have to give the same peer-id:
+// otherwise the URL the user shared quietly stops working.
 func TestKeyIsStableAcrossRuns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "key")
 
@@ -63,10 +64,10 @@ func TestKeyIsStableAcrossRuns(t *testing.T) {
 	npub1 := extractNpub(t, first)
 	npub2 := extractNpub(t, second)
 	if npub1 != npub2 {
-		t.Errorf("peer-id degisti:\n  %s\n  %s", npub1, npub2)
+		t.Errorf("the peer-id changed:\n  %s\n  %s", npub1, npub2)
 	}
 	if strings.Contains(second, "was created") {
-		t.Errorf("ikinci cagri var olani okumaliydi:\n%s", second)
+		t.Errorf("the second call should have read the existing one:\n%s", second)
 	}
 }
 
@@ -78,14 +79,14 @@ func TestKeyRevealSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "nsec1") {
-		t.Errorf("--reveal-secret ile gizli anahtar basilmaliydi:\n%s", out)
+		t.Errorf("--reveal-secret should have printed the secret key:\n%s", out)
 	}
 	if !strings.Contains(out, "share it with nobody") {
-		t.Errorf("uyari metni olmaliydi:\n%s", out)
+		t.Errorf("there should have been a warning:\n%s", out)
 	}
 }
 
-// --new var olan anahtari EZMEMELI ve nedenini soylemeli.
+// --new MUST NOT clobber an existing key, and has to say why.
 func TestKeyNewRefusesToOverwrite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "key")
 
@@ -97,10 +98,10 @@ func TestKeyNewRefusesToOverwrite(t *testing.T) {
 
 	_, _, err = runKeyCmd(t, "--path", path, "--new")
 	if err == nil {
-		t.Fatal("--new var olan dosyayi ezmemeliydi")
+		t.Fatal("--new should not have clobbered the existing file")
 	}
 	if !strings.Contains(err.Error(), path) {
-		t.Errorf("hata mesaji dosya yolunu icermeli: %v", err)
+		t.Errorf("the error message has to contain the file path: %v", err)
 	}
 
 	after, _, err := runKeyCmd(t, "--path", path)
@@ -108,7 +109,7 @@ func TestKeyNewRefusesToOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	if extractNpub(t, after) != original {
-		t.Error("anahtar korunmaliydi")
+		t.Error("the key should have been preserved")
 	}
 }
 
@@ -117,21 +118,21 @@ func TestKeyNewCreatesWhenMissing(t *testing.T) {
 
 	out, _, err := runKeyCmd(t, "--path", path, "--new")
 	if err != nil {
-		t.Fatalf("hata: %v\n%s", err, out)
+		t.Fatalf("error: %v\n%s", err, out)
 	}
 	if !strings.Contains(out, "a new key was created") {
-		t.Errorf("olusturma mesaji beklenirdi:\n%s", out)
+		t.Errorf("a creation message was expected:\n%s", out)
 	}
 }
 
 func TestKeyRejectsCorruptFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "key")
-	if err := os.WriteFile(path, []byte("bozuk\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("corrupt\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, _, err := runKeyCmd(t, "--path", path); err == nil {
-		t.Error("bozuk anahtar dosyasi hata vermeliydi")
+		t.Error("a corrupt key file should have returned an error")
 	}
 }
 
@@ -142,13 +143,13 @@ func extractNpub(t *testing.T, out string) string {
 			return strings.TrimSpace(line[idx:])
 		}
 	}
-	t.Fatalf("ciktida peer-id bulunamadi:\n%s", out)
+	t.Fatalf("no peer-id was found in the output:\n%s", out)
 	return ""
 }
 
-// `peerpages version` surum, platform ve Go surumunu basmali: bir hata
-// raporunda "hangi binary" sorusunun cevabi --version'in tek satiriyla
-// verilemiyor.
+// `peerpages version` has to print the version, the platform and the Go
+// version: in a bug report the question "which binary" cannot be answered
+// by the single line --version gives.
 func TestVersionCmd(t *testing.T) {
 	root := NewRootCmd("v9.9.9")
 	var out bytes.Buffer
@@ -157,13 +158,13 @@ func TestVersionCmd(t *testing.T) {
 	root.SetArgs([]string{"version"})
 
 	if err := root.Execute(); err != nil {
-		t.Fatalf("version komutu hata verdi: %v", err)
+		t.Fatalf("the version command returned an error: %v", err)
 	}
 
 	got := out.String()
 	for _, want := range []string{"peerpages v9.9.9", "platform:", "go      :"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("cikti %q icermiyor:\n%s", want, got)
+			t.Errorf("the output does not contain %q:\n%s", want, got)
 		}
 	}
 }

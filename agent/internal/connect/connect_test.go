@@ -20,13 +20,13 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
 
-// Bu dosya ajanin NOSTR YOLUNU uctan uca test eder: gercek bir (sahte) relay,
-// gercek NIP-44 sifreleme, gercek WebRTC. Tarayici yok — ziyaretci tarafini
-// pion ile taklit ediyoruz.
+// This file tests the agent's NOSTR PATH end to end: a real (fake) relay,
+// real NIP-44 encryption, real WebRTC. No browser — we imitate the
+// visitor side with pion.
 //
-// Gercek internet relay'leri yerine sahte relay kullaniliyor: akisin kendisi
-// deterministik dogrulanmali. Gercek relay'ler `peerpages doctor` ile ayrica
-// olculuyor.
+// A fake relay is used instead of real internet relays: the flow itself
+// has to be verified deterministically. The real relays are measured
+// separately with `peerpages doctor`.
 
 const settle = 30 * time.Second
 
@@ -34,7 +34,7 @@ func quietLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-// echoProxy her istege sabit bir cevap doner.
+// echoProxy answers every request with a fixed response.
 type echoProxy struct{}
 
 func (echoProxy) Serve(_ context.Context, req protocol.Req, _ io.Reader, sink tunnel.ResponseSink) {
@@ -43,7 +43,7 @@ func (echoProxy) Serve(_ context.Context, req protocol.Req, _ io.Reader, sink tu
 	_ = sink.End()
 }
 
-// visitor ziyaretci tarafini taklit eder: Nostr uzerinden signaling + WebRTC.
+// visitor imitates the visitor side: signaling over Nostr plus WebRTC.
 type visitor struct {
 	t     *testing.T
 	id    identity.Identity
@@ -51,7 +51,8 @@ type visitor struct {
 	codec codec
 	agent string // ajan pubkey (hex)
 	sid   string
-	// target offer'da bildirilecek hedef adi; bos ise alan hic gonderilmez.
+	// target is the target name announced in the offer; when empty the
+	// field is not sent at all.
 	target string
 	pc     *webrtc.PeerConnection
 	ctrl   *webrtc.DataChannel
@@ -77,7 +78,7 @@ type agentFixture struct {
 	done     chan struct{}
 }
 
-// startAgent kabul akisini sahte relay uzerinde baslatir.
+// startAgent starts the accept flow on the fake relay.
 func startAgent(t *testing.T, relayURL, secret string) *agentFixture {
 	t.Helper()
 
@@ -108,7 +109,8 @@ func startAgent(t *testing.T, relayURL, secret string) *agentFixture {
 		Sealer:   sealer,
 		NewProxy: func(string) (tunnel.Proxy, error) { return echoProxy{}, nil },
 		Targets:  []string{"default"},
-		// STUN yok: loopback'te host adaylari yeterli ve test hizli kalir.
+		// No STUN: on loopback the host candidates are enough and the test
+		// stays fast.
 		MaxSessions:   2,
 		MaxConcurrent: 8,
 		MaxBody:       1 << 20,
@@ -124,14 +126,15 @@ func startAgent(t *testing.T, relayURL, secret string) *agentFixture {
 		_ = acceptor.Run(ctx)
 	}()
 
-	// Aboneligin kurulmasina zaman tani: ephemeral event saklanmaz, ajan
-	// dinlemiyorken yollanan offer kaybolur.
+	// Give the subscription time to come up: an ephemeral event is not
+	// stored, so an offer sent while the agent is not listening is lost.
 	time.Sleep(500 * time.Millisecond)
 
 	return &agentFixture{acceptor: acceptor, id: id, relayURL: relayURL, cancel: cancel, done: done}
 }
 
-// newVisitor ziyaretci tarafini kurar: kanallari acar, Nostr'a abone olur.
+// newVisitor builds the visitor side: it opens the channels and
+// subscribes on Nostr.
 func newVisitor(t *testing.T, a *agentFixture, secret string) *visitor {
 	t.Helper()
 
@@ -176,7 +179,7 @@ func newVisitor(t *testing.T, a *agentFixture, secret string) *visitor {
 		ready:  make(chan struct{}),
 	}
 
-	// Kanallari ZIYARETCI aciyor.
+	// The VISITOR opens the channels.
 	ordered := true
 	if v.ctrl, err = pc.CreateDataChannel("ctrl", &webrtc.DataChannelInit{Ordered: &ordered}); err != nil {
 		t.Fatal(err)
@@ -188,7 +191,7 @@ func newVisitor(t *testing.T, a *agentFixture, secret string) *visitor {
 	v.ctrl.OnMessage(func(m webrtc.DataChannelMessage) {
 		msg, perr := protocol.ParseCtrl(string(m.Data))
 		if perr != nil {
-			t.Errorf("gecersiz ctrl: %v", perr)
+			t.Errorf("invalid ctrl: %v", perr)
 			return
 		}
 		v.ctrlCh <- msg
@@ -203,11 +206,11 @@ func newVisitor(t *testing.T, a *agentFixture, secret string) *visitor {
 	v.ctrl.OnOpen(check)
 	v.data.OnOpen(check)
 
-	// Kendi adresimize gelen signaling'i dinle.
+	// Listen for the signaling addressed to us.
 	v.events = pool.Subscribe(ctx, nostr.SignalingFilter(id.PublicKey, time.Now().Add(-time.Minute)))
 	time.Sleep(300 * time.Millisecond)
 
-	// Yerel adaylari ajana yolla (trickle).
+	// Send the local candidates to the agent (trickle).
 	pc.OnICECandidate(func(cand *webrtc.ICECandidate) {
 		if cand == nil {
 			return
@@ -225,11 +228,12 @@ func newVisitor(t *testing.T, a *agentFixture, secret string) *visitor {
 	return v
 }
 
-// send bir signaling mesajini ajana yollar (NIP-44 + sir katmani).
+// send sends a signaling message to the agent (NIP-44 plus the secret
+// layer).
 func (v *visitor) send(msg signaling.Msg) {
 	payload, err := v.codec.Encode(msg)
 	if err != nil {
-		v.t.Errorf("mesaj kodlanamadi: %v", err)
+		v.t.Errorf("the message could not be encoded: %v", err)
 		return
 	}
 	content, err := nostr.Encrypt(v.id.SecretKey, v.agent, payload)
@@ -239,18 +243,19 @@ func (v *visitor) send(msg signaling.Msg) {
 	}
 	ev := nostr.NewSignalingEvent(v.agent, content)
 	if err := ev.Sign(v.id.SecretKey); err != nil {
-		v.t.Errorf("imza: %v", err)
+		v.t.Errorf("signature: %v", err)
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if _, err := v.pool.Publish(ctx, ev); err != nil {
-		v.t.Errorf("yayin: %v", err)
+		v.t.Errorf("publish: %v", err)
 	}
 }
 
-// offer offer uretir ve yayinlar (trickle: gathering beklenmez).
+// offer creates and publishes an offer (trickle: gathering is not
+// awaited).
 func (v *visitor) offer() {
 	v.t.Helper()
 	offer, err := v.pc.CreateOffer(nil)
@@ -265,7 +270,7 @@ func (v *visitor) offer() {
 	})
 }
 
-// nextSignaling ajandan gelen bir sonraki signaling mesajini bekler.
+// nextSignaling waits for the next signaling message from the agent.
 func (v *visitor) nextSignaling(d time.Duration) (signaling.Msg, bool) {
 	deadline := time.After(d)
 	for {
@@ -292,7 +297,7 @@ func (v *visitor) nextSignaling(d time.Duration) (signaling.Msg, bool) {
 	}
 }
 
-// connect tam el sikismasini yurutur: offer -> answer -> candidate'lar.
+// connect runs the whole handshake: offer -> answer -> candidates.
 func (v *visitor) connect(d time.Duration) {
 	v.t.Helper()
 	v.offer()
@@ -305,7 +310,7 @@ func (v *visitor) connect(d time.Duration) {
 		case <-v.ready:
 			return
 		case <-deadline:
-			v.t.Fatalf("tunel %s icinde acilmadi (answer alindi: %v)", d, answered)
+			v.t.Fatalf("the tunnel did not open within %s (answer received: %v)", d, answered)
 			return
 		default:
 		}
@@ -322,7 +327,7 @@ func (v *visitor) connect(d time.Duration) {
 			if err := v.pc.SetRemoteDescription(webrtc.SessionDescription{
 				Type: webrtc.SDPTypeAnswer, SDP: msg.SDP,
 			}); err != nil {
-				v.t.Fatalf("answer uygulanamadi: %v", err)
+				v.t.Fatalf("the answer could not be applied: %v", err)
 			}
 			answered = true
 		case signaling.TypeCandidate:
@@ -333,12 +338,12 @@ func (v *visitor) connect(d time.Duration) {
 			if err := v.pc.AddICECandidate(webrtc.ICECandidateInit{
 				Candidate: msg.Candidate, SDPMid: &mid,
 			}); err != nil {
-				v.t.Logf("aday eklenemedi (zararsiz olabilir): %v", err)
+				v.t.Logf("the candidate could not be added (may be harmless): %v", err)
 			}
 		case signaling.TypeBye:
-			v.t.Fatalf("ajan bye yolladi: %s", msg.Reason)
+			v.t.Fatalf("the agent sent a bye: %s", msg.Reason)
 		case signaling.TypeOffer:
-			v.t.Error("ajandan offer gelmemeli")
+			v.t.Error("no offer should come from the agent")
 		}
 	}
 }
@@ -352,7 +357,7 @@ func (v *visitor) nextCtrl(d time.Duration) (protocol.Msg, bool) {
 	}
 }
 
-// --- testler ---
+// --- the tests ---
 
 func TestNostrHandshakeOverFakeRelay(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
@@ -366,26 +371,26 @@ func TestNostrHandshakeOverFakeRelay(t *testing.T) {
 
 	v.connect(settle)
 
-	// Baglanti kurulunca ajan hello yollar.
+	// Once the connection is up the agent sends hello.
 	msg, ok := v.nextCtrl(settle)
 	if !ok {
-		t.Fatal("hello gelmedi")
+		t.Fatal("no hello arrived")
 	}
 	hello, isHello := msg.(protocol.Hello)
 	if !isHello {
-		t.Fatalf("ilk mesaj hello olmali, geldi: %s", msg.Type())
+		t.Fatalf("the first message has to be hello, got: %s", msg.Type())
 	}
 	if hello.Auth != protocol.AuthNone {
-		t.Errorf("sir yokken auth none olmali, geldi: %q", hello.Auth)
+		t.Errorf("with no secret it has to be auth none, got: %q", hello.Auth)
 	}
 
 	if got := a.acceptor.SessionCount(); got != 1 {
-		t.Errorf("acik oturum sayisi %d, beklenen 1", got)
+		t.Errorf("%d open sessions, expected 1", got)
 	}
 }
 
-// Paylasilan sir: iki taraf da sirri biliyorsa baglanti kurulur ve hello
-// auth=required bildirir.
+// The shared secret: when both sides know it the connection is made and
+// hello announces auth=required.
 func TestNostrHandshakeWithSecret(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {
@@ -401,18 +406,19 @@ func TestNostrHandshakeWithSecret(t *testing.T) {
 
 	msg, ok := v.nextCtrl(settle)
 	if !ok {
-		t.Fatal("hello gelmedi")
+		t.Fatal("no hello arrived")
 	}
 	hello, isHello := msg.(protocol.Hello)
 	if !isHello {
-		t.Fatalf("hello beklenirdi: %s", msg.Type())
+		t.Fatalf("a hello was expected: %s", msg.Type())
 	}
 	if hello.Auth != protocol.AuthRequired {
-		t.Errorf("sir varken auth required olmali, geldi: %q", hello.Auth)
+		t.Errorf("with a secret it has to be auth required, got: %q", hello.Auth)
 	}
 }
 
-// peer-id'yi bilip sirri bilmeyen biri BAGLANAMAZ (BRIEF bolum 4).
+// Someone who knows the peer-id but not the secret CANNOT CONNECT
+// (BRIEF section 4).
 func TestSecretlessVisitorRejected(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {
@@ -420,21 +426,21 @@ func TestSecretlessVisitorRejected(t *testing.T) {
 	}
 	defer relay.Close()
 
-	a := startAgent(t, relay.URL(), "dogru-sir")
-	v := newVisitor(t, a, "") // sir yok
+	a := startAgent(t, relay.URL(), "right-secret")
+	v := newVisitor(t, a, "") // no secret
 
 	v.offer()
 
-	// Ajan cevap vermemeli ve oturum acmamali.
+	// The agent must not answer and must not open a session.
 	if msg, ok := v.nextSignaling(5 * time.Second); ok {
-		t.Errorf("ajan cevap vermemeliydi, geldi: %s", msg.Type)
+		t.Errorf("the agent should not have answered, got: %s", msg.Type)
 	}
 	if got := a.acceptor.SessionCount(); got != 0 {
-		t.Errorf("oturum acilmamaliydi, acik: %d", got)
+		t.Errorf("no session should have opened, open: %d", got)
 	}
 }
 
-// Yanlis sirla gelen de reddedilir.
+// An offer that arrives with the wrong secret is refused too.
 func TestWrongSecretRejected(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {
@@ -442,20 +448,20 @@ func TestWrongSecretRejected(t *testing.T) {
 	}
 	defer relay.Close()
 
-	a := startAgent(t, relay.URL(), "dogru-sir")
-	v := newVisitor(t, a, "yanlis-sir")
+	a := startAgent(t, relay.URL(), "right-secret")
+	v := newVisitor(t, a, "wrong-secret")
 
 	v.offer()
 
 	if msg, ok := v.nextSignaling(5 * time.Second); ok {
-		t.Errorf("ajan cevap vermemeliydi, geldi: %s", msg.Type)
+		t.Errorf("the agent should not have answered, got: %s", msg.Type)
 	}
 	if got := a.acceptor.SessionCount(); got != 0 {
-		t.Errorf("oturum acilmamaliydi, acik: %d", got)
+		t.Errorf("no session should have opened, open: %d", got)
 	}
 }
 
-// Tunel kurulduktan sonra istek gercekten proxy'ye ulasiyor.
+// Once the tunnel is up a request really does reach the proxy.
 func TestRequestOverNostrTunnel(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {
@@ -468,7 +474,7 @@ func TestRequestOverNostrTunnel(t *testing.T) {
 	v.connect(settle)
 
 	if _, ok := v.nextCtrl(settle); !ok {
-		t.Fatal("hello gelmedi")
+		t.Fatal("no hello arrived")
 	}
 
 	req := protocol.Req{
@@ -485,7 +491,7 @@ func TestRequestOverNostrTunnel(t *testing.T) {
 		if !ok {
 			select {
 			case <-deadline:
-				t.Fatal("res gelmedi")
+				t.Fatal("no res arrived")
 			default:
 				continue
 			}
@@ -499,7 +505,7 @@ func TestRequestOverNostrTunnel(t *testing.T) {
 	}
 }
 
-// Oturum tavani asilinca ajan bye ile reddediyor.
+// Once the session limit is passed the agent refuses with bye.
 func TestSessionLimit(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {
@@ -515,10 +521,10 @@ func TestSessionLimit(t *testing.T) {
 	v2.connect(settle)
 
 	if got := a.acceptor.SessionCount(); got != 2 {
-		t.Fatalf("iki oturum beklenirdi, acik: %d", got)
+		t.Fatalf("two sessions were expected, open: %d", got)
 	}
 
-	// Ucuncu ziyaretci reddedilmeli.
+	// The third visitor must be refused.
 	v3 := newVisitor(t, a, "")
 	v3.offer()
 
@@ -528,24 +534,24 @@ func TestSessionLimit(t *testing.T) {
 		if !ok {
 			select {
 			case <-deadline:
-				t.Fatal("ucuncu ziyaretciye bye gelmedi")
+				t.Fatal("no bye arrived for the third visitor")
 			default:
 				continue
 			}
 		}
 		if msg.Type == signaling.TypeBye {
 			if msg.Reason != "too-many-sessions" {
-				t.Errorf("bye nedeni: %q", msg.Reason)
+				t.Errorf("the bye reason: %q", msg.Reason)
 			}
 			return
 		}
 		if msg.Type == signaling.TypeAnswer {
-			t.Fatal("tavan asilmisken answer gelmemeliydi")
+			t.Fatal("no answer should have arrived with the limit passed")
 		}
 	}
 }
 
-// bye gelince oturum kapaniyor ve kaynak birakiliyor.
+// On bye the session closes and the resources are released.
 func TestByeClosesSession(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {
@@ -558,7 +564,7 @@ func TestByeClosesSession(t *testing.T) {
 	v.connect(settle)
 
 	if got := a.acceptor.SessionCount(); got != 1 {
-		t.Fatalf("bir oturum beklenirdi: %d", got)
+		t.Fatalf("one session was expected: %d", got)
 	}
 
 	v.send(signaling.Msg{Type: signaling.TypeBye, SID: v.sid, Reason: "visitor-left"})
@@ -570,10 +576,10 @@ func TestByeClosesSession(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Errorf("bye sonrasi oturum kapanmadi, acik: %d", a.acceptor.SessionCount())
+	t.Errorf("the session did not close after bye, open: %d", a.acceptor.SessionCount())
 }
 
-// Ayni sid ile ikinci offer yeni oturum acmaz.
+// A second offer with the same sid does not open a new session.
 func TestDuplicateOfferIgnored(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {
@@ -586,12 +592,12 @@ func TestDuplicateOfferIgnored(t *testing.T) {
 	v.connect(settle)
 
 	before := a.acceptor.SessionCount()
-	// Ayni sid, yeni event (farkli id, yani replay degil).
-	v.send(signaling.Msg{Type: signaling.TypeOffer, SID: v.sid, SDP: "v=0\r\nbozuk\r\n"})
+	// The same sid, a new event (a different id, so not a replay).
+	v.send(signaling.Msg{Type: signaling.TypeOffer, SID: v.sid, SDP: "v=0\r\ncorrupt\r\n"})
 	time.Sleep(2 * time.Second)
 
 	if got := a.acceptor.SessionCount(); got != before {
-		t.Errorf("oturum sayisi degisti: %d -> %d", before, got)
+		t.Errorf("the session count changed: %d -> %d", before, got)
 	}
 }
 
@@ -624,14 +630,14 @@ func TestConfigValidation(t *testing.T) {
 		Logger:        quietLogger(),
 	}
 	if _, err := connect.New(ok); err != nil {
-		t.Fatalf("gecerli yapilandirma reddedildi: %v", err)
+		t.Fatalf("a valid configuration was refused: %v", err)
 	}
 
 	bad := map[string]func(*connect.Config){
-		"kimlik yok":        func(c *connect.Config) { c.Identity = identity.Identity{} },
+		"no credentials":    func(c *connect.Config) { c.Identity = identity.Identity{} },
 		"pool nil":          func(c *connect.Config) { c.Pool = nil },
 		"proxy nil":         func(c *connect.Config) { c.NewProxy = nil },
-		"hedef yok":         func(c *connect.Config) { c.Targets = nil },
+		"no target":         func(c *connect.Config) { c.Targets = nil },
 		"maxsessions sifir": func(c *connect.Config) { c.MaxSessions = 0 },
 		"concurrent sifir":  func(c *connect.Config) { c.MaxConcurrent = 0 },
 		"maxbody sifir":     func(c *connect.Config) { c.MaxBody = 0 },
@@ -641,7 +647,7 @@ func TestConfigValidation(t *testing.T) {
 		cfg := ok
 		mutate(&cfg)
 		if _, err := connect.New(cfg); err == nil {
-			t.Errorf("%s: reddedilmeliydi", name)
+			t.Errorf("%s: should have been refused", name)
 		}
 	}
 }

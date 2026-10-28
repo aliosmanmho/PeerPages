@@ -181,7 +181,7 @@ type Acceptor struct {
 	codec codec
 
 	mu       sync.Mutex
-	sessions map[string]*visitorSession // sid -> oturum
+	sessions map[string]*visitorSession // sid -> session
 
 	// ready closes once the subscription is up. The caller must wait for
 	// it before saying "ready": because ephemeral events are not stored,

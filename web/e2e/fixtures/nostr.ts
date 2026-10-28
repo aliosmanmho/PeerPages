@@ -97,7 +97,7 @@ export interface FakeTurn {
 export async function startFakeTurn(): Promise<FakeTurn> {
   const bin = ensureAgentBinary();
   const user = "peerpages";
-  const pass = "test-sifre";
+  const pass = "test-password";
   const proc = spawn(bin, ["faketurn", "--port", "0", "--user", user, "--pass", pass], {
     cwd: AGENT_DIR,
     stdio: ["ignore", "pipe", "pipe"],

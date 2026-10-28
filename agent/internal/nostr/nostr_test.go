@@ -18,12 +18,12 @@ func quietLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-// signed test icin imzali bir signaling event'i uretir.
+// signed builds a signed signaling event for the test.
 func signed(t *testing.T, sk, recipient, content string) gonostr.Event {
 	t.Helper()
 	ev := nostr.NewSignalingEvent(recipient, content)
 	if err := ev.Sign(sk); err != nil {
-		t.Fatalf("imzalanamadi: %v", err)
+		t.Fatalf("it could not be signed: %v", err)
 	}
 	return ev
 }
@@ -33,7 +33,7 @@ func keypair(t *testing.T) (sk, pub string) {
 	sk = gonostr.GeneratePrivateKey()
 	pub, err := gonostr.GetPublicKey(sk)
 	if err != nil {
-		t.Fatalf("pubkey uretilemedi: %v", err)
+		t.Fatalf("the pubkey could not be generated: %v", err)
 	}
 	return sk, pub
 }
@@ -50,11 +50,11 @@ func TestNormalizeURL(t *testing.T) {
 	for in, want := range ok {
 		got, err := nostr.NormalizeURL(in)
 		if err != nil {
-			t.Errorf("NormalizeURL(%q) hata: %v", in, err)
+			t.Errorf("NormalizeURL(%q) error: %v", in, err)
 			continue
 		}
 		if got != want {
-			t.Errorf("NormalizeURL(%q) = %q, beklenen %q", in, got, want)
+			t.Errorf("NormalizeURL(%q) = %q, expected %q", in, got, want)
 		}
 	}
 
@@ -63,7 +63,7 @@ func TestNormalizeURL(t *testing.T) {
 		"https://relay.damus.io", "wss://", "ftp://x",
 	} {
 		if got, err := nostr.NormalizeURL(in); err == nil {
-			t.Errorf("NormalizeURL(%q) reddedilmeliydi, donen: %q", in, got)
+			t.Errorf("NormalizeURL(%q) should have been refused, returned: %q", in, got)
 		}
 	}
 }
@@ -76,28 +76,29 @@ func TestNormalizeURLsDeduplicates(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Join(got, ",") != "wss://a.example,wss://b.example" {
-		t.Errorf("tekrarlar ayiklanmali, geldi: %v", got)
+		t.Errorf("the duplicates have to be removed, got: %v", got)
 	}
 
 	if _, err := nostr.NormalizeURLs(nil); err == nil {
-		t.Error("bos liste reddedilmeliydi")
+		t.Error("an empty list should have been refused")
 	}
 }
 
 func TestDefaultRelaysAreValid(t *testing.T) {
 	got, err := nostr.NormalizeURLs(nostr.DefaultRelays)
 	if err != nil {
-		t.Fatalf("varsayilan relay listesi gecersiz: %v", err)
+		t.Fatalf("the default relay list is invalid: %v", err)
 	}
 	if len(got) < 3 {
 		t.Errorf("BRIEF en az 3 relay istiyor, %d var", len(got))
 	}
 }
 
-// Kind 25050 ephemeral araliginda olmali: relay'ler saklamasin.
+// Kind 25050 has to be in the ephemeral range, so relays do not store
+// it.
 func TestKindIsEphemeral(t *testing.T) {
 	if nostr.KindSignaling < 20000 || nostr.KindSignaling >= 30000 {
-		t.Errorf("kind %d ephemeral araliginda (20000-29999) degil", nostr.KindSignaling)
+		t.Errorf("kind %d is not in the ephemeral range (20000-29999)", nostr.KindSignaling)
 	}
 }
 
@@ -111,15 +112,15 @@ func TestSignalingEventShape(t *testing.T) {
 	}
 	got, ok := nostr.RecipientOf(&ev)
 	if !ok || got != "abc123" {
-		t.Errorf("alici tag'i yanlis: %q %v", got, ok)
+		t.Errorf("the recipient tag is wrong: %q %v", got, ok)
 	}
 
 	if _, ok := nostr.RecipientOf(nil); ok {
-		t.Error("nil event icin alici donmemeli")
+		t.Error("a nil event must return no recipient")
 	}
 	empty := gonostr.Event{}
 	if _, ok := nostr.RecipientOf(&empty); ok {
-		t.Error("tag'siz event icin alici donmemeli")
+		t.Error("an event with no tag must return no recipient")
 	}
 }
 
@@ -127,14 +128,14 @@ func TestShortPubKey(t *testing.T) {
 	long := strings.Repeat("a", 64)
 	got := nostr.ShortPubKey(long)
 	if len(got) >= len(long) || !strings.Contains(got, "…") {
-		t.Errorf("kisaltilmali, geldi: %q", got)
+		t.Errorf("it has to be shortened, got: %q", got)
 	}
-	if nostr.ShortPubKey("kisa") != "kisa" {
-		t.Error("kisa deger oldugu gibi kalmali")
+	if nostr.ShortPubKey("short") != "short" {
+		t.Error("a short value has to stay as it is")
 	}
 }
 
-// --- sahte relay ile ---
+// --- with the fake relay ---
 
 func TestPublishAndSubscribe(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
@@ -155,33 +156,34 @@ func TestPublishAndSubscribe(t *testing.T) {
 	sk, _ := keypair(t)
 	_, recipientPub := keypair(t)
 
-	// ONCE abone ol: ephemeral event saklanmaz, dinlemiyorsan kacirirsin.
+	// Subscribe FIRST: an ephemeral event is not stored, so if you are
+	// not listening you miss it.
 	events := pool.Subscribe(ctx, nostr.SignalingFilter(recipientPub, time.Now().Add(-time.Minute)))
 	time.Sleep(300 * time.Millisecond)
 
 	ev := signed(t, sk, recipientPub, "merhaba-sifreli")
 	report, err := pool.Publish(ctx, ev)
 	if err != nil {
-		t.Fatalf("Publish hata: %v (%+v)", err, report)
+		t.Fatalf("Publish error: %v (%+v)", err, report)
 	}
 	if !report.Succeeded() || len(report.OK) != 1 {
-		t.Fatalf("yayin raporu: %+v", report)
+		t.Fatalf("the publish report: %+v", report)
 	}
 
 	select {
 	case got := <-events:
 		if got.Content != "merhaba-sifreli" {
-			t.Errorf("icerik: %q", got.Content)
+			t.Errorf("content: %q", got.Content)
 		}
 		if got.Kind != nostr.KindSignaling {
 			t.Errorf("kind: %d", got.Kind)
 		}
 	case <-time.After(15 * time.Second):
-		t.Fatal("event aboneye ulasmadi")
+		t.Fatal("the event never reached the subscriber")
 	}
 }
 
-// Filtre baska bir aliciya giden event'i getirmemeli.
+// The filter must not bring back an event addressed to someone else.
 func TestSubscribeFiltersByRecipient(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {
@@ -205,11 +207,11 @@ func TestSubscribeFiltersByRecipient(t *testing.T) {
 	events := pool.Subscribe(ctx, nostr.SignalingFilter(mine, time.Now().Add(-time.Minute)))
 	time.Sleep(300 * time.Millisecond)
 
-	// Baskasina giden event.
+	// An event addressed to someone else.
 	if _, err := pool.Publish(ctx, signed(t, sk, other, "baskasina")); err != nil {
 		t.Fatal(err)
 	}
-	// Bize gelen event.
+	// An event addressed to us.
 	if _, err := pool.Publish(ctx, signed(t, sk, mine, "bana")); err != nil {
 		t.Fatal(err)
 	}
@@ -217,14 +219,15 @@ func TestSubscribeFiltersByRecipient(t *testing.T) {
 	select {
 	case got := <-events:
 		if got.Content != "bana" {
-			t.Errorf("filtre sizdirdi: %q", got.Content)
+			t.Errorf("the filter leaked: %q", got.Content)
 		}
 	case <-time.After(15 * time.Second):
-		t.Fatal("event gelmedi")
+		t.Fatal("no event arrived")
 	}
 }
 
-// Hedged yayin: bir relay reddetse bile digeri kabul ederse basarili.
+// The hedged publish: even if one relay refuses, it succeeds once
+// another accepts.
 func TestPublishHedgedAcrossRelays(t *testing.T) {
 	bad, err := fakerelay.Start(fakerelay.Options{RejectAll: true})
 	if err != nil {
@@ -254,14 +257,14 @@ func TestPublishHedgedAcrossRelays(t *testing.T) {
 
 	report, err := pool.Publish(ctx, signed(t, sk, pub, "x"))
 	if err != nil {
-		t.Fatalf("bir relay kabul ettiginde basarili olmaliydi: %v (%+v)", err, report)
+		t.Fatalf("it should have succeeded once one relay accepted: %v (%+v)", err, report)
 	}
 	if len(report.OK) != 1 || len(report.Failed) != 1 {
-		t.Errorf("rapor: %+v", report)
+		t.Errorf("report: %+v", report)
 	}
 }
 
-// Hicbir relay kabul etmezse hata donmeli.
+// If no relay accepts it has to return an error.
 func TestPublishFailsWhenAllReject(t *testing.T) {
 	bad1, err := fakerelay.Start(fakerelay.Options{RejectAll: true})
 	if err != nil {
@@ -291,16 +294,16 @@ func TestPublishFailsWhenAllReject(t *testing.T) {
 
 	report, err := pool.Publish(ctx, signed(t, sk, pub, "x"))
 	if err == nil {
-		t.Fatalf("hata beklenirdi, rapor: %+v", report)
+		t.Fatalf("an error was expected, report: %+v", report)
 	}
 	if len(report.Failed) != 2 {
-		t.Errorf("iki relay de basarisiz olmaliydi: %+v", report)
+		t.Errorf("both relays should have failed: %+v", report)
 	}
 }
 
-// BRIEF bolum 8: bazi relay'ler ephemeral event'leri dusurebilir.
-// Dusuren relay yayini KABUL eder ama abonelere iletmez; doctor bunu
-// yakalamali, pool ise yayini basarili saymali.
+// BRIEF section 8: some relays may drop ephemeral events. Such a relay
+// ACCEPTS the publish but does not forward it to subscribers; doctor has
+// to catch that, while the pool has to count the publish as a success.
 func TestEphemeralDroppingRelay(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{DropEphemeral: true})
 	if err != nil {
@@ -324,22 +327,22 @@ func TestEphemeralDroppingRelay(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	if _, err := pool.Publish(ctx, signed(t, sk, pub, "dusurulecek")); err != nil {
-		t.Fatalf("yayin kabul edilmeliydi: %v", err)
+		t.Fatalf("the publish should have been accepted: %v", err)
 	}
 	if len(relay.Published()) != 1 {
-		t.Errorf("event relay'e ulasmaliydi: %d", len(relay.Published()))
+		t.Errorf("the event should have reached the relay: %d", len(relay.Published()))
 	}
 
 	select {
 	case got := <-events:
-		t.Errorf("ephemeral dusuren relay event iletmemeliydi: %q", got.Content)
+		t.Errorf("a relay that drops ephemeral events should not have forwarded it: %q", got.Content)
 	case <-time.After(2 * time.Second):
-		// Beklenen: event gelmedi.
+		// As expected: no event arrived.
 	}
 }
 
-// Imzasiz event relay tarafindan reddedilmeli (imzalamayi atlayan hata
-// testte yakalanabilsin).
+// An unsigned event has to be refused by the relay (so a bug that skips
+// signing gets caught in the tests).
 func TestUnsignedEventRejected(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {
@@ -360,17 +363,17 @@ func TestUnsignedEventRejected(t *testing.T) {
 	unsigned := nostr.NewSignalingEvent(pub, "imzasiz")
 
 	if _, err := pool.Publish(ctx, unsigned); err == nil {
-		t.Error("imzasiz event reddedilmeliydi")
+		t.Error("an unsigned event should have been refused")
 	}
 }
 
 func TestNewPoolValidation(t *testing.T) {
 	ctx := context.Background()
 	if _, err := nostr.NewPool(ctx, nostr.Config{URLs: []string{"wss://a.example"}}); err == nil {
-		t.Error("Logger nil reddedilmeliydi")
+		t.Error("a nil Logger should have been refused")
 	}
 	if _, err := nostr.NewPool(ctx, nostr.Config{Logger: quietLogger()}); err == nil {
-		t.Error("bos relay listesi reddedilmeliydi")
+		t.Error("an empty relay list should have been refused")
 	}
 	pool, err := nostr.NewPool(ctx, nostr.Config{
 		URLs:   []string{"wss://a.example/", "wss://a.example"},
@@ -380,6 +383,6 @@ func TestNewPoolValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := pool.URLs(); len(got) != 1 {
-		t.Errorf("tekrarlar ayiklanmali: %v", got)
+		t.Errorf("the duplicates have to be removed: %v", got)
 	}
 }

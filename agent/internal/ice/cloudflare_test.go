@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-// Gercek Cloudflare hesabina karsi DENENMEDI: burada yalnizca istegin
-// bicimi ve cevap ayristirmasi dogrulaniyor. Canli dogrulama kullanici
-// tarafinda (docs/TURN.md).
+// NOT tried against a real Cloudflare account: only the request shape
+// and the response parsing are checked here. The live verification is on
+// the user's side (docs/TURN.md).
 
 func quietLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -39,16 +39,16 @@ func TestFetchCredentials(t *testing.T) {
 	defer srv.Close()
 
 	creds, err := fetchFrom(t, srv.URL, CloudflareOptions{
-		KeyID: "anahtar123",
+		KeyID: "key123",
 		Token: "jeton-abc",
 		TTL:   2 * time.Hour,
 	})
 	if err != nil {
-		t.Fatalf("beklenmeyen hata: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.HasSuffix(gotPath, "/anahtar123/credentials/generate") {
-		t.Errorf("yol = %q", gotPath)
+	if !strings.HasSuffix(gotPath, "/key123/credentials/generate") {
+		t.Errorf("path = %q", gotPath)
 	}
 	if gotAuth != "Bearer jeton-abc" {
 		t.Errorf("Authorization = %q", gotAuth)
@@ -57,21 +57,21 @@ func TestFetchCredentials(t *testing.T) {
 		t.Errorf("Content-Type = %q", gotType)
 	}
 	if ttl, _ := gotBody["ttl"].(float64); int(ttl) != 7200 {
-		t.Errorf("govdedeki ttl = %v, 7200 beklendi", gotBody["ttl"])
+		t.Errorf("the ttl in the body = %v, 7200 expected", gotBody["ttl"])
 	}
 
 	if len(creds.URLs) != 2 {
-		t.Fatalf("adres sayisi %d, 2 beklendi: %v", len(creds.URLs), creds.URLs)
+		t.Fatalf("%d addresses, 2 expected: %v", len(creds.URLs), creds.URLs)
 	}
 	if creds.Username != "gecici-kullanici" || creds.Password != "gecici-sifre" {
-		t.Errorf("kimlik bilgisi okunamadi: %+v", creds)
+		t.Errorf("the credentials could not be read: %+v", creds)
 	}
 	if creds.ExpiresAt.IsZero() {
-		t.Error("ExpiresAt bos")
+		t.Error("ExpiresAt is empty")
 	}
 }
 
-// `urls` tek string de olabiliyor.
+// `urls` may also be a single string.
 func TestFetchCredentialsSingleURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(
@@ -84,7 +84,7 @@ func TestFetchCredentialsSingleURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(creds.URLs) != 1 || creds.URLs[0] != "turn:a.example.com:3478" {
-		t.Errorf("adresler = %v", creds.URLs)
+		t.Errorf("addresses = %v", creds.URLs)
 	}
 }
 
@@ -96,11 +96,11 @@ func TestFetchCredentialsErrors(t *testing.T) {
 		want   string
 	}{
 		{"yetkisiz", http.StatusUnauthorized, `{"errors":[{"message":"bad token"}]}`, "unexpected status 401"},
-		{"bozuk json", http.StatusOK, `bu json degil`, "the response is not JSON"},
-		{"adres yok", http.StatusOK, `{"iceServers":{"urls":[],"username":"u","credential":"p"}}`, "carries no TURN address"},
-		{"kimlik yok", http.StatusOK, `{"iceServers":{"urls":["turn:a.example.com:3478"]}}`, "carries no credentials"},
-		// Cloudflare yalnizca STUN donerse TURN'umuz yok demektir.
-		{"yalnizca stun", http.StatusOK, `{"iceServers":{"urls":["stun:a.example.com:3478"],"username":"u","credential":"p"}}`, "carries no turn:/turns: address"},
+		{"malformed json", http.StatusOK, `this is not json`, "the response is not JSON"},
+		{"no address", http.StatusOK, `{"iceServers":{"urls":[],"username":"u","credential":"p"}}`, "carries no TURN address"},
+		{"no credentials", http.StatusOK, `{"iceServers":{"urls":["turn:a.example.com:3478"]}}`, "carries no credentials"},
+		// If Cloudflare returns STUN only, we have no TURN.
+		{"stun only", http.StatusOK, `{"iceServers":{"urls":["stun:a.example.com:3478"],"username":"u","credential":"p"}}`, "carries no turn:/turns: address"},
 	}
 
 	for _, c := range cases {
@@ -113,10 +113,10 @@ func TestFetchCredentialsErrors(t *testing.T) {
 
 			_, err := fetchFrom(t, srv.URL, CloudflareOptions{KeyID: "k", Token: "t"})
 			if err == nil {
-				t.Fatal("hata beklendi")
+				t.Fatal("an error was expected")
 			}
 			if !strings.Contains(err.Error(), c.want) {
-				t.Errorf("hata %q, %q icermeliydi", err.Error(), c.want)
+				t.Errorf("the error %q should have contained %q", err.Error(), c.want)
 			}
 		})
 	}
@@ -124,16 +124,17 @@ func TestFetchCredentialsErrors(t *testing.T) {
 
 func TestFetchCredentialsNeedsKeyAndToken(t *testing.T) {
 	if _, err := FetchCredentials(context.Background(), CloudflareOptions{Token: "t"}); err == nil {
-		t.Error("anahtar kimligi olmadan hata beklendi")
+		t.Error("an error was expected without a key id")
 	}
 	if _, err := FetchCredentials(context.Background(), CloudflareOptions{KeyID: "k"}); err == nil {
-		t.Error("jeton olmadan hata beklendi")
+		t.Error("an error was expected without a token")
 	}
 }
 
-// Jeton hicbir hata metnine girmemeli: hatalar log'a yaziliyor.
+// The token must not appear in any error text: the errors get written
+// to the log.
 func TestFetchCredentialsHidesToken(t *testing.T) {
-	const token = "cok-gizli-jeton"
+	const token = "very-secret-token"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"errors":[{"message":"nope"}]}`))
@@ -142,14 +143,15 @@ func TestFetchCredentialsHidesToken(t *testing.T) {
 
 	_, err := fetchFrom(t, srv.URL, CloudflareOptions{KeyID: "k", Token: token})
 	if err == nil {
-		t.Fatal("hata beklendi")
+		t.Fatal("an error was expected")
 	}
 	if strings.Contains(err.Error(), token) {
-		t.Errorf("hata jetonu iceriyor: %v", err)
+		t.Errorf("the error contains the token: %v", err)
 	}
 }
 
-// Provider gecerli kimlik bilgisini statik yapilandirmanin ustune koyar.
+// Provider puts the current credentials on top of the static
+// configuration.
 func TestProviderMergesCredentials(t *testing.T) {
 	base, err := Config{STUN: []string{"stun:a.example.com:3478"}}.Validated()
 	if err != nil {
@@ -173,22 +175,22 @@ func TestProviderMergesCredentials(t *testing.T) {
 		t.Errorf("TURN = %v", cfg.TURN)
 	}
 	if cfg.User != "cf-kullanici" || cfg.Pass != "cf-sifre" {
-		t.Errorf("kimlik bilgisi birlesmedi: %+v", cfg)
+		t.Errorf("the credentials were not merged: %+v", cfg)
 	}
 
 	servers, policy := p.Servers()
 	if len(servers) != 2 {
-		t.Errorf("sunucu girdisi %d, 2 beklendi", len(servers))
+		t.Errorf("%d server entries, 2 expected", len(servers))
 	}
 	if policy.String() != "all" {
 		t.Errorf("politika %v", policy)
 	}
 	if strings.Contains(cfg.Describe(), "cf-sifre") {
-		t.Error("Describe sifreyi yaziyor")
+		t.Error("Describe writes the password out")
 	}
 }
 
-// Kimlik bilgisi yoksa statik yapilandirma oldugu gibi kalir.
+// With no credentials the static configuration stays as it is.
 func TestProviderWithoutCredentials(t *testing.T) {
 	base, err := Config{
 		STUN: []string{"stun:a.example.com:3478"},
@@ -203,11 +205,12 @@ func TestProviderWithoutCredentials(t *testing.T) {
 	p := NewProvider(base, quietLogger())
 	cfg := p.Config()
 	if len(cfg.TURN) != 1 || cfg.User != "u" {
-		t.Errorf("statik yapilandirma degisti: %+v", cfg)
+		t.Errorf("the static configuration changed: %+v", cfg)
 	}
 }
 
-// Yenileme omrun %80'inde; omur neredeyse bitmisse hemen (en az 1 dakika).
+// The refresh happens at 80% of the lifetime; immediately when it is
+// nearly over (and at least a minute later).
 func TestRefreshIn(t *testing.T) {
 	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
 	p := &Provider{
@@ -216,28 +219,29 @@ func TestRefreshIn(t *testing.T) {
 		now:  func() time.Time { return now },
 	}
 
-	// 10 saatlik omur, yeni alinmis: %80'i gecince, yani 8 saat sonra.
+	// A 10-hour lifetime, just fetched: once 80% has passed, so in 8
+	// hours.
 	p.creds = Credentials{ExpiresAt: now.Add(10 * time.Hour)}
 	if got := p.refreshIn(); got != 8*time.Hour {
-		t.Errorf("refreshIn = %v, 8h beklendi", got)
+		t.Errorf("refreshIn = %v, 8h expected", got)
 	}
 
-	// Omru bitmek uzere: hemen, ama en az bir dakika sonra (sonsuz dongu
-	// olmasin).
+	// About to expire: immediately, but at least a minute later (so there
+	// is no tight loop).
 	p.creds = Credentials{ExpiresAt: now.Add(time.Second)}
 	if got := p.refreshIn(); got != time.Minute {
-		t.Errorf("refreshIn = %v, 1m beklendi", got)
+		t.Errorf("refreshIn = %v, 1m expected", got)
 	}
 
-	// Omru gecmis.
+	// Already expired.
 	p.creds = Credentials{ExpiresAt: now.Add(-time.Hour)}
 	if got := p.refreshIn(); got != time.Minute {
-		t.Errorf("refreshIn = %v, 1m beklendi", got)
+		t.Errorf("refreshIn = %v, 1m expected", got)
 	}
 }
 
-// Yenileme basarisiz olursa eski kimlik bilgisi kullanilmaya devam eder:
-// gecici bir API hatasi yuzunden calisan TURN'u kaybetmek istemiyoruz.
+// If a refresh fails the old credentials keep being used: we do not want
+// to lose working TURN over a transient API error.
 func TestProviderKeepsOldCredentialsOnFailure(t *testing.T) {
 	old := Credentials{
 		URLs:      []string{"turn:eski.example.com:3478"},
@@ -264,15 +268,16 @@ func TestProviderKeepsOldCredentialsOnFailure(t *testing.T) {
 	p.Run(ctx) // ctx bitince doner
 
 	if cfg := p.Config(); cfg.User != "eski" {
-		t.Errorf("eski kimlik bilgisi korunmadi: %+v", cfg)
+		t.Errorf("the old credentials were not kept: %+v", cfg)
 	}
 	_ = calls
 }
 
-// fetchFrom testteki httptest sunucusuna istek atar.
+// fetchFrom makes the request against the httptest server in the test.
 //
-// FetchCredentials uc noktayi sabit tuttugu icin (uretimde dogru olan bu)
-// test icin HTTP istemcisini sunucuya yonlendiriyoruz.
+// Because FetchCredentials keeps the endpoint fixed (which is the right
+// thing in production) we point the HTTP client at the server for the
+// test.
 func fetchFrom(t *testing.T, base string, opts CloudflareOptions) (Credentials, error) {
 	t.Helper()
 	opts.HTTPClient = &http.Client{
@@ -282,7 +287,8 @@ func fetchFrom(t *testing.T, base string, opts CloudflareOptions) (Credentials, 
 	return FetchCredentials(context.Background(), opts)
 }
 
-// redirectTo tum istekleri verilen adrese yonlendiren bir taşıyıcı.
+// redirectTo is a transport that sends every request to the given
+// address.
 type redirectTransport struct{ base string }
 
 func redirectTo(base string) http.RoundTripper { return &redirectTransport{base: base} }

@@ -19,26 +19,26 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/wsbridge"
 )
 
-// Bu paket GERCEK bir WebSocket sunucusuna karsi kosar (httptest +
-// coder/websocket): sahte bir istemci, el sikismanin ve kapanis kodlarinin
-// dogru gectigini kanitlamaz.
+// This package runs against a REAL WebSocket server (httptest plus
+// coder/websocket): a fake client would not prove the handshake and the
+// close codes pass through correctly.
 
 func quietLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-// echoServer gelen mesajlari yankilar; /yok yolunda el sikismayi reddeder.
+// echoServer echoes the messages it receives; on the /missing path it
+// refuses the handshake.
 func echoServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/yok", func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "burada ws yok", http.StatusNotFound)
+	mux.HandleFunc("/missing", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "there is no ws here", http.StatusNotFound)
 	})
 
 	mux.HandleFunc("/origin", func(w http.ResponseWriter, r *http.Request) {
-		// Yerel sunucular Origin denetimi yapar; ajanin ne yolladigini
-		// goruyoruz.
+		// Local servers check Origin; we look at what the agent sent.
 		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 			OriginPatterns: []string{"*"},
 		})
@@ -56,7 +56,7 @@ func echoServer(t *testing.T) *httptest.Server {
 			OriginPatterns: []string{"*"},
 		})
 		if err != nil {
-			t.Logf("accept hatasi: %v", err)
+			t.Logf("accept error: %v", err)
 			return
 		}
 		defer func() { _ = c.CloseNow() }()
@@ -111,14 +111,15 @@ func TestDialEchoAndSubprotocol(t *testing.T) {
 		ID: 1, Path: "/ws?x=1", Protos: []string{"json", "vite-hmr"},
 	})
 	if err != nil {
-		t.Fatalf("baglanti kurulamadi: %v", err)
+		t.Fatalf("the connection could not be made: %v", err)
 	}
 	defer func() { _ = conn.Close(protocol.WSCloseNormal, "") }()
 
-	// Secimi SUNUCU yapar (kendi listesindeki ilk eslesme), istemcinin
-	// siralamasi degil: ajan yalnizca istegi ve sonucu tasiyor.
+	// The SERVER chooses (the first match in its own list), not the
+	// client's ordering: the agent only carries the request and the
+	// result.
 	if proto != "vite-hmr" {
-		t.Errorf("alt protokol %q, beklenen %q", proto, "vite-hmr")
+		t.Errorf("the subprotocol is %q, expected %q", proto, "vite-hmr")
 	}
 
 	if err := conn.Write(ctx, false, []byte("merhaba")); err != nil {
@@ -129,7 +130,7 @@ func TestDialEchoAndSubprotocol(t *testing.T) {
 		t.Fatal(err)
 	}
 	if binary || string(data) != "merhaba" {
-		t.Errorf("yanki: binary=%v %q", binary, data)
+		t.Errorf("the echo: binary=%v %q", binary, data)
 	}
 
 	if err := conn.Write(ctx, true, []byte{1, 2, 3}); err != nil {
@@ -140,12 +141,12 @@ func TestDialEchoAndSubprotocol(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !binary || len(data) != 3 {
-		t.Errorf("ikili yanki: binary=%v %v", binary, data)
+		t.Errorf("the binary echo: binary=%v %v", binary, data)
 	}
 }
 
-// Origin hedefin kendi origin'i olmali: yerel sunucular ziyaretcinin
-// github.io origin'ini reddederdi (BRIEF §8).
+// Origin has to be the target's own origin: local servers would refuse
+// the visitor's github.io origin (BRIEF section 8).
 func TestDialSendsTargetOrigin(t *testing.T) {
 	srv := echoServer(t)
 	d := newDialer(t, srv.URL)
@@ -164,12 +165,13 @@ func TestDialSendsTargetOrigin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(data) != srv.URL {
-		t.Errorf("Origin %q, beklenen %q", data, srv.URL)
+		t.Errorf("Origin %q, expected %q", data, srv.URL)
 	}
 }
 
-// El sikisma reddedilirse durum kodu ziyaretciye anlamli bir sebep olarak
-// gecmeli; 1011 "ic hata" degil politika.
+// If the handshake is refused the status code has to reach the visitor
+// as a meaningful reason; it is a policy close, not a 1011 "internal
+// error".
 func TestDialRejectedHandshake(t *testing.T) {
 	srv := echoServer(t)
 	d := newDialer(t, srv.URL)
@@ -177,23 +179,24 @@ func TestDialRejectedHandshake(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, _, err := d.Dial(ctx, protocol.WSOpen{ID: 1, Path: "/yok"})
+	_, _, err := d.Dial(ctx, protocol.WSOpen{ID: 1, Path: "/missing"})
 	if err == nil {
-		t.Fatal("hata beklenirdi")
+		t.Fatal("an error was expected")
 	}
 	var de *tunnel.WSDialError
 	if !errors.As(err, &de) {
-		t.Fatalf("WSDialError beklenirdi: %T", err)
+		t.Fatalf("a WSDialError was expected: %T", err)
 	}
 	if de.Code != protocol.WSClosePolicy {
-		t.Errorf("kod %d, beklenen %d", de.Code, protocol.WSClosePolicy)
+		t.Errorf("code %d, expected %d", de.Code, protocol.WSClosePolicy)
 	}
 	if !strings.Contains(de.Reason, "404") {
-		t.Errorf("sebep durum kodunu tasimali: %q", de.Reason)
+		t.Errorf("the reason has to carry the status code: %q", de.Reason)
 	}
 }
 
-// Sunucunun kapanis kodu AYNEN gecmeli (4000-4999 uygulamaya ait).
+// The server's close code has to pass through EXACTLY (4000-4999 belong
+// to the application).
 func TestReadCarriesCloseCode(t *testing.T) {
 	srv := echoServer(t)
 	d := newDialer(t, srv.URL)
@@ -210,14 +213,15 @@ func TestReadCarriesCloseCode(t *testing.T) {
 	_, _, err = conn.Read(ctx)
 	var ce *tunnel.WSCloseError
 	if !errors.As(err, &ce) {
-		t.Fatalf("WSCloseError beklenirdi: %v (%T)", err, err)
+		t.Fatalf("a WSCloseError was expected: %v (%T)", err, err)
 	}
 	if ce.Code != 4002 || ce.Reason != "sunucu kapatti" {
-		t.Errorf("kapanis: %d %q", ce.Code, ce.Reason)
+		t.Errorf("close: %d %q", ce.Code, ce.Reason)
 	}
 }
 
-// Temiz kapanis ErrWSClosedNormally donmeli: tunel bunu kod 1000'e cevirir.
+// A clean close has to return ErrWSClosedNormally: the tunnel turns that
+// into code 1000.
 func TestReadNormalClosure(t *testing.T) {
 	srv := echoServer(t)
 	d := newDialer(t, srv.URL)
@@ -229,16 +233,17 @@ func TestReadNormalClosure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Biz kapatiyoruz; sunucu da kapanisi onaylar.
+	// We close; the server confirms the close as well.
 	if err := conn.Close(protocol.WSCloseNormal, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := conn.Read(ctx); err == nil {
-		t.Fatal("kapandiktan sonra okuma basarili oldu")
+		t.Fatal("a read succeeded after the close")
 	}
 }
 
-// Yol allowlist'in disina cikamaz (BRIEF ilke 1): host path'ten turetilmez.
+// The path cannot escape the allowlist (BRIEF principle 1): the host is
+// not derived from it.
 func TestDialRejectsBadPath(t *testing.T) {
 	srv := echoServer(t)
 	d := newDialer(t, srv.URL)
@@ -249,12 +254,12 @@ func TestDialRejectsBadPath(t *testing.T) {
 	for _, bad := range []string{"//evil.example/ws", "/../../etc/passwd", "ws"} {
 		_, _, err := d.Dial(ctx, protocol.WSOpen{ID: 1, Path: bad})
 		if err == nil {
-			t.Errorf("%q kabul edildi", bad)
+			t.Errorf("%q was accepted", bad)
 			continue
 		}
 		var de *tunnel.WSDialError
 		if !errors.As(err, &de) || de.Code != protocol.WSClosePolicy {
-			t.Errorf("%q icin politika hatasi beklenirdi: %v", bad, err)
+			t.Errorf("a policy error was expected for %q: %v", bad, err)
 		}
 	}
 }
@@ -268,18 +273,18 @@ func TestNewValidation(t *testing.T) {
 		name string
 		cfg  wsbridge.Config
 	}{
-		{"hedef yok", wsbridge.Config{MaxMessage: 1, Logger: quietLogger()}},
-		{"hedef adi bos", wsbridge.Config{Targets: set, MaxMessage: 1, Logger: quietLogger()}},
-		{"bilinmeyen hedef", wsbridge.Config{
-			Targets: set, TargetName: "yok", MaxMessage: 1, Logger: quietLogger(),
+		{"no target", wsbridge.Config{MaxMessage: 1, Logger: quietLogger()}},
+		{"the target name is empty", wsbridge.Config{Targets: set, MaxMessage: 1, Logger: quietLogger()}},
+		{"an unknown target", wsbridge.Config{
+			Targets: set, TargetName: "missing", MaxMessage: 1, Logger: quietLogger(),
 		}},
-		{"mesaj siniri sifir", wsbridge.Config{
+		{"a zero message limit", wsbridge.Config{
 			Targets: set, TargetName: "default", Logger: quietLogger(),
 		}},
 		{"logger nil", wsbridge.Config{Targets: set, TargetName: "default", MaxMessage: 1}},
 	} {
 		if _, err := wsbridge.New(tc.cfg); err == nil {
-			t.Errorf("%s: hata beklenirdi", tc.name)
+			t.Errorf("%s: an error was expected", tc.name)
 		}
 	}
 }

@@ -18,16 +18,19 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
 
-// Faz 5 kabul kriteri: "simetrik NAT simulasyonunda TURN ile baglaniyor".
+// The phase 5 acceptance criterion: "it connects over TURN in a
+// symmetric NAT simulation".
 //
-// Simetrik NAT'i tek makinede taklit edemiyoruz, ama AYNI SONUCU ureten bir
-// durum kurabiliyoruz: ajani --ice-relay-only ile yalnizca relay adayi
-// toplamaya zorluyoruz. O zaman dogrudan yol IMKANSIZ olur ve tunelin
-// acilmasi, trafigin TURN'den gectiginin kanitidir. Negatif kontrol (TURN
-// yoksa hic baglanilamadigi) hemen altinda: o olmadan bu testin dogrudan
-// yoldan gecip yanlislikla yesil kalmasi mumkun olurdu.
+// We cannot imitate symmetric NAT on a single machine, but we can build a
+// situation that produces the SAME RESULT: force the agent to gather
+// relay candidates only with --ice-relay-only. Then the direct path is
+// IMPOSSIBLE and the tunnel opening is proof that the traffic went over
+// TURN. The negative control (that nothing connects without TURN) sits
+// right below: without it this test could pass over the direct path and
+// stay green by accident.
 
-// startRelayOnlyAgent ajani yalnizca relay adayi toplayacak sekilde baslatir.
+// startRelayOnlyAgent starts the agent so it gathers relay candidates
+// only.
 func startRelayOnlyAgent(t *testing.T, relayURL string, iceCfg ice.Config) *agentFixture {
 	t.Helper()
 
@@ -73,15 +76,15 @@ func startRelayOnlyAgent(t *testing.T, relayURL string, iceCfg ice.Config) *agen
 }
 
 func TestTunnelOverTURNOnly(t *testing.T) {
-	turnSrv, err := faketurn.Start(faketurn.Options{User: "kullanici", Pass: "sifre"})
+	turnSrv, err := faketurn.Start(faketurn.Options{User: "user", Pass: "sifre"})
 	if err != nil {
-		t.Fatalf("sahte TURN baslatilamadi: %v", err)
+		t.Fatalf("the fake TURN could not be started: %v", err)
 	}
 	defer func() { _ = turnSrv.Close() }()
 
 	iceCfg, err := ice.Config{
 		TURN:      []string{turnSrv.URL()},
-		User:      "kullanici",
+		User:      "user",
 		Pass:      "sifre",
 		RelayOnly: true,
 	}.Validated()
@@ -98,32 +101,33 @@ func TestTunnelOverTURNOnly(t *testing.T) {
 	a := startRelayOnlyAgent(t, relay.URL(), iceCfg)
 	v := newVisitor(t, a, "")
 
-	// Ziyaretci NORMAL yapilandirmayla geliyor (host adaylari): uretimde de
-	// boyle, TURN kimlik bilgisi sayfaya hic gitmiyor.
-	// Teshis: ajanin hangi adaylari yolladigini gormek istiyoruz.
+	// The visitor arrives with the NORMAL configuration (host
+	// candidates): that is how it is in production too, no TURN
+	// credential ever reaches the page.
+	// Diagnostics: we want to see which candidates the agent sent.
 	v.connect(settle)
 
 	if got := bodyOf(t, v, "/turn-testi"); got == "" {
-		t.Error("cevap govdesi bos")
+		t.Error("the response body is empty")
 	}
 
-	// Asil kanit: ajanin tek adayi TURN relay adayiydi, yani bu trafik
-	// TURN sunucusundan gecti.
+	// The real proof: the agent's only candidate was a TURN relay
+	// candidate, so this traffic went through the TURN server.
 	if n := turnSrv.Allocations(); n == 0 {
-		t.Error("TURN sunucusu hic allocation vermedi: baglanti relay'den gecmemis")
+		t.Error("the TURN server granted no allocation: the connection did not go over the relay")
 	}
 }
 
-// Negatif kontrol: relay-only ama TURN ulasilamaz durumda. Ajan hic
-// kullanilabilir aday toplamaz ve tunel ACILMAMALI.
+// The negative control: relay-only, but TURN is unreachable. The agent
+// gathers no usable candidate and the tunnel MUST NOT OPEN.
 //
-// Bu test olmadan yukaridaki testin dogrudan yoldan gecip yanlislikla yesil
-// kalmasi mumkun olurdu.
+// Without this test the one above could pass over the direct path and
+// stay green by accident.
 func TestRelayOnlyWithoutTURNFails(t *testing.T) {
 	iceCfg, err := ice.Config{
-		// Dinlemeyen bir adres: allocation alinamaz.
+		// An address nothing listens on: no allocation can be granted.
 		TURN:      []string{"turn:127.0.0.1:1"},
-		User:      "kullanici",
+		User:      "user",
 		Pass:      "sifre",
 		RelayOnly: true,
 	}.Validated()
@@ -141,13 +145,13 @@ func TestRelayOnlyWithoutTURNFails(t *testing.T) {
 	v := newVisitor(t, a, "")
 
 	if err := tryConnect(v, 12*time.Second); err == nil {
-		t.Error("TURN yokken relay-only ajana baglanilmamaliydi")
+		t.Error("a relay-only agent with no TURN should not have been reachable")
 	}
 }
 
-// tryConnect connect() ile ayni akisi yurutur ama basarisizlikta testi
-// DUSURMEZ, hata doner: negatif kontrolde beklenen sonuc zaten
-// baglanamamak.
+// tryConnect runs the same flow as connect() but does NOT FAIL the test
+// on failure, it returns the error: in the negative control the expected
+// outcome is exactly that nothing connects.
 func tryConnect(v *visitor, d time.Duration) error {
 	v.offer()
 
@@ -157,7 +161,7 @@ func tryConnect(v *visitor, d time.Duration) error {
 		case <-v.ready:
 			return nil
 		case <-deadline:
-			return errors.New("tunel acilmadi")
+			return errors.New("the tunnel did not open")
 		default:
 		}
 
@@ -181,7 +185,7 @@ func tryConnect(v *visitor, d time.Duration) error {
 				Candidate: msg.Candidate, SDPMid: &mid,
 			})
 		case signaling.TypeBye:
-			return errors.New("ajan bye yolladi: " + msg.Reason)
+			return errors.New("the agent sent a bye: " + msg.Reason)
 		case signaling.TypeOffer:
 			return errors.New("ajandan offer geldi")
 		}

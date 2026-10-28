@@ -12,15 +12,15 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/nostr/fakerelay"
 )
 
-// TURN kontrolu "sunucu ayakta mi" degil "bana relay adresi veriyor mu"
-// sorusunu olcer: yanlis kimlik bilgisiyle sunucu ayakta gorunup allocation
-// vermez, ve o zaman TURN hic ise yaramaz.
+// The TURN check measures "does it give me a relay address", not "is the
+// server up": with the wrong credentials the server looks up yet grants
+// no allocation, and then TURN is of no use at all.
 
 func startFakeTURN(t *testing.T) *faketurn.Server {
 	t.Helper()
-	srv, err := faketurn.Start(faketurn.Options{User: "kullanici", Pass: "sifre"})
+	srv, err := faketurn.Start(faketurn.Options{User: "user", Pass: "sifre"})
 	if err != nil {
-		t.Fatalf("sahte TURN baslatilamadi: %v", err)
+		t.Fatalf("the fake TURN could not be started: %v", err)
 	}
 	t.Cleanup(func() { _ = srv.Close() })
 	return srv
@@ -32,28 +32,28 @@ func TestCheckTURNAllocates(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cfg, err := ice.Config{TURN: []string{srv.URL()}, User: "kullanici", Pass: "sifre"}.Validated()
+	cfg, err := ice.Config{TURN: []string{srv.URL()}, User: "user", Pass: "sifre"}.Validated()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	report := doctor.CheckTURN(ctx, cfg, doctor.Options{TURNTimeout: 10 * time.Second})
 	if len(report.Servers) != 1 {
-		t.Fatalf("1 rapor beklendi, %d", len(report.Servers))
+		t.Fatalf("1 report expected, got %d", len(report.Servers))
 	}
 	got := report.Servers[0]
 	if !got.OK {
-		t.Fatalf("allocation alinamadi: %s", got.Err)
+		t.Fatalf("no allocation was granted: %s", got.Err)
 	}
-	// Asil kanit: sunucu bize bir relay adresi verdi.
+	// The real proof: the server gave us a relay address.
 	if got.RelayedAddr == "" {
-		t.Error("relay adresi bos")
+		t.Error("the relay address is empty")
 	}
 	if !report.Usable() {
-		t.Error("Usable() false")
+		t.Error("Usable() is false")
 	}
 	if srv.Allocations() == 0 {
-		t.Error("sahte sunucu allocation saymadi")
+		t.Error("the fake server counted no allocation")
 	}
 }
 
@@ -65,8 +65,8 @@ func TestCheckTURNWrongCredentials(t *testing.T) {
 
 	cfg, err := ice.Config{
 		TURN: []string{srv.URL()},
-		User: "kullanici",
-		Pass: "yanlis-sifre",
+		User: "user",
+		Pass: "wrong-password",
 	}.Validated()
 	if err != nil {
 		t.Fatal(err)
@@ -74,10 +74,10 @@ func TestCheckTURNWrongCredentials(t *testing.T) {
 
 	report := doctor.CheckTURN(ctx, cfg, doctor.Options{TURNTimeout: 5 * time.Second})
 	if report.Usable() {
-		t.Error("yanlis sifreyle allocation alinmamaliydi")
+		t.Error("no allocation should have been granted with the wrong password")
 	}
 	if report.Servers[0].Err == "" {
-		t.Error("hata mesaji olmaliydi")
+		t.Error("there should have been an error message")
 	}
 }
 
@@ -96,29 +96,30 @@ func TestCheckTURNUnreachable(t *testing.T) {
 
 	report := doctor.CheckTURN(ctx, cfg, doctor.Options{TURNTimeout: 2 * time.Second})
 	if report.Usable() {
-		t.Error("ulasilamayan sunucu basarili sayilmamali")
+		t.Error("an unreachable server should not count as a success")
 	}
 	if report.Servers[0].Err == "" {
-		t.Error("hata mesaji olmaliydi")
+		t.Error("there should have been an error message")
 	}
 }
 
-// TURN verilmediyse rapora TURN alani HIC girmemeli (JSON'da da yok).
+// With no TURN given the report must carry NO TURN field at all (none in
+// the JSON either).
 func TestRunWithoutTURN(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	report := doctor.Run(ctx, []string{"ws://127.0.0.1:1"}, ice.Config{}, quietLogger(), fastOpts)
 	if report.TURN != nil {
-		t.Error("TURN verilmediginde rapor alani nil olmali")
+		t.Error("with no TURN given the report field has to be nil")
 	}
 	if report.Advice == "" {
-		t.Error("tavsiye bos")
+		t.Error("the advice is empty")
 	}
 }
 
-// TURN istendi ama calismiyorsa OK() false olmali: sessizce 0 ile cikmak
-// kullanicinin TURN'un calistigini sanmasina yol acar.
+// If TURN was asked for but does not work, OK() has to be false: exiting
+// quietly with 0 would let the user think TURN works.
 func TestReportNotOKWhenTURNFails(t *testing.T) {
 	good, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {
@@ -148,12 +149,12 @@ func TestReportNotOKWhenTURNFails(t *testing.T) {
 		})
 
 	if len(report.UsableRelays) == 0 {
-		t.Fatal("relay kullanilabilir olmaliydi")
+		t.Fatal("the relay should have been usable")
 	}
 	if report.OK() {
-		t.Error("TURN calismiyorken OK() false olmali")
+		t.Error("OK() has to be false while TURN does not work")
 	}
 	if !strings.Contains(report.Advice, "allocation") {
-		t.Errorf("tavsiye allocation hatasini soylemeli: %q", report.Advice)
+		t.Errorf("the advice has to mention the allocation failure: %q", report.Advice)
 	}
 }

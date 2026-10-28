@@ -18,10 +18,10 @@ func TestParseServerURL(t *testing.T) {
 		{"stuns portsuz", "stuns:example.com", "stuns:example.com:5349"},
 		{"turn portsuz", "turn:example.com", "turn:example.com:3478"},
 		{"turns portsuz", "turns:example.com", "turns:example.com:5349"},
-		// UDP'yi kapatan aglarda TURN'e TCP ile baglanmanin tek yolu bu,
-		// bu yuzden query korunuyor.
+		// On networks that block UDP this is the only way to reach TURN
+		// over TCP, which is why the query is kept.
 		{"transport tcp", "turn:example.com:3478?transport=tcp", "turn:example.com:3478?transport=tcp"},
-		{"bosluk kirpilir", "  stun:example.com:3478  ", "stun:example.com:3478"},
+		{"whitespace is trimmed", "  stun:example.com:3478  ", "stun:example.com:3478"},
 		{"ipv4", "turn:203.0.113.5:3478", "turn:203.0.113.5:3478"},
 		{"ipv6", "turn:[2001:db8::1]:3478", "turn:[2001:db8::1]:3478"},
 	}
@@ -29,10 +29,10 @@ func TestParseServerURL(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := ParseServerURL(c.in)
 			if err != nil {
-				t.Fatalf("beklenmeyen hata: %v", err)
+				t.Fatalf("unexpected error: %v", err)
 			}
 			if got != c.want {
-				t.Errorf("ParseServerURL(%q) = %q, beklenen %q", c.in, got, c.want)
+				t.Errorf("ParseServerURL(%q) = %q, expected %q", c.in, got, c.want)
 			}
 		})
 	}
@@ -43,22 +43,22 @@ func TestParseServerURLRejects(t *testing.T) {
 		name string
 		in   string
 	}{
-		{"bos", ""},
-		{"yalnizca bosluk", "   "},
-		{"sema yok", "example.com:3478"},
+		{"empty", ""},
+		{"whitespace only", "   "},
+		{"no scheme", "example.com:3478"},
 		{"http", "http://example.com"},
 		{"ws", "wss://example.com"},
-		{"host yok", "turn:"},
-		// Kimlik bilgisi URL'de olamaz: adres log'a ve banner'a yaziliyor,
-		// sir tasimamali.
+		{"no host", "turn:"},
+		// Credentials cannot live in the URL: the address is written to
+		// the log and the banner, and must carry no secret.
 		{"kullanici bilgisi", "turn://user:pass@example.com:3478"},
 		{"tanimsiz query", "turn:example.com:3478?foo=bar"},
-		{"gecersiz transport", "turn:example.com:3478?transport=sctp"},
+		{"an invalid transport", "turn:example.com:3478?transport=sctp"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if got, err := ParseServerURL(c.in); err == nil {
-				t.Errorf("ParseServerURL(%q) = %q, hata beklendi", c.in, got)
+				t.Errorf("ParseServerURL(%q) = %q, an error was expected", c.in, got)
 			}
 		})
 	}
@@ -70,7 +70,7 @@ func TestNormalizeDedupes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(got) != 2 {
-		t.Errorf("Normalize = %v, 2 girdi beklendi (portsuz hali 3478'e esit)", got)
+		t.Errorf("Normalize = %v, 2 entries expected (the form without a port equals 3478)", got)
 	}
 }
 
@@ -78,17 +78,17 @@ func TestValidatedAccepts(t *testing.T) {
 	cfg, err := Config{
 		STUN: []string{"stun:example.com"},
 		TURN: []string{"turn:turn.example.com"},
-		User: "kullanici",
+		User: "user",
 		Pass: "sifre",
 	}.Validated()
 	if err != nil {
-		t.Fatalf("beklenmeyen hata: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 	if !cfg.HasTURN() {
 		t.Error("HasTURN false")
 	}
 	if cfg.Policy() != webrtc.ICETransportPolicyAll {
-		t.Error("politika all olmaliydi")
+		t.Error("the policy should have been all")
 	}
 }
 
@@ -97,32 +97,34 @@ func TestValidatedRejects(t *testing.T) {
 		name string
 		cfg  Config
 	}{
-		{"turn ama kullanici yok", Config{TURN: []string{"turn:a.example.com"}, Pass: "x"}},
-		{"turn ama sifre yok", Config{TURN: []string{"turn:a.example.com"}, User: "x"}},
-		{"kimlik ama turn yok", Config{STUN: []string{"stun:a.example.com"}, User: "x", Pass: "y"}},
-		// Relay-only + TURN yok = hic aday toplanmaz; sessizce bu duruma
-		// dusmek "sebebi anlasilmayan baglanti hatasi" demek.
-		{"relay-only ama turn yok", Config{STUN: []string{"stun:a.example.com"}, RelayOnly: true}},
+		{"turn but no user", Config{TURN: []string{"turn:a.example.com"}, Pass: "x"}},
+		{"turn but no password", Config{TURN: []string{"turn:a.example.com"}, User: "x"}},
+		{"credentials but no turn", Config{STUN: []string{"stun:a.example.com"}, User: "x", Pass: "y"}},
+		// Relay-only with no TURN means no candidate is gathered at all;
+		// falling into that silently means "a connection error nobody can
+		// explain".
+		{"relay-only but no turn", Config{STUN: []string{"stun:a.example.com"}, RelayOnly: true}},
 		{"turn alanina stun", Config{TURN: []string{"stun:a.example.com"}, User: "x", Pass: "y"}},
 		{"stun alanina turn", Config{STUN: []string{"turn:a.example.com"}}},
-		{"gecersiz adres", Config{STUN: []string{"nope"}}},
+		{"an invalid address", Config{STUN: []string{"nope"}}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if _, err := c.cfg.Validated(); err == nil {
-				t.Error("hata beklendi")
+				t.Error("an error was expected")
 			}
 		})
 	}
 }
 
-// STUN ve TURN AYRI girdiler olmali: Username/Credential girdi basinadir,
-// tek listede birlestirilirse kimlik bilgisi STUN'a da gonderilir.
+// STUN and TURN have to be SEPARATE entries: Username/Credential are per
+// entry, and merging them into one list would send the credentials to
+// STUN as well.
 func TestServersSeparatesSTUNAndTURN(t *testing.T) {
 	cfg, err := Config{
 		STUN: []string{"stun:a.example.com:3478", "stun:b.example.com:3478"},
 		TURN: []string{"turn:t.example.com:3478"},
-		User: "kullanici",
+		User: "user",
 		Pass: "sifre",
 	}.Validated()
 	if err != nil {
@@ -131,23 +133,24 @@ func TestServersSeparatesSTUNAndTURN(t *testing.T) {
 
 	servers := cfg.Servers()
 	if len(servers) != 2 {
-		t.Fatalf("girdi sayisi %d, 2 beklendi", len(servers))
+		t.Fatalf("%d entries, 2 expected", len(servers))
 	}
 	if len(servers[0].URLs) != 2 || servers[0].Username != "" || servers[0].Credential != nil {
-		t.Errorf("STUN girdisi kimlik tasimamali: %+v", servers[0])
+		t.Errorf("a STUN entry must carry no credentials: %+v", servers[0])
 	}
-	if servers[1].Username != "kullanici" || servers[1].Credential != "sifre" {
-		t.Errorf("TURN girdisi kimlik tasimali: %+v", servers[1])
+	if servers[1].Username != "user" || servers[1].Credential != "sifre" {
+		t.Errorf("a TURN entry has to carry credentials: %+v", servers[1])
 	}
 	if servers[1].CredentialType != webrtc.ICECredentialTypePassword {
-		t.Errorf("kimlik tipi %v, password beklendi", servers[1].CredentialType)
+		t.Errorf("the credential type is %v, password expected", servers[1].CredentialType)
 	}
 }
 
 func TestServersEmpty(t *testing.T) {
-	// Loopback testleri hic ICE sunucusu vermiyor: host adaylari yeterli.
+	// The loopback tests pass no ICE server at all: host candidates are
+	// enough.
 	if got := (Config{}).Servers(); len(got) != 0 {
-		t.Errorf("bos yapilandirma %v dondurdu", got)
+		t.Errorf("the empty configuration returned %v", got)
 	}
 }
 
@@ -162,17 +165,18 @@ func TestPolicyRelayOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.Policy() != webrtc.ICETransportPolicyRelay {
-		t.Errorf("politika %v, relay beklendi", cfg.Policy())
+		t.Errorf("policy %v, relay expected", cfg.Policy())
 	}
 }
 
-// Describe banner ve log'a gidiyor: SIFRE ASLA icinde olmamali.
+// Describe goes to the banner and the log: the PASSWORD must NEVER be in
+// it.
 func TestDescribeHidesPassword(t *testing.T) {
-	const pass = "cok-gizli-sifre"
+	const pass = "very-secret-password"
 	cfg, err := Config{
 		STUN: []string{"stun:a.example.com:3478"},
 		TURN: []string{"turn:t.example.com:3478"},
-		User: "kullanici",
+		User: "user",
 		Pass: pass,
 	}.Validated()
 	if err != nil {
@@ -181,11 +185,11 @@ func TestDescribeHidesPassword(t *testing.T) {
 
 	got := cfg.Describe()
 	if strings.Contains(got, pass) {
-		t.Errorf("Describe sifreyi yaziyor: %q", got)
+		t.Errorf("Describe writes the password out: %q", got)
 	}
-	for _, want := range []string{"turn:t.example.com:3478", "kullanici", "15 characters"} {
+	for _, want := range []string{"turn:t.example.com:3478", "user", "20 characters"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("Describe %q icermiyor: %q", want, got)
+			t.Errorf("Describe does not contain %q: %q", want, got)
 		}
 	}
 }
@@ -197,17 +201,17 @@ func TestDescribeWithoutTURN(t *testing.T) {
 	}
 	got := cfg.Describe()
 	if !strings.Contains(got, "no turn") {
-		t.Errorf("Describe = %q, 'no turn' beklendi", got)
+		t.Errorf("Describe = %q, 'no turn' expected", got)
 	}
 }
 
-// Varsayilan liste iki sunucu olmali: `doctor` NAT tipini iki sunucunun
-// gordugu dis portu karsilastirarak tahmin ediyor.
+// The default list has to hold two servers: `doctor` guesses the NAT
+// type by comparing the external port the two servers see.
 func TestDefaultSTUNHasTwoServers(t *testing.T) {
 	if len(DefaultSTUN) < 2 {
-		t.Errorf("DefaultSTUN %d sunucu; NAT tahmini icin en az 2 gerekiyor", len(DefaultSTUN))
+		t.Errorf("DefaultSTUN has %d servers; the NAT guess needs at least 2", len(DefaultSTUN))
 	}
 	if _, err := Normalize(DefaultSTUN); err != nil {
-		t.Errorf("varsayilan liste kendi dogrulamasini gecmiyor: %v", err)
+		t.Errorf("the default list does not pass its own validation: %v", err)
 	}
 }

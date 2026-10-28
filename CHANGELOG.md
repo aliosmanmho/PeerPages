@@ -101,9 +101,11 @@ record, with a note saying so.
 
 New `scripts/check-language.mjs`: a list of ASCII-ised Turkish words
 (`govde`, `cerceve`, `gecersiz`, `baglanti`, `oturum`, …) plus a
-word-bounded regex for the diacritics. `node_modules`, `dist`, `.git`,
-this file's commit quotations and BRIEF section 10 are excluded. A non-zero
-count exits 1. Adding it to CI waits for the Actions lock to be lifted.
+word-bounded regex for the diacritics. `node_modules`, `dist`, `.git`, the
+Turkish dictionary with its tests, and the historical prompt in BRIEF
+section 10 are excluded; a single line can opt out with a `lang-ok` marker.
+A non-zero count exits 1. Adding it to CI waits for the Actions lock to be
+lifted.
 
 #### Tests
 

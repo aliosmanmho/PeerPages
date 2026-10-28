@@ -110,7 +110,7 @@ async function b(e, t, n) {
 	if (!r) n.postMessage({
 		type: "ws-close",
 		code: 1013,
-		reason: "tunel yok"
+		reason: "no tunnel"
 	}), n.close();
 	else try {
 		r.postMessage({
@@ -122,7 +122,7 @@ async function b(e, t, n) {
 		n.postMessage({
 			type: "ws-close",
 			code: 1011,
-			reason: "kopru kurulamadi"
+			reason: "bridge failed"
 		}), n.close();
 	}
 }
@@ -132,7 +132,7 @@ self.addEventListener("fetch", (e) => {
 });
 async function x(n, r) {
 	let i = await O();
-	if (!i && Date.now() < g && (await y(n.mode === "navigate" ? t : e), i = await O()), !i) return n.mode === "navigate" ? Response.redirect(new URL(`${f}connect/`, self.location.origin).toString(), 302) : new Response("peerpages: tunel acik degil\n", {
+	if (!i && Date.now() < g && (await y(n.mode === "navigate" ? t : e), i = await O()), !i) return n.mode === "navigate" ? Response.redirect(new URL(`${f}connect/`, self.location.origin).toString(), 302) : new Response("peerpages: tunnel is not open\n", {
 		status: 503,
 		headers: {
 			"content-type": "text/plain; charset=utf-8",
@@ -143,7 +143,7 @@ async function x(n, r) {
 	if (n.method !== "GET" && n.method !== "HEAD") try {
 		a = await C(n);
 	} catch (e) {
-		return new Response(`peerpages: istek govdesi okunamadi (${String(e)})\n`, {
+		return new Response(`peerpages: request body unreadable (${String(e)})\n`, {
 			status: 413,
 			headers: { "content-type": "text/plain; charset=utf-8" }
 		});
@@ -154,7 +154,7 @@ async function x(n, r) {
 		let i = await O();
 		i && (o = await w(i, n, r, a));
 	}
-	return o === S ? new Response("peerpages: tunel acik degil\n", {
+	return o === S ? new Response("peerpages: tunnel is not open\n", {
 		status: 502,
 		headers: {
 			"content-type": "text/plain; charset=utf-8",
@@ -166,7 +166,7 @@ var S = Symbol("retry-tunnel");
 async function C(e) {
 	let t = await e.clone().arrayBuffer();
 	if (t.byteLength === 0) return null;
-	if (t.byteLength > 16777216) throw Error(`govde cok buyuk: ${t.byteLength} bayt`);
+	if (t.byteLength > 16777216) throw Error(`body too large: ${t.byteLength} bytes`);
 	return t;
 }
 function w(e, t, n, r) {

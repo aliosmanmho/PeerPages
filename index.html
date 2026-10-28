@@ -1,27 +1,31 @@
 <!doctype html>
-<html lang="tr">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
     <title>PeerPages</title>
-    <script type="module" crossorigin src="/PeerPages/assets/boot-DHRmFrs2.js"></script>
+    <script type="module" crossorigin src="/PeerPages/assets/boot-B53rD8EF.js"></script>
     <link rel="modulepreload" crossorigin href="/PeerPages/assets/base-D_0kx8x0.js">
   </head>
   <body>
     <!--
-      Scope kokundeki onyukleyici.
+      Bootloader at the scope root.
       =============================
-      Bu sayfa yalnizca ILK ziyarette (Service Worker henuz yokken) ya da
-      tunel kapaliyken gorulur. Isi: SW'yi kurmak ve baglanti ekranina
-      (connect/) gecmek.
+      This page is only seen on the FIRST visit (before the Service Worker
+      exists) or while the tunnel is closed. Its job: install the SW and move
+      on to the connect screen (connect/).
 
-      Tunel acikken bu URL hic buraya gelmez: SW onu yerel sitenin kokune
-      proxy'ler. Boylece ziyaretci sitenin kokunu "github.io/PeerPages/"
-      adresinde gorur, baglanti ekrani ise ayri bir yolda durur ve tunel
-      sahibi sekme yenilenince tunel kendini kapatmaz.
+      While the tunnel is open this URL never gets here: the SW proxies it to
+      the root of the local site. That way the visitor sees the site's root at
+      "github.io/PeerPages/", the connect screen lives on a separate path, and
+      refreshing the tunnel-owner tab does not close the tunnel.
+
+      The text is deliberately not translated: this page is visible for a few
+      hundred milliseconds and pulling in the dictionary would cost more than
+      it is worth. The connect screen it hands over to is translated.
     -->
-    <p id="boot-msg">PeerPages hazirlaniyor…</p>
-    <noscript>PeerPages JavaScript gerektirir.</noscript>
+    <p id="boot-msg">Preparing PeerPages…</p>
+    <noscript>PeerPages needs JavaScript.</noscript>
   </body>
 </html>

@@ -1,0 +1,2 @@
+import{n as e,r as t}from"./base-D_0kx8x0.js";async function n(){let n=document.getElementById(`boot-msg`);if(`serviceWorker`in navigator)try{await navigator.serviceWorker.register(t(`sw.js`),{scope:t(``)})}catch(e){n&&(n.textContent=`Service Worker could not be installed: ${String(e)}`);return}location.replace(e+location.hash)}n();
+//# sourceMappingURL=boot-B53rD8EF.js.map

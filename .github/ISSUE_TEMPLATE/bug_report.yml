@@ -1,0 +1,71 @@
+name: Bug report
+description: Something does not work the way the docs say it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Before filing: if the tunnel will not
+        connect, run `peerpages doctor` first — it usually names the cause
+        (symmetric NAT, unreachable relays, no TURN).
+
+        **Do not report security problems here.** See
+        [SECURITY.md](https://github.com/aliosmanmho/PeerPages/blob/main/docs/SECURITY.md).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+      placeholder: |
+        I ran `peerpages serve --target http://localhost:3000`, opened the
+        printed URL, and the connect screen stopped at "ICE".
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands and URLs. Mask your peer-id if you prefer.
+      placeholder: |
+        1. peerpages serve --target http://localhost:3000
+        2. open the printed URL in Chrome
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: agent-version
+    attributes:
+      label: Agent version
+      description: Output of `peerpages version`.
+      placeholder: peerpages dev (70edcb8)
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS and browser
+      placeholder: Windows 11 / Chrome 140, visitor on iOS Safari
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`peerpages doctor` output"
+      description: >
+        Helps for anything connection-related. Paste the whole output; it
+        contains no secrets (relay URLs, NAT verdict, TURN result).
+      render: text
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Agent log
+      description: >
+        Run with `--verbose` if you can. Note that `--verbose` disables URL
+        path masking, so review the output before pasting.
+      render: text

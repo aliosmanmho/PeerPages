@@ -31,7 +31,7 @@ You need [Go 1.27+](https://go.dev/dl/) for now; prebuilt binaries land with the
 first tagged release.
 
 ```bash
-go install github.com/aliosmanmho/PeerPages/agent@latest
+go install github.com/aliosmanmho/PeerPages/agent/cmd/peerpages@latest
 ```
 
 Start whatever you already run locally (`npm run dev`, `python -m http.server`,

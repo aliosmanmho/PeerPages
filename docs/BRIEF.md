@@ -272,7 +272,9 @@ automatically.
     subresources wait 10 s and navigations 3 s; a GET/HEAD caught by a
     drop mid-request is retried once.
 - goreleaser: Windows/macOS/Linux × amd64/arm64,
-  `go install github.com/aliosmanmho/PeerPages/agent@latest`, and a
+  `go install github.com/aliosmanmho/PeerPages/agent/cmd/peerpages@latest`
+  (phase 8 added the `cmd/peerpages` path: the older `…/agent@latest`
+  installs the binary as `agent`, see `docs/INSTALL.md`), and a
   Scoop/Homebrew tap **draft** (the tap repositories do not exist and
   uploading is off). The release opens as a **draft**.
   `peerpages version` prints the version, commit, date and platform; a

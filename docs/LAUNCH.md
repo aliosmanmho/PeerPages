@@ -222,7 +222,7 @@ Put the company account name in place of `<company-account>`.
 In order, each one **actually tried**:
 
 - [ ] The Pages site is live and the connect screen opens.
-- [ ] `go install github.com/aliosmanmho/PeerPages/agent@latest` works **on
+- [ ] `go install github.com/aliosmanmho/PeerPages/agent/cmd/peerpages@latest` works **on
       a clean machine** (or at least in a clean `GOPATH`).
 - [ ] When the agent runs with no flags, the URL it prints **really
       opens** (`DefaultAppURL` is right).

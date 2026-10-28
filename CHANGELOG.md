@@ -6,6 +6,34 @@ versioned yet; entries are kept per phase.
 
 ## [Unreleased]
 
+### After phase 8 - the pre-launch checklist
+
+Working through `docs/LAUNCH.md` section 6 on a clean `GOPATH` turned up
+two things that would have greeted the first visitor:
+
+- **The binary installed under the wrong name.** `go install
+  .../PeerPages/agent@latest` names the binary after the last element of
+  the module path, so it landed as `agent` while every document and every
+  release archive calls it `peerpages`: the README quickstart's second
+  command, `peerpages serve --target …`, failed for anyone who followed
+  it. New `agent/cmd/peerpages` forwards to the same `cli.Execute`, and
+  the documented command is now
+  `go install github.com/aliosmanmho/PeerPages/agent/cmd/peerpages@latest`.
+  The module root stays a main package, so the old path still works — it
+  just installs as `agent`.
+- **The security reporting channel did not exist.** Both SECURITY files
+  name GitHub Security Advisories as the preferred channel, but private
+  vulnerability reporting was off on the repository. It is on now.
+
+Also checked and found good: the live site, the printed visitor URL
+(`DefaultAppURL`), every README command, every documentation link (five
+external, all 200), and the repository description, homepage and topics.
+The README images were retaken with the English interface, and the sample
+API items became `alpha`/`beta`/`gamma`.
+
+Still open: the demo GIF (a real screen recording, yours to make) and the
+`v0.1.0` tag.
+
 ### Phase 8 - An English project plus a multilingual page
 
 The repository is English from end to end, and the web page speaks both

@@ -219,25 +219,40 @@ Put the company account name in place of `<company-account>`.
 
 ## 6. The checklist before launching
 
-In order, each one **actually tried**:
+In order, each one **actually tried**. The boxes ticked below were worked
+through on 2026-10-28; what is left needs either your machine or your
+decision.
 
-- [ ] The Pages site is live and the connect screen opens.
-- [ ] `go install github.com/aliosmanmho/PeerPages/agent/cmd/peerpages@latest` works **on
-      a clean machine** (or at least in a clean `GOPATH`).
-- [ ] When the agent runs with no flags, the URL it prints **really
-      opens** (`DefaultAppURL` is right).
-- [ ] Every command in the README is copy-and-run: a single command with a
+- [x] The Pages site is live and the connect screen opens. (English by
+      default, `?lang=tr` switches it, verified live.)
+- [x] `go install github.com/aliosmanmho/PeerPages/agent/cmd/peerpages@latest` works **on
+      a clean machine** (or at least in a clean `GOPATH`). This check is
+      what found the binary-name bug: the old `…/agent@latest` path
+      installed it as `agent`, so the quickstart's second command failed.
+- [x] When the agent runs with no flags, the URL it prints **really
+      opens** (`DefaultAppURL` is right). Checked with the installed
+      binary: 3/4 relays, the printed address is the live one.
+- [x] Every command in the README is copy-and-run: a single command with a
       typo decides the first comment on Show HN.
-- [ ] Every link in the README resolves (the images included).
-- [ ] The reporting channel in `docs/SECURITY.md` really works (is the
-      Security Advisories tab enabled).
-- [ ] The GIF is in place and under 2 MB.
-- [ ] The repository description (`gh repo edit --description`) and
+- [x] Every link in the README resolves (the images included). All five
+      external links answer 200; the only unresolved relative link is
+      `docs/img/demo.gif` inside the snippet above, which is waiting for
+      the GIF.
+- [x] The reporting channel in `docs/SECURITY.md` really works (is the
+      Security Advisories tab enabled). It was **off**; private
+      vulnerability reporting is enabled now, so the "preferred" channel
+      in both SECURITY files is real.
+- [ ] The GIF is in place and under 2 MB. **Yours to record** — see
+      section 1. A scripted capture would be exactly the synthetic
+      animation this document argues against.
+- [x] The repository description (`gh repo edit --description`) and
       `homepageUrl` are filled in; the topics are added (`webrtc`,
       `nostr`, `tunnel`, `service-worker`, `golang`).
 - [ ] The first-tag decision: launching without a tag means there is no
       download link, only `go install`. Do you want to push `v0.1.0`?
       (The "no tag yet" note in `docs/INSTALL.md` goes away then.)
+      The tag text and the release build are ready; pushing it is the
+      step that makes it public.
 - [ ] Set aside 2–3 hours for launch day: not answering the questions that
       arrive in the first hour kills a Show HN post.
 

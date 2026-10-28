@@ -118,10 +118,17 @@ picker); `sw.js` 2.71 KB and `ws-shim.js` 1.88 KB unchanged.
 
 #### Acceptance status
 
-Met: the page opens in English, `?lang=tr` turns the whole screen Turkish,
-the choice survives a reload, and the guard script reports zero leftover
-Turkish. GitHub Actions is still locked, so CI did not run on the PR; the
-test results above were produced locally.
+**Met, and verified LIVE.** The branch was squash-merged
+(github.com/aliosmanmho/PeerPages/pull/1) and the app shell republished; on
+https://aliosmanmho.github.io/PeerPages/connect/ a first-time visitor gets
+`<html lang="en">` and "Serverless tunnel", `?lang=tr` turns the whole
+screen Turkish and the choice is remembered, and `?lang=zz` falls back to
+English with a console warning instead of an error. The guard script reports
+zero leftover Turkish.
+
+GitHub Actions is still billing-locked, so CI did not run on the PR (the
+test results above were produced locally) and publishing again went through
+the `gh-pages` branch rather than pages.yml (26 s).
 
 ### Phase 0 — The skeleton
 

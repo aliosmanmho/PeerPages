@@ -386,7 +386,13 @@ the lock is gone (section 8).
 page speaks two languages with English as the default.
 **Status:** met — `web/e2e/i18n.spec.ts` verifies the English default,
 `?lang=tr`, the fallback for an unknown `?lang=` and that the picker
-survives a reload; the guard script reports zero.
+survives a reload; the guard script reports zero. **Verified LIVE** after
+the merge: a first-time visitor to
+https://aliosmanmho.github.io/PeerPages/connect/ gets `<html lang="en">`
+and "Serverless tunnel", `?lang=tr` turns the whole screen Turkish and the
+choice is remembered, and `?lang=zz` falls back to English with a console
+warning instead of an error. Publishing again went through the `gh-pages`
+branch (26 s), because Actions is still billing-locked.
 
 ## 6. The security principles (they hold in every phase)
 

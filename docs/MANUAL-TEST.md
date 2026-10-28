@@ -47,7 +47,7 @@ go run . testsite --port 3000
 big.bin sha256: f2793bdc…
 ```
 
-Test sitesinde HTML, CSS, JS, bir PNG, `/api/items` JSON ucu, `/yonlendir`
+Test sitesinde HTML, CSS, JS, bir PNG, `/api/items` JSON ucu, `/redirect`
 (302) ve `/sse` var; ayrıca 5 MB'lık `big.bin` (ilk çalıştırmada üretilir).
 
 ## 2. Web uygulamasını yayınla
@@ -167,9 +167,9 @@ Yeni sekmede sırayla kontrol et:
 | 3 | JS | "API" listesinde `alfa = 1`, `beta = 2`, `gama = 3` |
 | 4 | Görsel | 64×64 damalı logo yüklendi |
 | 5 | fetch/JSON | 3. madde zaten bunu kanıtlıyor (`/api/items`) |
-| 6 | Yönlendirme | `…/PeerPages/yonlendir` adresi siteye dönüyor, adres çubuğu `localhost:3000`'e **atlamıyor** |
+| 6 | Yönlendirme | `…/PeerPages/redirect` adresi siteye dönüyor, adres çubuğu `localhost:3000`'e **atlamıyor** |
 | 7 | 5 MB indirme | `…/PeerPages/big.bin` iniyor, 5.242.880 bayt |
-| 8 | SSE | `…/PeerPages/sse` üç `data: olay-N` satırı gösteriyor |
+| 8 | SSE | `…/PeerPages/sse` üç `data: event-N` satırı gösteriyor |
 
 DevTools → Network'te isteklerin "Service Worker"dan geldiğini,
 `localhost:3000`'e **hiç** istek gitmediğini görürsün. Ajan terminalinde

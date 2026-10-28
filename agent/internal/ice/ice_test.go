@@ -183,7 +183,7 @@ func TestDescribeHidesPassword(t *testing.T) {
 	if strings.Contains(got, pass) {
 		t.Errorf("Describe sifreyi yaziyor: %q", got)
 	}
-	for _, want := range []string{"turn:t.example.com:3478", "kullanici", "15 karakter"} {
+	for _, want := range []string{"turn:t.example.com:3478", "kullanici", "15 characters"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Describe %q icermiyor: %q", want, got)
 		}
@@ -196,8 +196,8 @@ func TestDescribeWithoutTURN(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := cfg.Describe()
-	if !strings.Contains(got, "turn yok") {
-		t.Errorf("Describe = %q, 'turn yok' beklendi", got)
+	if !strings.Contains(got, "no turn") {
+		t.Errorf("Describe = %q, 'no turn' beklendi", got)
 	}
 }
 

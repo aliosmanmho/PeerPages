@@ -1,20 +1,24 @@
-// Package doctor relay'lerin ve ag yolunun saglik kontrolu.
+// Package doctor is the health check for the relays and the network
+// path.
 //
-// Neden Faz 2'nin ILK adimi: BRIEF bolum 4 "gercek relay listesini Faz 2'de
-// canli test edip guncelle" diyor ve bolum 8 "bazi relay'ler ephemeral
-// event'leri dusurebilir" uyarisini tasiyor. Signaling akisini yazmadan once
-// relay'lerin gercekten ise yaradigini olcmek gerekiyor; aksi halde
-// calismayan bir relay listesi uzerine korlemesine kod yazilir.
+// Why it was the FIRST step of phase 2: BRIEF section 4 says "test the
+// real relay list live in phase 2 and update it", and section 8 carries
+// the warning that "some relays may drop ephemeral events". Before
+// writing the signaling flow we had to measure that the relays really
+// work; otherwise code gets written blind on top of a relay list that
+// does not.
 //
-// Her relay icin sirayla:
-//  1. NIP-11 bilgi dokumani  — auth gerekiyor mu, sinirlar ne?
-//  2. WebSocket baglantisi   — ulasilabiliyor mu, ne kadar surede?
-//  3. Ephemeral yankı testi  — kind 25050 yayinlanip ABONEDEN geri okunuyor
-//     mu? Bu en kritik adim: relay event'i "OK" ile kabul edip sessizce
-//     dusurebilir, o zaman signaling calismaz.
+// For each relay, in order:
+//  1. the NIP-11 information document — does it want auth, what are the
+//     limits?
+//  2. the WebSocket connection — is it reachable, and how fast?
+//  3. the ephemeral echo test — can a kind 25050 event be published and
+//     read back FROM A SUBSCRIPTION? This is the critical step: a relay
+//     can accept the event with "OK" and drop it silently, and then
+//     signaling does not work.
 //
-// Ayrica STUN erisimi ve NAT tipi tahmini (BRIEF Faz 4'te duruyor ama
-// baglanti sorunlarinin teshisi icin burada lazim).
+// Plus STUN reachability and the NAT type guess (which belongs to BRIEF
+// phase 4, but is needed here to diagnose connection problems).
 package doctor
 
 import (
@@ -36,22 +40,23 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/nostr"
 )
 
-// Varsayilan sureler.
+// The default durations.
 const (
-	// DefaultNip11Timeout bilgi dokumani icin.
+	// DefaultNip11Timeout bounds the information document.
 	DefaultNip11Timeout = 8 * time.Second
-	// DefaultConnectTimeout WebSocket baglantisi icin.
+	// DefaultConnectTimeout bounds the WebSocket connection.
 	DefaultConnectTimeout = 10 * time.Second
-	// DefaultEchoTimeout yayinlanan event'in aboneden geri gelmesi icin.
+	// DefaultEchoTimeout bounds a published event coming back from the
+	// subscription.
 	DefaultEchoTimeout = 8 * time.Second
-	// DefaultSTUNTimeout tek bir STUN sorgusu icin.
+	// DefaultSTUNTimeout bounds a single STUN query.
 	DefaultSTUNTimeout = 5 * time.Second
 )
 
-// Options sureleri ayarlanabilir kilar.
+// Options makes the durations tunable.
 //
-// Sifir birakilan alanlar varsayilana duser. Testler kisa sureler vererek
-// kosum suresini dusurur; uretimde varsayilanlar kullanilir.
+// Fields left at zero fall back to the defaults. Tests pass short
+// durations to cut the run time; production uses the defaults.
 type Options struct {
 	Nip11Timeout   time.Duration
 	ConnectTimeout time.Duration
@@ -79,24 +84,26 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
-// Verdict bir relay'in kullanilabilirlik karari.
+// Verdict is the usability verdict on a relay.
 type Verdict string
 
-// Olasi kararlar.
+// The possible verdicts.
 const (
-	// VerdictUsable relay signaling icin kullanilabilir.
-	VerdictUsable Verdict = "uygun"
-	// VerdictUnreachable baglanti kurulamadi.
-	VerdictUnreachable Verdict = "ulasilamadi"
-	// VerdictAuthRequired NIP-42 auth istiyor; BRIEF bunlari atlamamizi soyluyor.
-	VerdictAuthRequired Verdict = "atla: auth istiyor"
-	// VerdictRejected yayin reddedildi.
-	VerdictRejected Verdict = "atla: yayin reddedildi"
-	// VerdictDropsEphemeral yayin kabul edildi ama event aboneye ulasmadi.
-	VerdictDropsEphemeral Verdict = "atla: ephemeral dusuruyor"
+	// VerdictUsable means the relay can be used for signaling.
+	VerdictUsable Verdict = "usable"
+	// VerdictUnreachable means the connection could not be established.
+	VerdictUnreachable Verdict = "unreachable"
+	// VerdictAuthRequired means it wants NIP-42 auth; BRIEF says to skip
+	// those.
+	VerdictAuthRequired Verdict = "skip: wants auth"
+	// VerdictRejected means the publish was refused.
+	VerdictRejected Verdict = "skip: publish refused"
+	// VerdictDropsEphemeral means the publish was accepted but the event
+	// never reached the subscriber.
+	VerdictDropsEphemeral Verdict = "skip: drops ephemeral"
 )
 
-// Nip11Summary bilgi dokumanindan ise yarayan alanlar.
+// Nip11Summary holds the useful fields of the information document.
 type Nip11Summary struct {
 	Name             string `json:"name,omitempty"`
 	Software         string `json:"software,omitempty"`
@@ -109,7 +116,7 @@ type Nip11Summary struct {
 	MinPowDifficulty int    `json:"min_pow_difficulty,omitempty"`
 }
 
-// RelayReport tek bir relay'in sonucu.
+// RelayReport is a single relay's result.
 type RelayReport struct {
 	URL       string        `json:"url"`
 	Verdict   Verdict       `json:"verdict"`
@@ -124,10 +131,10 @@ type RelayReport struct {
 	Err       string        `json:"err,omitempty"`
 }
 
-// Usable relay signaling icin kullanilabilir mi.
+// Usable says whether the relay can be used for signaling.
 func (r RelayReport) Usable() bool { return r.Verdict == VerdictUsable }
 
-// STUNServerReport tek bir STUN sunucusunun sonucu.
+// STUNServerReport is a single STUN server's result.
 type STUNServerReport struct {
 	URL      string  `json:"url"`
 	OK       bool    `json:"ok"`
@@ -137,46 +144,50 @@ type STUNServerReport struct {
 	Err      string  `json:"err,omitempty"`
 }
 
-// NATVerdict NAT tipi tahmini.
+// NATVerdict is the NAT type guess.
 type NATVerdict string
 
-// Olasi NAT kararlari.
+// The possible NAT verdicts.
 const (
-	// NATUnknown yeterli veri yok (tek sunucuya ulasildi ya da hic ulasilamadi).
-	NATUnknown NATVerdict = "bilinmiyor"
-	// NATFriendly iki STUN sunucusu ayni dis portu gordu: endpoint-independent
-	// mapping. WebRTC dogrudan baglanti kurabilir.
-	NATFriendly NATVerdict = "uyumlu (TURN gerekmez)"
-	// NATSymmetric portlar farkli: simetrik NAT. TURN gerekebilir (Faz 5).
-	NATSymmetric NATVerdict = "simetrik (TURN gerekebilir)"
-	// NATNoSTUN hicbir STUN sunucusuna ulasilamadi.
-	NATNoSTUN NATVerdict = "STUN'a ulasilamadi"
+	// NATUnknown means there is not enough data (only one server was
+	// reached, or none at all).
+	NATUnknown NATVerdict = "unknown"
+	// NATFriendly means two STUN servers saw the same external port:
+	// endpoint-independent mapping. WebRTC can connect directly.
+	NATFriendly NATVerdict = "friendly (no TURN needed)"
+	// NATSymmetric means the ports differ: symmetric NAT. TURN may be
+	// needed (phase 5).
+	NATSymmetric NATVerdict = "symmetric (TURN may be needed)"
+	// NATNoSTUN means no STUN server could be reached.
+	NATNoSTUN NATVerdict = "STUN unreachable"
 )
 
-// STUNReport STUN bolumunun sonucu.
+// STUNReport is the result of the STUN section.
 type STUNReport struct {
 	Servers []STUNServerReport `json:"servers"`
 	Verdict NATVerdict         `json:"verdict"`
 	Note    string             `json:"note,omitempty"`
 }
 
-// Report doctor'un tum sonucu.
+// Report is doctor's whole result.
 type Report struct {
 	Relays []RelayReport `json:"relays"`
 	STUN   STUNReport    `json:"stun"`
-	// TURN yalnizca --turn verildiginde doldurulur.
+	// TURN is only filled in when --turn was given.
 	TURN *TURNReport `json:"turn,omitempty"`
-	// UsableRelays kullanilabilir relay adresleri.
+	// UsableRelays are the addresses of the usable relays.
 	UsableRelays []string `json:"usable_relays"`
-	// Advice NAT karari ile TURN sonucunu birlestiren tek cumle.
+	// Advice is the one sentence that joins the NAT verdict and the TURN
+	// result.
 	Advice string `json:"advice"`
 }
 
-// OK ajan calisabilir durumda mi.
+// OK says whether the agent is in a state where it can work.
 //
-// Iki kosul: en az bir kullanilabilir relay VE (TURN verilmediyse ya da
-// verilen TURN'lerden en az biri allocation veriyorsa). Simetrik NAT tek
-// basina hata DEGIL — bir ag gercegi; o yuzden karari etkilemiyor.
+// Two conditions: at least one usable relay AND (either no TURN was given
+// or at least one of the given TURNs grants an allocation). Symmetric NAT
+// alone is NOT a failure — it is a fact about the network, so it does not
+// affect the verdict.
 func (r Report) OK() bool {
 	if len(r.UsableRelays) == 0 {
 		return false
@@ -187,30 +198,30 @@ func (r Report) OK() bool {
 	return true
 }
 
-// advice NAT karari ile TURN sonucundan tavsiye uretir.
+// advice builds the advice from the NAT verdict and the TURN result.
 func advice(stun STUNReport, turn *TURNReport) string {
 	turnWorks := turn != nil && turn.Usable()
 
 	switch {
 	case turn != nil && !turnWorks:
-		return "TURN verildi ama allocation alinamadi: adres ve kimlik bilgisini kontrol et."
+		return "TURN was given but no allocation was granted: check the address and the credentials."
 	case stun.Verdict == NATNoSTUN:
-		return "STUN'a ulasilamadi: UDP disariya kapali olabilir, bu durumda TURN da calismayabilir."
+		return "STUN is unreachable: outbound UDP may be blocked, in which case TURN may not work either."
 	case stun.Verdict == NATSymmetric && turnWorks:
-		return "NAT simetrik ama TURN hazir: baglanamayan ziyaretciler relay uzerinden gecer."
+		return "The NAT is symmetric but TURN is ready: visitors that cannot connect go over the relay."
 	case stun.Verdict == NATSymmetric:
-		return "NAT simetrik ve TURN verilmedi: karsi taraf da simetrik NAT arkasindaysa " +
-			"baglanti kurulamaz. --turn ile bir TURN sunucusu ver (docs/TURN.md)."
+		return "The NAT is symmetric and no TURN was given: if the other side is behind symmetric NAT too, " +
+			"no connection can be made. Pass a TURN server with --turn (docs/TURN.md)."
 	case stun.Verdict == NATFriendly && turnWorks:
-		return "NAT uyumlu; TURN de hazir ama ICE dogrudan yolu tercih eder."
+		return "The NAT is friendly; TURN is ready too, but ICE prefers the direct path."
 	case stun.Verdict == NATFriendly:
-		return "NAT uyumlu: TURN gerekmez."
+		return "The NAT is friendly: no TURN needed."
 	default:
-		return "NAT tipi belirlenemedi: en az iki STUN sunucusuna ulasmak gerekiyor."
+		return "The NAT type could not be determined: at least two STUN servers have to be reachable."
 	}
 }
 
-// CheckRelays verilen relay'leri paralel olarak test eder.
+// CheckRelays tests the given relays in parallel.
 func CheckRelays(ctx context.Context, urls []string, log *slog.Logger, opts Options) []RelayReport {
 	opts = opts.withDefaults()
 	reports := make([]RelayReport, len(urls))
@@ -237,25 +248,26 @@ func checkRelay(ctx context.Context, raw string, log *slog.Logger, opts Options)
 	}
 	report.URL = normalized
 
-	// 1) NIP-11: auth isteyen relay'leri yayin denemeden once anlayabiliriz.
+	// 1) NIP-11: we can spot the relays that want auth before trying to
+	// publish.
 	if summary, err := fetchNip11(ctx, normalized, opts.Nip11Timeout); err != nil {
 		report.Nip11Err = err.Error()
 	} else {
 		report.Nip11 = summary
 		if summary.AuthRequired {
 			report.Verdict = VerdictAuthRequired
-			// Yine de baglanti denemesi yapalim ki sure olculsun.
+			// Try the connection anyway, so the timing gets measured.
 		}
 	}
 
-	// 2) Baglanti.
+	// 2) The connection.
 	connectCtx, cancelConnect := context.WithTimeout(ctx, opts.ConnectTimeout)
 	defer cancelConnect()
 
 	started := time.Now()
 	relay, err := gonostr.RelayConnect(connectCtx, normalized)
 	if err != nil {
-		report.Err = fmt.Sprintf("baglanti: %v", err)
+		report.Err = fmt.Sprintf("connection: %v", err)
 		return report
 	}
 	defer func() { _ = relay.Close() }()
@@ -267,12 +279,13 @@ func checkRelay(ctx context.Context, raw string, log *slog.Logger, opts Options)
 		return report
 	}
 
-	// 3) Ephemeral yanki testi: ONCE abone ol, SONRA yayinla.
-	// Ephemeral event saklanmaz; dinlemiyorsan kacirirsin.
+	// 3) The ephemeral echo test: subscribe FIRST, publish AFTER. An
+	// ephemeral event is not stored; if you are not listening you miss
+	// it.
 	sk := gonostr.GeneratePrivateKey()
 	pub, err := gonostr.GetPublicKey(sk)
 	if err != nil {
-		report.Err = fmt.Sprintf("anahtar: %v", err)
+		report.Err = fmt.Sprintf("key: %v", err)
 		return report
 	}
 
@@ -282,30 +295,31 @@ func checkRelay(ctx context.Context, raw string, log *slog.Logger, opts Options)
 	filter := nostr.SignalingFilter(pub, time.Now().Add(-time.Minute))
 	sub, err := relay.Subscribe(echoCtx, gonostr.Filters{filter})
 	if err != nil {
-		report.Err = fmt.Sprintf("abonelik: %v", err)
+		report.Err = fmt.Sprintf("subscription: %v", err)
 		return report
 	}
 	defer sub.Unsub()
 
-	// EOSE'i bekle: abonelik gercekten kuruldu demek.
+	// Wait for the EOSE: it means the subscription really is up.
 	select {
 	case <-sub.EndOfStoredEvents:
 	case <-echoCtx.Done():
-		report.Err = "abonelik kurulamadi (EOSE gelmedi)"
+		report.Err = "the subscription could not be established (no EOSE)"
 		return report
 	}
 
-	// Kendimize yolluyoruz: baskasinin trafigine karismaz.
+	// We send it to ourselves: it does not get mixed up with anyone
+	// else's traffic.
 	ev := nostr.NewSignalingEvent(pub, "peerpages-doctor-"+randomHex())
 	if err := ev.Sign(sk); err != nil {
-		report.Err = fmt.Sprintf("imza: %v", err)
+		report.Err = fmt.Sprintf("signature: %v", err)
 		return report
 	}
 
 	publishStarted := time.Now()
 	if err := relay.Publish(echoCtx, ev); err != nil {
 		report.Verdict = VerdictRejected
-		report.Err = fmt.Sprintf("yayin: %v", err)
+		report.Err = fmt.Sprintf("publish: %v", err)
 		return report
 	}
 	report.Published = true
@@ -317,7 +331,7 @@ func checkRelay(ctx context.Context, raw string, log *slog.Logger, opts Options)
 		case got, ok := <-sub.Events:
 			if !ok {
 				report.Verdict = VerdictDropsEphemeral
-				report.Err = "abonelik kapandi, event geri gelmedi"
+				report.Err = "the subscription closed and the event never came back"
 				return report
 			}
 			if got == nil || got.ID != ev.ID {
@@ -326,16 +340,17 @@ func checkRelay(ctx context.Context, raw string, log *slog.Logger, opts Options)
 			report.Echoed = true
 			report.EchoMs = msSince(echoStarted)
 			report.Verdict = VerdictUsable
-			log.Debug("relay uygun",
+			log.Debug("relay usable",
 				slog.String("relay", normalized),
 				slog.Float64("echo_ms", report.EchoMs))
 			return report
 
 		case <-echoCtx.Done():
-			// Yayin kabul edildi ama event aboneye hic ulasmadi: relay
-			// ephemeral event'leri dusuruyor (BRIEF bolum 8).
+			// The publish was accepted but the event never reached the
+			// subscriber: the relay drops ephemeral events (BRIEF section
+			// 8).
 			report.Verdict = VerdictDropsEphemeral
-			report.Err = fmt.Sprintf("event %s icinde geri gelmedi", opts.EchoTimeout)
+			report.Err = fmt.Sprintf("the event did not come back within %s", opts.EchoTimeout)
 			return report
 		}
 	}
@@ -375,12 +390,13 @@ func fetchNip11(ctx context.Context, relayURL string, timeout time.Duration) (*N
 	return s, nil
 }
 
-// CheckSTUN STUN sunucularini sorgular ve NAT tipi tahmini uretir.
+// CheckSTUN queries the STUN servers and produces the NAT type guess.
 //
-// Tahmin yontemi: iki farkli STUN sunucusuna sorup gorulen DIS PORT'lari
-// karsilastirmak. Ayni port → endpoint-independent mapping (WebRTC dogrudan
-// baglanabilir). Farkli port → simetrik NAT, TURN gerekebilir (Faz 5).
-// Tek sunucuya ulasilabiliyorsa karar verilemez.
+// How the guess works: ask two different STUN servers and compare the
+// EXTERNAL PORTS they see. Same port -> endpoint-independent mapping
+// (WebRTC can connect directly). Different ports -> symmetric NAT, TURN
+// may be needed (phase 5). With only one server reachable, no verdict can
+// be made.
 func CheckSTUN(ctx context.Context, urls []string, opts Options) STUNReport {
 	opts = opts.withDefaults()
 	report := STUNReport{Verdict: NATUnknown}
@@ -399,10 +415,10 @@ func CheckSTUN(ctx context.Context, urls []string, opts Options) STUNReport {
 	switch {
 	case len(ports) == 0:
 		report.Verdict = NATNoSTUN
-		report.Note = "UDP disariya kapali olabilir; bu durumda WebRTC hic calismaz."
+		report.Note = "Outbound UDP may be blocked; in that case WebRTC does not work at all."
 	case len(ports) == 1:
 		report.Verdict = NATUnknown
-		report.Note = "NAT tipi icin en az iki STUN sunucusuna ulasmak gerekiyor."
+		report.Note = "The NAT type needs at least two STUN servers to be reachable."
 	default:
 		same := true
 		for _, p := range ports[1:] {
@@ -415,7 +431,7 @@ func CheckSTUN(ctx context.Context, urls []string, opts Options) STUNReport {
 			report.Verdict = NATFriendly
 		} else {
 			report.Verdict = NATSymmetric
-			report.Note = "Farkli STUN sunuculari farkli dis port gordu. Karsi taraf da simetrik NAT arkasindaysa TURN gerekir (Faz 5)."
+			report.Note = "Different STUN servers saw different external ports. If the other side is behind symmetric NAT too, TURN is needed (phase 5)."
 		}
 	}
 	return report
@@ -446,7 +462,7 @@ func checkSTUNServer(ctx context.Context, raw string, timeout time.Duration) STU
 
 	client, err := stun.NewClient(conn)
 	if err != nil {
-		report.Err = fmt.Sprintf("istemci: %v", err)
+		report.Err = fmt.Sprintf("client: %v", err)
 		return report
 	}
 	defer func() { _ = client.Close() }()
@@ -461,11 +477,11 @@ func checkSTUNServer(ctx context.Context, raw string, timeout time.Duration) STU
 		}
 		doErr = mapped.GetFrom(res.Message)
 	}); err != nil {
-		report.Err = fmt.Sprintf("sorgu: %v", err)
+		report.Err = fmt.Sprintf("query: %v", err)
 		return report
 	}
 	if doErr != nil {
-		report.Err = fmt.Sprintf("cevap: %v", doErr)
+		report.Err = fmt.Sprintf("response: %v", doErr)
 		return report
 	}
 
@@ -476,16 +492,17 @@ func checkSTUNServer(ctx context.Context, raw string, timeout time.Duration) STU
 	return report
 }
 
-// stunHostPort `stun:host:port` ya da `host:port` bicimini host:port'a cevirir.
+// stunHostPort turns the `stun:host:port` or `host:port` form into
+// host:port.
 func stunHostPort(raw string) (string, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
-		return "", fmt.Errorf("STUN adresi bos")
+		return "", fmt.Errorf("the STUN address is empty")
 	}
 	if strings.HasPrefix(s, "stun:") || strings.HasPrefix(s, "stuns:") {
 		u, err := url.Parse(s)
 		if err != nil {
-			return "", fmt.Errorf("STUN adresi okunamadi %q: %w", raw, err)
+			return "", fmt.Errorf("the STUN address could not be read %q: %w", raw, err)
 		}
 		s = u.Opaque
 		if s == "" {
@@ -496,15 +513,15 @@ func stunHostPort(raw string) (string, error) {
 		s += ":3478"
 	}
 	if _, _, err := net.SplitHostPort(s); err != nil {
-		return "", fmt.Errorf("STUN adresi host:port olmali %q", raw)
+		return "", fmt.Errorf("a STUN address must be host:port %q", raw)
 	}
 	return s, nil
 }
 
-// Run tam kontrolu calistirir.
+// Run runs the full check.
 //
-// iceCfg.TURN bos ise TURN kontrolu hic yapilmaz ve raporda TURN alani
-// bulunmaz.
+// With an empty iceCfg.TURN the TURN check is not run at all and the
+// report carries no TURN field.
 func Run(
 	ctx context.Context, relays []string, iceCfg ice.Config, log *slog.Logger, opts Options,
 ) Report {

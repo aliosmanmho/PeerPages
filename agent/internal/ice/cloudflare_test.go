@@ -95,12 +95,12 @@ func TestFetchCredentialsErrors(t *testing.T) {
 		body   string
 		want   string
 	}{
-		{"yetkisiz", http.StatusUnauthorized, `{"errors":[{"message":"bad token"}]}`, "beklenmeyen durum 401"},
-		{"bozuk json", http.StatusOK, `bu json degil`, "cevap JSON degil"},
-		{"adres yok", http.StatusOK, `{"iceServers":{"urls":[],"username":"u","credential":"p"}}`, "TURN adresi yok"},
-		{"kimlik yok", http.StatusOK, `{"iceServers":{"urls":["turn:a.example.com:3478"]}}`, "kimlik bilgisi yok"},
+		{"yetkisiz", http.StatusUnauthorized, `{"errors":[{"message":"bad token"}]}`, "unexpected status 401"},
+		{"bozuk json", http.StatusOK, `bu json degil`, "the response is not JSON"},
+		{"adres yok", http.StatusOK, `{"iceServers":{"urls":[],"username":"u","credential":"p"}}`, "carries no TURN address"},
+		{"kimlik yok", http.StatusOK, `{"iceServers":{"urls":["turn:a.example.com:3478"]}}`, "carries no credentials"},
 		// Cloudflare yalnizca STUN donerse TURN'umuz yok demektir.
-		{"yalnizca stun", http.StatusOK, `{"iceServers":{"urls":["stun:a.example.com:3478"],"username":"u","credential":"p"}}`, "turn:/turns: adresi yok"},
+		{"yalnizca stun", http.StatusOK, `{"iceServers":{"urls":["stun:a.example.com:3478"],"username":"u","credential":"p"}}`, "carries no turn:/turns: address"},
 	}
 
 	for _, c := range cases {

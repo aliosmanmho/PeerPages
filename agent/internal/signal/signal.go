@@ -1,13 +1,14 @@
-// Package signal elle (kopyala-yapistir) signaling icin SDP tasima bicimini
-// uygular.
+// Package signal implements the SDP transport format for manual
+// (copy-paste) signaling.
 //
-// Faz 1'de signaling sunucusu ve Nostr YOK: ajan offer'i tek satir olarak
-// stdout'a basar, kullanici ziyaretci sayfasina yapistirir, sayfanin urettigi
-// answer ajanin stdin'ine yapistirilir. Amac SW + WebRTC + reverse proxy
-// zincirini kanitlamak (BRIEF Faz 1).
+// In phase 1 there is NO signaling server and no Nostr: the agent prints
+// the offer to stdout as a single line, the user pastes it into the
+// visitor page, and the answer the page produces is pasted into the
+// agent's stdin. The point was to prove the SW + WebRTC + reverse proxy
+// chain (BRIEF phase 1).
 //
-// Bicim: base64(JSON(RTCSessionDescription)). Tek satir, kopyalanabilir.
-// TypeScript karsiligi: web/src/signal.ts.
+// The format: base64(JSON(RTCSessionDescription)). One line, easy to
+// copy. TypeScript counterpart: web/src/signal.ts.
 package signal
 
 import (
@@ -21,31 +22,31 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-// MaxEncodedLen yapistirilan metin icin ust sinir. Elle signaling'de girdi
-// kullanicidan gelir; sinirsiz veri ayristirmayiz.
+// MaxEncodedLen bounds the pasted text. With manual signaling the input
+// comes from the user; we do not parse unbounded data.
 const MaxEncodedLen = 256 * 1024
 
-// Encode SDP'yi tek satirlik base64 metne cevirir.
+// Encode turns an SDP into a single line of base64.
 func Encode(sd webrtc.SessionDescription) (string, error) {
 	if sd.SDP == "" {
-		return "", errors.New("SDP bos")
+		return "", errors.New("the SDP is empty")
 	}
 	raw, err := json.Marshal(sd)
 	if err != nil {
-		return "", fmt.Errorf("SDP serilestirilemedi: %w", err)
+		return "", fmt.Errorf("the SDP could not be serialized: %w", err)
 	}
 	return base64.StdEncoding.EncodeToString(raw), nil
 }
 
-// Decode yapistirilan metni SDP'ye cevirir.
+// Decode turns pasted text back into an SDP.
 //
-// Metin icindeki tum bosluk karakterleri (satir sonlari dahil) yok sayilir:
-// terminalden kopyalanan uzun satirlar kirilmis olabilir.
+// Every whitespace character in the text (line breaks included) is
+// ignored: a long line copied from a terminal may have been wrapped.
 func Decode(pasted string) (webrtc.SessionDescription, error) {
 	var zero webrtc.SessionDescription
 
 	if len(pasted) > MaxEncodedLen {
-		return zero, fmt.Errorf("yapistirilan metin cok uzun: %d bayt (sinir %d)", len(pasted), MaxEncodedLen)
+		return zero, fmt.Errorf("the pasted text is too long: %d bytes (limit %d)", len(pasted), MaxEncodedLen)
 	}
 
 	clean := strings.Map(func(r rune) rune {
@@ -55,25 +56,25 @@ func Decode(pasted string) (webrtc.SessionDescription, error) {
 		return r
 	}, pasted)
 	if clean == "" {
-		return zero, errors.New("bos girdi")
+		return zero, errors.New("empty input")
 	}
 
 	raw, err := base64.StdEncoding.DecodeString(clean)
 	if err != nil {
-		return zero, fmt.Errorf("base64 cozulemedi: %w", err)
+		return zero, fmt.Errorf("base64 could not be decoded: %w", err)
 	}
 
 	var sd webrtc.SessionDescription
 	if err := json.Unmarshal(raw, &sd); err != nil {
-		return zero, fmt.Errorf("SDP JSON'u okunamadi: %w", err)
+		return zero, fmt.Errorf("the SDP JSON could not be read: %w", err)
 	}
 	if sd.SDP == "" {
-		return zero, errors.New("SDP bos")
+		return zero, errors.New("the SDP is empty")
 	}
 	switch sd.Type {
 	case webrtc.SDPTypeOffer, webrtc.SDPTypeAnswer, webrtc.SDPTypePranswer, webrtc.SDPTypeRollback:
 	default:
-		return zero, fmt.Errorf("gecersiz SDP tipi: %q", sd.Type.String())
+		return zero, fmt.Errorf("invalid SDP type: %q", sd.Type.String())
 	}
 	return sd, nil
 }

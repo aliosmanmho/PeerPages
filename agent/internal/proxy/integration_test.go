@@ -415,7 +415,7 @@ func TestIntegrationTestSiteOverTunnel(t *testing.T) {
 	})
 
 	t.Run("yonlendirme Location goreli", func(t *testing.T) {
-		res := v.get(t, 6, "/yonlendir")
+		res := v.get(t, 6, "/redirect")
 		if res.status != 302 {
 			t.Fatalf("status %d", res.status)
 		}
@@ -436,8 +436,8 @@ func TestIntegrationTestSiteOverTunnel(t *testing.T) {
 		if res.status != 200 {
 			t.Fatalf("status %d", res.status)
 		}
-		if !bytes.Contains(res.body, []byte("data: olay-0")) ||
-			!bytes.Contains(res.body, []byte("data: olay-2")) {
+		if !bytes.Contains(res.body, []byte("data: event-0")) ||
+			!bytes.Contains(res.body, []byte("data: event-2")) {
 			t.Errorf("SSE govdesi: %q", res.body)
 		}
 	})

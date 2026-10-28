@@ -10,32 +10,33 @@ import (
 	"github.com/coder/websocket"
 )
 
-// Akis uclari (Faz 6): SSE ve WebSocket.
+// The streaming endpoints (phase 6): SSE and WebSocket.
 //
-// Neden test sitesinde: kabul kriteri "Vite HMR ve Socket.IO ornegi tunel
-// uzerinden calisiyor". Vite HMR'i gercekten kosuyoruz (web/e2e), ama
-// koprunun kendi davranisini (metin/ikili yanki, kapanis kodlari, parcali
-// mesaj) hizli ve kirilgan olmayan bir ucla olcmek gerekiyor.
+// Why they live in the test site: the acceptance criterion is "the Vite
+// HMR and Socket.IO examples work over the tunnel". We really do run Vite
+// HMR (web/e2e), but the bridge's own behaviour (text/binary echo, close
+// codes, a fragmented message) needs a fast, non-fragile endpoint to
+// measure against.
 
-// sseVarsayilanlar mevcut testleri bozmamak icin Faz 1'deki davranisi
-// korur: ucuncu olaydan sonra akis kapanir, bekleme yok.
+// The SSE defaults keep the phase 1 behaviour so the existing tests do
+// not break: the stream closes after the third event, with no delay.
 const (
 	sseDefaultEvents = 3
 	sseMaxEvents     = 10_000
 	sseMaxDelay      = 10 * time.Second
 )
 
-// sseHandler `text/event-stream` akitir.
+// sseHandler streams `text/event-stream`.
 //
-// Sorgu parametreleri:
+// The query parameters:
 //
-//	?n=5          kac olay yollanacak (varsayilan 3, 0 = sonsuz)
-//	?delay=400    olaylar arasi bekleme (ms, varsayilan 0)
-//	?keepalive=1  beklemeden once bir yorum satiri (`:ping`) yollar
+//	?n=5          how many events to send (default 3, 0 = endless)
+//	?delay=400    the wait between events (ms, default 0)
+//	?keepalive=1  sends a comment line (`:ping`) before the wait
 //
-// `?delay=` olmadan uc olay tek cerceveye sigabilir, yani "akis halinde
-// geldi" iddiasi OLCULEMEZ; artimli teslimi kanitlayan test bu yuzden
-// gecikme veriyor.
+// Without `?delay=` three events can fit into a single frame, so the
+// claim "it arrived as a stream" CANNOT BE MEASURED; that is why the test
+// which proves incremental delivery passes a delay.
 func sseHandler(w http.ResponseWriter, r *http.Request) {
 	events, err := intParam(r, "n", sseDefaultEvents, 0, sseMaxEvents)
 	if err != nil {
@@ -53,19 +54,20 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("cache-control", "no-store")
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "flush desteklenmiyor", http.StatusInternalServerError)
+		http.Error(w, "flushing is not supported", http.StatusInternalServerError)
 		return
 	}
 
 	delay := time.Duration(delayMS) * time.Millisecond
 	for i := 0; events == 0 || i < events; i++ {
-		if _, err := io.WriteString(w, fmt.Sprintf("data: olay-%d\n\n", i)); err != nil {
+		if _, err := io.WriteString(w, fmt.Sprintf("data: event-%d\n\n", i)); err != nil {
 			return
 		}
 		flusher.Flush()
 
 		if delay == 0 {
-			// Eski davranis: beklemeden devam, iptal kontrolu yeter.
+			// The old behaviour: carry on with no wait, the cancellation
+			// check is enough.
 			select {
 			case <-r.Context().Done():
 				return
@@ -89,21 +91,20 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// wsHandler gelen mesajlari yankilar.
+// wsHandler echoes the messages it receives.
 //
-// Sorgu parametreleri:
+// The query parameters:
 //
-//	?proto=json   kabul edilecek alt protokol (tekrarlanabilir)
-//	?close=4002   el sikismadan hemen sonra bu kodla kapat
-//	?reason=...   kapanis sebebi
-//	?limit=       okuma siniri (bayt); varsayilan 1 MiB
+//	?proto=json   a subprotocol to accept (may be repeated)
+//	?close=4002   close with this code right after the handshake
+//	?reason=...   the close reason
+//	?limit=       the read limit (bytes); 1 MiB by default
 func wsHandler(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		Subprotocols: q["proto"],
-		// Test sitesi: Origin denetimi yok. Gercek bir sunucuda bu
-		// yapilmamali.
+		// A test site: no Origin check. A real server must not do this.
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
@@ -113,7 +114,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
 	limit, err := intParam(r, "limit", 1<<20, 125, 16<<20)
 	if err != nil {
-		_ = c.Close(websocket.StatusUnsupportedData, "limit gecersiz")
+		_ = c.Close(websocket.StatusUnsupportedData, "invalid limit")
 		return
 	}
 	c.SetReadLimit(int64(limit))

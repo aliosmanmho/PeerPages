@@ -134,7 +134,7 @@ func TestSaveAndLoadRoundtrip(t *testing.T) {
 	if !strings.Contains(text, "nsec1") {
 		t.Errorf("dosya nsec icermeli:\n%s", text)
 	}
-	if !strings.Contains(text, "PAYLASMA") {
+	if !strings.Contains(text, "DO NOT SHARE") {
 		t.Errorf("dosya uyari satiri icermeli:\n%s", text)
 	}
 	if strings.Contains(text, orig.SecretKey) {

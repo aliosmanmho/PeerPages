@@ -1,11 +1,13 @@
-// Package testsite Faz 1 testlerinin hedefi olan kucuk statik siteyi servis
-// eder.
+// Package testsite serves the small static site the phase 1 tests point
+// at.
 //
-// Ziyaretci tarayicisinda dogrulanacaklar (BRIEF Faz 1 kabul kriterleri):
-// HTML, CSS, JS, gorsel, fetch ile JSON ve 5 MB dosya indirme.
+// What has to be verified in the visitor's browser (the BRIEF phase 1
+// acceptance criteria): HTML, CSS, JS, an image, JSON over fetch and a
+// 5 MB file download.
 //
-// Buyuk dosya (big.bin) repoda TUTULMAZ: deterministik olarak uretilir
-// (GenerateBig). `make testdata` ya da scripts/*.ps1 bunu cagirir.
+// The large file (big.bin) is NOT KEPT in the repo: it is generated
+// deterministically (GenerateBig). `make testdata` or scripts/*.ps1 calls
+// that.
 package testsite
 
 import (
@@ -18,21 +20,23 @@ import (
 	"strings"
 )
 
-// BigFileName uretilen buyuk dosyanin adi.
+// BigFileName is the name of the generated large file.
 const BigFileName = "big.bin"
 
-// BigFileSize BRIEF'teki "5 MB dosya indirme" kabul kriteri.
+// BigFileSize is the "5 MB file download" acceptance criterion from
+// BRIEF.
 const BigFileSize = 5 * 1024 * 1024
 
-// bigPattern deterministik icerik: i. bayt (i*31+7) mod 256.
+// bigPattern is the deterministic content: byte i is (i*31+7) mod 256.
 //
-// Deterministik olmasi onemli: e2e testi indirdigi dosyanin sha256'sini
-// bekledigiyle karsilastiriyor.
+// Being deterministic matters: the e2e test compares the sha256 of the
+// file it downloaded against the expected one.
 func bigPattern(i int64) byte {
 	return byte((i*31 + 7) % 256)
 }
 
-// GenerateBig buyuk dosyayi uretir. Dosya zaten dogru boyuttaysa dokunmaz.
+// GenerateBig generates the large file. If the file is already the right
+// size it is left alone.
 func GenerateBig(dir string) (path string, created bool, err error) {
 	path = filepath.Join(dir, BigFileName)
 
@@ -41,12 +45,12 @@ func GenerateBig(dir string) (path string, created bool, err error) {
 	}
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", false, fmt.Errorf("dizin olusturulamadi: %w", err)
+		return "", false, fmt.Errorf("the directory could not be created: %w", err)
 	}
 
 	f, err := os.Create(path) //nolint:gosec // yol cagiran tarafindan verilir (test verisi)
 	if err != nil {
-		return "", false, fmt.Errorf("dosya olusturulamadi: %w", err)
+		return "", false, fmt.Errorf("the file could not be created: %w", err)
 	}
 	defer func() {
 		if cerr := f.Close(); cerr != nil && err == nil {
@@ -66,17 +70,18 @@ func GenerateBig(dir string) (path string, created bool, err error) {
 			buf[i] = bigPattern(written + i)
 		}
 		if _, werr := f.Write(buf[:n]); werr != nil {
-			return "", false, fmt.Errorf("yazilamadi: %w", werr)
+			return "", false, fmt.Errorf("could not write: %w", werr)
 		}
 		written += n
 	}
 	return path, true, nil
 }
 
-// BigFileSHA256 uretilen buyuk dosyanin beklenen sha256'si (hex).
+// BigFileSHA256 is the expected sha256 of the generated large file
+// (hex).
 //
-// Dosyayi diske yazmadan hesaplar; e2e testi indirdigi veriyi bununla
-// karsilastirir.
+// It is computed without writing the file to disk; the e2e test compares
+// what it downloaded against this.
 func BigFileSHA256() string {
 	h := sha256.New()
 	const block = 64 * 1024
@@ -96,13 +101,14 @@ func BigFileSHA256() string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Handler statik siteyi servis eden http.Handler uretir.
+// Handler builds the http.Handler that serves the static site.
 //
-// Ekler:
-//   - `/api/items` -> `api/items.json` (uzantisiz API yolu)
-//   - `/yonlendir` -> 302, Location mutlak URL (Location yeniden yazimi testi)
+// On top of the files:
+//   - `/api/items` -> `api/items.json` (an API path with no extension)
+//   - `/redirect`  -> 302 with an absolute Location (the Location
+//     rewriting test)
 //   - `/sse` -> text/event-stream (`?n=`, `?delay=`, `?keepalive=`)
-//   - `/ws`  -> WebSocket yankisi (`?close=`, `?proto=`)
+//   - `/ws`  -> a WebSocket echo (`?close=`, `?proto=`)
 func Handler(root string) http.Handler {
 	fileServer := http.FileServer(http.Dir(root))
 	mux := http.NewServeMux()
@@ -113,8 +119,9 @@ func Handler(root string) http.Handler {
 		http.ServeFile(w, r, filepath.Join(root, "api", "items.json"))
 	})
 
-	mux.HandleFunc("/yonlendir", func(w http.ResponseWriter, r *http.Request) {
-		// Mutlak URL: ajan bunu goreli yola cevirmeli.
+	mux.HandleFunc("/redirect", func(w http.ResponseWriter, r *http.Request) {
+		// An absolute URL: the agent has to rewrite it to a relative
+		// path.
 		scheme := "http"
 		if r.TLS != nil {
 			scheme = "https"

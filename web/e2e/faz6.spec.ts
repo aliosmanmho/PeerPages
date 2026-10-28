@@ -293,7 +293,7 @@ test.describe("Faz 6 — SSE akis halinde", () => {
       console.log(
         `OLCUM SSE ilk olay: ${result.firstAt.toFixed(0)} ms, ucuncu: ${result.lastAt.toFixed(0)} ms`,
       );
-      expect(result.events).toEqual(["olay-0", "olay-1", "olay-2"]);
+      expect(result.events).toEqual(["event-0", "event-1", "event-2"]);
       // Ilk olay, ucuncusunden belirgin sekilde ONCE gelmeli: tamponlanmis
       // bir cevap ikisini ayni anda verirdi.
       expect(result.firstAt).toBeLessThan(result.lastAt - 300);

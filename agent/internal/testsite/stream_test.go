@@ -45,7 +45,7 @@ func TestSSEDefaultUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(raw)
-	for _, want := range []string{"data: olay-0", "data: olay-1", "data: olay-2"} {
+	for _, want := range []string{"data: event-0", "data: event-1", "data: event-2"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("%q yok, govde: %q", want, body)
 		}
@@ -71,7 +71,7 @@ func TestSSEDelayedIsIncremental(t *testing.T) {
 	}
 	firstAt := time.Since(started)
 
-	if !strings.Contains(line, "data: olay-0") {
+	if !strings.Contains(line, "data: event-0") {
 		t.Errorf("ilk satir: %q", line)
 	}
 	// Ilk olay beklemeden gelmeli; tum akis en az 2 gecikme surer.

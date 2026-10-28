@@ -193,7 +193,7 @@ test.describe("Faz 1 kabul kriterleri", () => {
     // Tunel sahibi sayfayi kapat: WebRTC baglantisi sayfada tutuluyordu.
     await tunnelPage.close();
 
-    // Yenileme: SW tunel bulamayinca baglanti ekranina yonlendirmeli.
+    // Yenileme: SW tunel bulamayinca baglanti ekranina redirectmeli.
     await visitor.reload();
     await expect(visitor.locator(".shell__title")).toHaveText("PeerPages", { timeout: 30_000 });
     await expect(visitor.locator("#panel-manual")).toBeVisible();
@@ -262,16 +262,16 @@ test.describe("Faz 1 kabul kriterleri", () => {
     await tunnelPage.close();
   });
 
-  test("yonlendirmede Location goreli yola cevriliyor", async ({ context }) => {
+  test("redirectmede Location goreli yola cevriliyor", async ({ context }) => {
     const tunnelPage = await openTunnelPage(context);
     const visitor = await context.newPage();
     await visitor.goto(BASE);
     await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
 
-    // /yonlendir mutlak bir Location dondurur; ajan goreli yola cevirir,
+    // /redirect mutlak bir Location dondurur; ajan goreli yola cevirir,
     // boylece tarayici bizim origin'imizde kalir.
     const originBefore = new URL(visitor.url()).origin;
-    await visitor.goto(`${BASE}yonlendir`);
+    await visitor.goto(`${BASE}redirect`);
     await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
 
     // Yonlendirme bizim origin'imizde kaldi: ajan mutlak Location'i goreli

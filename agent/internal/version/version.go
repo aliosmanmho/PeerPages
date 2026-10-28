@@ -1,13 +1,15 @@
-// Package version ajanin surum bilgisini toplar.
+// Package version gathers the agent's version information.
 //
-// Iki kaynak var ve ikisi de gerekli:
+// There are two sources and both are needed:
 //
-//   - Release derlemeleri (goreleaser) `-ldflags -X` ile surum, commit ve
-//     tarih enjekte eder.
-//   - `go install github.com/aliosmanmho/PeerPages/agent@latest` ile kurulan
-//     binary'de ldflags YOKTUR; orada bilgi runtime/debug.ReadBuildInfo'dan
-//     okunur. Bu yedek olmadan kullanicinin elindeki binary "dev" diyordu ve
-//     hangi surumu kullandigi bir hata raporunda anlasilmiyordu.
+//   - release builds (goreleaser) inject the version, commit and date
+//     with `-ldflags -X`.
+//   - a binary installed with
+//     `go install github.com/aliosmanmho/PeerPages/agent@latest` has NO
+//     ldflags; there the information is read from
+//     runtime/debug.ReadBuildInfo. Without that fallback the binary in
+//     the user's hands said "dev" and a bug report could not say which
+//     version they were running.
 package version
 
 import (
@@ -17,23 +19,25 @@ import (
 	"strings"
 )
 
-// Info surum bilgisi.
+// Info is the version information.
 type Info struct {
-	// Version surum etiketi ("v0.2.0") ya da "dev".
+	// Version is the version tag ("v0.2.0") or "dev".
 	Version string
-	// Commit kisa commit hash'i; bilinmiyorsa bos.
+	// Commit is the short commit hash; empty when unknown.
 	Commit string
-	// Date derleme tarihi (RFC3339); bilinmiyorsa bos.
+	// Date is the build date (RFC3339); empty when unknown.
 	Date string
-	// Dirty calisma agaci kirli miydi (yalnizca ReadBuildInfo yolunda).
+	// Dirty says whether the working tree was dirty (on the
+	// ReadBuildInfo path only).
 	Dirty bool
-	// GoVersion derleyen Go surumu.
+	// GoVersion is the Go version that built it.
 	GoVersion string
-	// Platform GOOS/GOARCH.
+	// Platform is GOOS/GOARCH.
 	Platform string
 }
 
-// Resolve ldflags degerlerini alir, eksikleri derleme bilgisinden tamamlar.
+// Resolve takes the ldflags values and fills the gaps from the build
+// information.
 func Resolve(version, commit, date string) Info {
 	info := Info{
 		Version:   strings.TrimSpace(version),
@@ -48,8 +52,9 @@ func Resolve(version, commit, date string) Info {
 		return info.withDefaults()
 	}
 
-	// Modul surumu: `go install ...@v0.2.0` bunu doldurur, `@latest` ise
-	// cozdugu etiketi yazar. "(devel)" degeri bilgi tasimaz.
+	// The module version: `go install ...@v0.2.0` fills this in, and
+	// `@latest` writes the tag it resolved. The value "(devel)" carries no
+	// information.
 	if (info.Version == "" || info.Version == "dev") &&
 		bi.Main.Version != "" && bi.Main.Version != "(devel)" {
 		info.Version = bi.Main.Version
@@ -88,14 +93,14 @@ func shortCommit(c string) string {
 	return c
 }
 
-// Short tek satirlik surum ("v0.2.0" ya da "dev (abc123, kirli)").
+// Short is the one-line version ("v0.2.0" or "dev (abc123, dirty)").
 func (i Info) Short() string {
 	var extra []string
 	if i.Commit != "" {
 		extra = append(extra, i.Commit)
 	}
 	if i.Dirty {
-		extra = append(extra, "kirli")
+		extra = append(extra, "dirty")
 	}
 	if len(extra) == 0 {
 		return i.Version
@@ -103,7 +108,7 @@ func (i Info) Short() string {
 	return fmt.Sprintf("%s (%s)", i.Version, strings.Join(extra, ", "))
 }
 
-// Details `peerpages version` cikti bloku.
+// Details is the output block of `peerpages version`.
 func (i Info) Details() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "peerpages %s\n", i.Short())
@@ -111,7 +116,7 @@ func (i Info) Details() string {
 		fmt.Fprintf(&b, "  commit  : %s\n", i.Commit)
 	}
 	if i.Date != "" {
-		fmt.Fprintf(&b, "  tarih   : %s\n", i.Date)
+		fmt.Fprintf(&b, "  date    : %s\n", i.Date)
 	}
 	fmt.Fprintf(&b, "  platform: %s\n", i.Platform)
 	fmt.Fprintf(&b, "  go      : %s\n", i.GoVersion)

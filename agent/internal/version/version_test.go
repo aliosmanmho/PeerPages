@@ -51,8 +51,8 @@ func TestShort(t *testing.T) {
 	}{
 		{"yalin", Info{Version: "v1.0.0"}, "v1.0.0"},
 		{"commit'li", Info{Version: "v1.0.0", Commit: "abc123"}, "v1.0.0 (abc123)"},
-		{"kirli", Info{Version: "dev", Commit: "abc123", Dirty: true}, "dev (abc123, kirli)"},
-		{"yalnizca kirli", Info{Version: "dev", Dirty: true}, "dev (kirli)"},
+		{"kirli", Info{Version: "dev", Commit: "abc123", Dirty: true}, "dev (abc123, dirty)"},
+		{"yalnizca kirli", Info{Version: "dev", Dirty: true}, "dev (dirty)"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

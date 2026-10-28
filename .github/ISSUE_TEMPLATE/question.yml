@@ -1,0 +1,32 @@
+name: Question or idea
+description: Ask how something works, or suggest a change.
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Useful reading first — these cover most questions:
+
+        - [README](https://github.com/aliosmanmho/PeerPages#readme) — what it
+          is, quickstart, honest limits
+        - [docs/SECURITY.md](https://github.com/aliosmanmho/PeerPages/blob/main/docs/SECURITY.md)
+          — threat model and accepted trade-offs
+        - [docs/TURN.md](https://github.com/aliosmanmho/PeerPages/blob/main/docs/TURN.md)
+          — when a TURN server is needed
+        - [docs/WEBSOCKET.md](https://github.com/aliosmanmho/PeerPages/blob/main/docs/WEBSOCKET.md)
+          — WebSocket bridge, Vite HMR, SSE
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question or idea
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: >
+        What are you trying to do? Concrete situations get better answers
+        than abstract ones.

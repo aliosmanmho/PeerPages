@@ -1,13 +1,15 @@
-// Package connect ajanin Nostr uzerinden ziyaretci kabul eden akisini yurutur.
+// Package connect runs the agent's flow for accepting visitors over
+// Nostr.
 //
-// Gorev dagilimi:
-//   - internal/nostr      : relay tasimasi (yayinla / abone ol)
-//   - internal/signaling  : mesaj bicimi ve sir katmani
-//   - internal/tunnel     : WebRTC oturumu
-//   - BU PAKET            : ikisini birlestiren akis ve ziyaretci kurallari
+// Who does what:
+//   - internal/nostr      : the relay transport (publish / subscribe)
+//   - internal/signaling  : the message format and the secret layer
+//   - internal/tunnel     : the WebRTC session
+//   - THIS PACKAGE        : the flow that joins them and the visitor rules
 //
-// Akis (protocol/signaling.md): ziyaretci offer yayinlar, ajan answer doner,
-// iki taraf candidate alisverisi yapar, WebRTC kurulunca signaling biter.
+// The flow (protocol/signaling.md): the visitor publishes an offer, the
+// agent answers, the two sides exchange candidates, and signaling ends
+// once WebRTC is up.
 package connect
 
 import (
@@ -29,108 +31,118 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
 
-// Zamanlamalar.
+// Timings.
 const (
-	// SessionSetupTimeout offer geldikten sonra tunelin acilmasi icin
-	// taninan sure (BRIEF Faz 2: 30 sn).
+	// SessionSetupTimeout is the time the tunnel is given to open after an
+	// offer arrives (BRIEF phase 2: 30 s).
 	SessionSetupTimeout = 30 * time.Second
-	// PublishTimeout tek bir signaling mesajinin yayini icin.
+	// PublishTimeout bounds publishing a single signaling message.
 	PublishTimeout = 15 * time.Second
-	// SubscribeBacklog abonelikte ne kadar geriye bakilacagi. Kisa tutuluyor:
-	// ephemeral event'ler saklanmaz, uzun gecmise bakmanin anlami yok.
+	// SubscribeBacklog is how far back a subscription looks. Kept short:
+	// ephemeral events are not stored, so looking far into the past is
+	// pointless.
 	SubscribeBacklog = time.Minute
 )
 
-// Abonelik denetimi (Faz 4).
+// Subscription supervision (phase 4).
 const (
-	// ResubscribeMin yeniden abone olmadan once beklenen en kisa sure.
+	// ResubscribeMin is the shortest wait before resubscribing.
 	ResubscribeMin = time.Second
-	// ResubscribeMax geri sayimin ust siniri.
+	// ResubscribeMax is the upper bound of the backoff.
 	ResubscribeMax = time.Minute
-	// epochHealthy bu sureden uzun yasayan abonelik saglikli sayilir ve
-	// geri sayim sifirlanir.
+	// epochHealthy: a subscription that lives longer than this counts as
+	// healthy and the backoff resets.
 	epochHealthy = time.Minute
-	// healthInterval relay saglik yoklamasi araligi.
+	// healthInterval is how often relay health is polled.
 	healthInterval = 5 * time.Second
-	// downChecksBeforeResubscribe bu kadar yoklama boyunca hicbir relay
-	// bagli degilse abonelik bastan kurulur (yeniden baglanmayi zorlar).
+	// downChecksBeforeResubscribe: if no relay is connected for this many
+	// polls, the subscription is rebuilt from scratch (which forces a
+	// reconnect).
 	downChecksBeforeResubscribe = 3
-	// resumeFactor iki yoklama arasi beklenenin bu katindan fazlaysa surec
-	// askiya alinmis kabul edilir.
+	// resumeFactor: if the gap between two polls is more than this
+	// multiple of the expected one, the process is assumed to have been
+	// suspended.
 	resumeFactor = 3
 )
 
-// ProxyFactory verilen hedef icin bir Proxy uretir.
+// ProxyFactory builds a Proxy for the given target.
 //
-// Hedef oturum basina degisir: ziyaretci URL'de soyler
-// (`#npub1…/admin`), offer'da tasinir (protocol/signaling.md). targetName
-// her zaman Config.Targets icindeki adlardan biridir — dogrulama cagiran
-// tarafta yapilir.
+// The target varies per session: the visitor states it in the URL
+// (`#npub1.../admin`) and it rides in the offer
+// (protocol/signaling.md). targetName is always one of the names in
+// Config.Targets — the validation happens on the caller's side.
 type ProxyFactory func(targetName string) (tunnel.Proxy, error)
 
-// WSDialerFactory verilen hedef icin WebSocket koprusu uretir.
+// WSDialerFactory builds the WebSocket bridge for the given target.
 //
-// ProxyFactory ile ayni desen ve ayni gerekce: hedef oturum basina degisir.
-// nil ise kopru kapali ve ws-open istekleri reddedilir (Faz 6).
+// Same pattern and same reasoning as ProxyFactory: the target varies per
+// session. When nil the bridge is off and ws-open requests are refused
+// (phase 6).
 type WSDialerFactory func(targetName string) (tunnel.WSDialer, error)
 
-// ICEFactory oturum kurulurken gecerli ICE sunucu listesini dondurur.
+// ICEFactory returns the ICE server list valid at the time a session is
+// built.
 //
-// Cloudflare TURN kimlik bilgisi kisa omurludur ve arka planda yenilenir;
-// bu yuzden liste oturum basina sorulur, baslangicta bir kez okunmaz.
+// Cloudflare TURN credentials are short-lived and refreshed in the
+// background, so the list is asked for per session rather than read once
+// at startup.
 type ICEFactory func() (servers []webrtc.ICEServer, policy webrtc.ICETransportPolicy)
 
-// Config kabul akisinin yapilandirmasi.
+// Config is the configuration of the accept flow.
 type Config struct {
-	// Identity ajanin Nostr kimligi.
+	// Identity is the agent's Nostr identity.
 	Identity identity.Identity
-	// Pool relay havuzu (arayuz: testler sahte havuz verebilsin).
+	// Pool is the relay pool (an interface, so tests can pass a fake).
 	Pool Pool
-	// Sealer paylasilan sir katmani; nil ise sir yok.
+	// Sealer is the shared-secret layer; nil means there is no secret.
 	Sealer *signaling.Sealer
-	// NewProxy her oturum icin proxy uretir.
+	// NewProxy builds the proxy for each session.
 	NewProxy ProxyFactory
-	// NewWSDialer her oturum icin WebSocket koprusu uretir; nil ise kopru
-	// kapali (Faz 6, varsayilan).
+	// NewWSDialer builds the WebSocket bridge for each session; nil means
+	// the bridge is off (phase 6, the default).
 	NewWSDialer WSDialerFactory
-	// Targets yayinlanan hedeflerin adlari: hem hello mesajinda bildirilir
-	// hem de offer'daki hedef adi buna karsi dogrulanir.
+	// Targets are the names of the published targets: they are announced
+	// in the hello message and the target name in an offer is validated
+	// against them.
 	Targets []string
-	// ICE her oturum icin ICE sunucu listesini ve politikasini verir.
+	// ICE provides the ICE server list and policy for each session.
 	//
-	// Statik liste degil FONKSIYON: Cloudflare TURN kimlik bilgisi sureli,
-	// yani her yeni oturum o anki gecerli listeyi almali (ProxyFactory ile
-	// ayni desen). nil ise ICE sunucusu kullanilmaz (loopback testleri).
+	// A FUNCTION rather than a static list: Cloudflare TURN credentials
+	// expire, so every new session must get the list that is valid right
+	// then (same pattern as ProxyFactory). When nil, no ICE server is used
+	// (loopback tests).
 	ICE ICEFactory
-	// MaxSessions ayni anda kac ziyaretci kabul edilir.
+	// MaxSessions is how many visitors are accepted at once.
 	MaxSessions int
-	// MaxConcurrent oturum basina eszamanli istek tavani.
+	// MaxConcurrent is the concurrent request limit per session.
 	MaxConcurrent int
-	// MaxBody istek govdesi tavani.
+	// MaxBody is the request body limit.
 	MaxBody int64
-	// MaxStreams oturum basina uzun yasayan akis tavani (ws + SSE); 0 ise
-	// tunnel.DefaultMaxStreams.
+	// MaxStreams is the long-lived stream limit per session (ws + SSE);
+	// tunnel.DefaultMaxStreams when 0.
 	MaxStreams int
-	// MaxWSMessage bir ws mesajinin tavani; 0 ise
-	// tunnel.DefaultMaxWSMessage.
+	// MaxWSMessage is the limit for a ws message;
+	// tunnel.DefaultMaxWSMessage when 0.
 	MaxWSMessage int64
-	// Logger zorunlu.
+	// Logger is mandatory.
 	Logger *slog.Logger
-	// Verbose loglarda path maskelemesini kapatir.
+	// Verbose turns off path masking in logs.
 	Verbose bool
 
-	// now test icin saat enjeksiyonu; nil ise time.Now.
+	// now injects the clock for tests; time.Now when nil.
 	now func() time.Time
-	// healthInterval relay saglik yoklamasi araligi; 0 ise healthInterval.
+	// healthInterval is how often relay health is polled; the package
+	// healthInterval when 0.
 	healthInterval time.Duration
-	// resubscribeMin yeniden abone olma geri sayiminin tabani; 0 ise
-	// ResubscribeMin. Testler denetimi hizlandirmak icin kisaltir.
+	// resubscribeMin is the base of the resubscribe backoff;
+	// ResubscribeMin when 0. Tests shorten it to speed the supervision
+	// up.
 	resubscribeMin time.Duration
 }
 
-// Pool internal/nostr.Pool'un bu paketin ihtiyac duydugu yuzu.
+// Pool is the face of internal/nostr.Pool this package needs.
 //
-// Arayuz olarak aliyoruz ki testler sahte bir havuz verebilsin.
+// It is taken as an interface so tests can pass a fake pool.
 type Pool interface {
 	Publish(ctx context.Context, ev gonostr.Event) (nostr.PublishReport, error)
 	Subscribe(ctx context.Context, filter gonostr.Filter) <-chan gonostr.RelayEvent
@@ -139,26 +151,26 @@ type Pool interface {
 func (c *Config) validate() error {
 	switch {
 	case c.Identity.SecretKey == "" || c.Identity.PublicKey == "":
-		return errors.New("connect: kimlik eksik")
+		return errors.New("connect: the identity is incomplete")
 	case c.Pool == nil:
 		return errors.New("connect: Pool nil")
 	case c.NewProxy == nil:
 		return errors.New("connect: NewProxy nil")
 	case len(c.Targets) == 0:
-		return errors.New("connect: hedef listesi bos")
+		return errors.New("connect: the target list is empty")
 	case c.MaxSessions < 1:
-		return errors.New("connect: MaxSessions en az 1 olmali")
+		return errors.New("connect: MaxSessions must be at least 1")
 	case c.MaxConcurrent < 1:
-		return errors.New("connect: MaxConcurrent en az 1 olmali")
+		return errors.New("connect: MaxConcurrent must be at least 1")
 	case c.MaxBody < 1:
-		return errors.New("connect: MaxBody en az 1 olmali")
+		return errors.New("connect: MaxBody must be at least 1")
 	case c.Logger == nil:
 		return errors.New("connect: Logger nil")
 	}
 	return nil
 }
 
-// Acceptor gelen offer'lari tunel oturumlarina cevirir.
+// Acceptor turns incoming offers into tunnel sessions.
 type Acceptor struct {
 	cfg Config
 	log *slog.Logger
@@ -169,22 +181,22 @@ type Acceptor struct {
 	codec codec
 
 	mu       sync.Mutex
-	sessions map[string]*visitorSession // sid -> oturum
+	sessions map[string]*visitorSession // sid -> session
 
-	// ready abonelik kurulduktan sonra kapanir. Cagiran taraf "hazirim"
-	// demeden once bunu beklemeli: ephemeral event'ler saklanmadigi icin
-	// dinlemeye baslamadan gelen offer kaybolur.
+	// ready closes once the subscription is up. The caller must wait for
+	// it before saying "ready": because ephemeral events are not stored,
+	// an offer that arrives before we listen is lost.
 	ready   chan struct{}
 	readyOn sync.Once
 }
 
-// codec sirli/sirsiz kodlamayi tek arayuze indirir.
+// codec reduces sealed and plain encoding to one interface.
 type codec interface {
 	Encode(m signaling.Msg) (string, error)
 	Decode(payload string) (signaling.Msg, error)
 }
 
-// visitorSession tek bir ziyaretcinin oturumu.
+// visitorSession is a single visitor's session.
 type visitorSession struct {
 	sid     string
 	peerPub string
@@ -193,7 +205,7 @@ type visitorSession struct {
 	created time.Time
 }
 
-// New kabul akisini kurar.
+// New builds the accept flow.
 func New(cfg Config) (*Acceptor, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -209,31 +221,31 @@ func New(cfg Config) (*Acceptor, error) {
 		now:  now,
 		seen: newSeenSet(SeenTTL, now),
 		rate: newRateLimiter(RateWindow, RateBurst, now),
-		// nil *Sealer de gecerli: Seal/Open nil alici ile duz JSON yolunu
-		// uyguluyor (secret.go). Arayuzun kendisi nil olmadigi icin
-		// cagrilar guvenle gidiyor.
+		// A nil *Sealer is valid too: Seal/Open implement the plain JSON
+		// path with a nil receiver (secret.go). The interface value itself
+		// is not nil, so the calls go through safely.
 		codec:    cfg.Sealer,
 		sessions: map[string]*visitorSession{},
 		ready:    make(chan struct{}),
 	}, nil
 }
 
-// Run abone olur ve ctx bitene kadar gelen event'leri isler.
+// Run subscribes and handles incoming events until ctx ends.
 //
-// Abonelik DENETLENIR: kapanirsa, relay'lerin tamami dusup kalirsa ya da
-// surec askiya alinmissa yeniden kurulur. Daha once bu fonksiyon abonelik
-// kanali kapandiginda hata donuyor ve ajan surecinden cikiyordu — oysa
-// kullanicinin istedigi sey, laptop uyandiginda ajanin kendi kendine
-// toparlanmasi.
+// The subscription IS SUPERVISED: it is rebuilt if it closes, if every
+// relay goes down and stays down, or if the process was suspended. This
+// function used to return an error when the subscription channel closed
+// and the agent process exited — whereas what the user wants is for the
+// agent to recover on its own when the laptop wakes up.
 func (a *Acceptor) Run(ctx context.Context) error {
 	npub, err := a.cfg.Identity.Npub()
 	if err != nil {
 		return err
 	}
 
-	a.log.Info("signaling dinleniyor",
+	a.log.Info("listening for signaling",
 		slog.String("peer_id", identity.ShortenNpub(npub)),
-		slog.Bool("sir_gerekli", a.cfg.Sealer != nil),
+		slog.Bool("secret_required", a.cfg.Sealer != nil),
 	)
 
 	_, backoffMin := a.superviseLimits()
@@ -250,19 +262,21 @@ func (a *Acceptor) Run(ctx context.Context) error {
 			reason = errSubClosed
 		}
 
-		// Uzun suren bir abonelik saglikli sayilir: geri sayim sifirlanir.
+		// A long-lived subscription counts as healthy: the backoff
+		// resets.
 		if a.now().Sub(started) >= epochHealthy {
 			backoff = backoffMin
 		}
 
 		wait := backoff
 		if errors.Is(reason, errResume) {
-			// Uyanma: beklemenin anlami yok, ziyaretciler simdi geliyor.
+			// A wake: waiting is pointless, the visitors are arriving
+			// now.
 			wait = 0
 		}
-		a.log.Warn("signaling abonelligi yenileniyor",
-			slog.String("neden", reason.Error()),
-			slog.Duration("bekleme", wait))
+		a.log.Warn("renewing the signaling subscription",
+			slog.String("reason", reason.Error()),
+			slog.Duration("wait", wait))
 
 		if wait > 0 {
 			select {
@@ -278,25 +292,25 @@ func (a *Acceptor) Run(ctx context.Context) error {
 	}
 }
 
-// Abonelik denetimi nedenleri.
+// Reasons for supervising the subscription.
 var (
-	errSubClosed = errors.New("relay abonelikleri kapandi")
-	errNoRelay   = errors.New("hicbir relay'e baglanti kalmadi")
-	errResume    = errors.New("surec askiya alinmis gorunuyor")
+	errSubClosed = errors.New("the relay subscriptions closed")
+	errNoRelay   = errors.New("no connection to any relay is left")
+	errResume    = errors.New("the process appears to have been suspended")
 )
 
-// runEpoch tek bir abonelik donemini yurutur; yenilenmesi gerektiginde
-// nedeni doner. ctx bitmisse nil doner.
+// runEpoch runs a single subscription epoch; it returns the reason when
+// one needs renewing. It returns nil once ctx is done.
 func (a *Acceptor) runEpoch(ctx context.Context) error {
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Her donemde filtre YENIDEN kurulur: ephemeral event'ler saklanmadigi
-	// icin eski bir `since` ile abone olmanin faydasi yok.
+	// The filter is rebuilt EVERY epoch: because ephemeral events are not
+	// stored, subscribing with an old `since` buys nothing.
 	filter := nostr.SignalingFilter(a.cfg.Identity.PublicKey, a.now().Add(-SubscribeBacklog))
 	events := a.cfg.Pool.Subscribe(subCtx, filter)
 
-	// Abonelik kuruldu: artik gelen offer'lari yakalayabiliriz.
+	// The subscription is up: we can catch incoming offers now.
 	a.readyOn.Do(func() { close(a.ready) })
 
 	health, _ := a.superviseLimits()
@@ -324,11 +338,11 @@ func (a *Acceptor) runEpoch(ctx context.Context) error {
 			gap := now.Sub(lastTick)
 			lastTick = now
 
-			// Tunnel'daki uyanma tespitinin aynisi: denetim beklenenden cok
-			// gec kosulduysa surec askiya alinmistir. Relay baglantilari o
-			// sirada sessizce olmus olabilir ve go-nostr'un kendi geri
-			// sayimi 5 dakikaya kadar cikabiliyor — ziyaretcinin bu kadar
-			// beklemesi kabul edilemez.
+			// The same wake detection as in tunnel: if the check ran far
+			// later than expected, the process was suspended. The relay
+			// connections may have died quietly in the meantime, and
+			// go-nostr's own backoff can climb to 5 minutes — making a
+			// visitor wait that long is not acceptable.
 			if gap > time.Duration(resumeFactor)*health {
 				return errResume
 			}
@@ -353,15 +367,16 @@ func (a *Acceptor) runEpoch(ctx context.Context) error {
 	}
 }
 
-// HealthReporter saglik bildirebilen havuz.
+// HealthReporter is a pool that can report its health.
 //
-// Ayri arayuz: testlerdeki sahte havuzlar Pool arayuzunu uyguluyor ve
-// saglikla ilgilenmiyor.
+// A separate interface: the fake pools in the tests implement the Pool
+// interface and do not care about health.
 type HealthReporter interface {
 	Health() []nostr.RelayHealth
 }
 
-// relayHealth bagli ve toplam relay sayisi; havuz bildirmiyorsa (0, 0).
+// relayHealth returns the connected and total relay counts, or (0, 0)
+// when the pool does not report them.
 func (a *Acceptor) relayHealth() (healthy, total int) {
 	hr, ok := a.cfg.Pool.(HealthReporter)
 	if !ok {
@@ -379,20 +394,22 @@ func (a *Acceptor) relayHealth() (healthy, total int) {
 func (a *Acceptor) logRelayHealth(healthy, total int) {
 	switch healthy {
 	case 0:
-		a.log.Warn("hicbir relay'e baglanti yok: ziyaretciler su an sana ulasamaz",
-			slog.Int("toplam", total))
+		a.log.Warn("no connection to any relay: visitors cannot reach you right now",
+			slog.Int("total", total))
 	case total:
-		a.log.Info("tum relay'ler bagli", slog.Int("toplam", total))
+		a.log.Info("every relay is connected", slog.Int("total", total))
 	default:
-		a.log.Info("relay baglantilari degisti",
-			slog.Int("bagli", healthy), slog.Int("toplam", total))
+		a.log.Info("the relay connections changed",
+			slog.Int("connected", healthy), slog.Int("total", total))
 	}
 }
 
-// RelayStatus durum satiri icin bagli/toplam relay sayisi.
+// RelayStatus returns the connected/total relay counts for the status
+// line.
 func (a *Acceptor) RelayStatus() (healthy, total int) { return a.relayHealth() }
 
-// superviseLimits denetim sureleri (yapilandirilmissa onlar).
+// superviseLimits returns the supervision durations (the configured ones
+// when set).
 func (a *Acceptor) superviseLimits() (health, backoffMin time.Duration) {
 	health, backoffMin = a.cfg.healthInterval, a.cfg.resubscribeMin
 	if health <= 0 {
@@ -404,66 +421,67 @@ func (a *Acceptor) superviseLimits() (health, backoffMin time.Duration) {
 	return health, backoffMin
 }
 
-// Ready abonelik kuruldugunda kapanan kanali dondurur.
+// Ready returns a channel that closes once the subscription is up.
 //
-// "Hazirim" mesajini basmadan once bunu bekle: aksi halde ziyaretci URL'yi
-// hemen acarsa offer'i kaybolur (ephemeral event'ler saklanmaz).
+// Wait for it before printing the "ready" message: otherwise a visitor who
+// opens the URL right away loses their offer (ephemeral events are not
+// stored).
 func (a *Acceptor) Ready() <-chan struct{} { return a.ready }
 
-// SessionCount acik oturum sayisi.
+// SessionCount is the number of open sessions.
 func (a *Acceptor) SessionCount() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return len(a.sessions)
 }
 
-// onEvent gelen bir signaling event'ini isler.
+// onEvent handles an incoming signaling event.
 //
-// Ziyaretci guvenilmez: sirayla replay, saat kaymasi, hiz limiti ve icerik
-// dogrulamasi (guard.go, protocol/signaling.md).
+// The visitor is untrusted: replay, clock skew, rate limiting and content
+// validation, in that order (guard.go, protocol/signaling.md).
 func (a *Acceptor) onEvent(ctx context.Context, ev *gonostr.Event) {
 	if ev == nil {
 		return
 	}
 	short := nostr.ShortPubKey(ev.PubKey)
 
-	// Kendi yayinimiz geri gelirse yok say.
+	// Ignore our own publish coming back.
 	if ev.PubKey == a.cfg.Identity.PublicKey {
 		return
 	}
 
-	// Replay: ayni event id'si iki kez islenmez.
+	// Replay: the same event id is never handled twice.
 	if a.seen.seen(ev.ID) {
-		a.log.Debug("tekrarlanan event atlandi", slog.String("peer", short))
+		a.log.Debug("duplicate event skipped", slog.String("peer", short))
 		return
 	}
 
-	// Saat kaymasi: cok eski ya da gelecekteki event'ler reddedilir.
+	// Clock skew: events too old or in the future are rejected.
 	if !freshEnough(ev.CreatedAt.Time(), a.now(), MaxClockSkew) {
-		a.log.Warn("zaman damgasi kabul araligi disinda",
+		a.log.Warn("the timestamp is outside the accepted window",
 			slog.String("peer", short),
 			slog.Time("created_at", ev.CreatedAt.Time()))
 		return
 	}
 
-	// Hiz limiti: pubkey basina pencere hakki.
+	// Rate limiting: a per-pubkey allowance within a window.
 	if !a.rate.allow(ev.PubKey) {
-		a.log.Warn("hiz limiti asildi, event atlandi", slog.String("peer", short))
+		a.log.Warn("rate limit exceeded, event skipped", slog.String("peer", short))
 		return
 	}
 
 	payload, err := nostr.Decrypt(a.cfg.Identity.SecretKey, ev.PubKey, ev.Content)
 	if err != nil {
-		a.log.Warn("NIP-44 cozulemedi",
+		a.log.Warn("NIP-44 could not be decrypted",
 			slog.String("peer", short), slog.String("err", err.Error()))
 		return
 	}
 
 	msg, err := a.codec.Decode(payload)
 	if err != nil {
-		// Yanlis sirla gelen mesajlar burada duser; peer-id'yi bilip sirri
-		// bilmeyen biri baglanamaz.
-		a.log.Warn("signaling mesaji cozulemedi",
+		// Messages that arrive with the wrong secret die here; someone who
+		// knows the peer-id but not the secret cannot connect.
+		a.log.Warn("the signaling message could not be decoded",
 			slog.String("peer", short), slog.String("err", err.Error()))
 		return
 	}
@@ -476,21 +494,23 @@ func (a *Acceptor) onEvent(ctx context.Context, ev *gonostr.Event) {
 	case signaling.TypeBye:
 		a.onBye(ev.PubKey, msg)
 	case signaling.TypeAnswer:
-		// Ajan answer ALMAZ, uretir: protokol ihlali.
-		a.log.Warn("ajana answer geldi, protokol ihlali", slog.String("peer", short))
+		// The agent does not RECEIVE answers, it produces them: a protocol
+		// violation.
+		a.log.Warn("an answer arrived at the agent, a protocol violation", slog.String("peer", short))
 	}
 }
 
 func (a *Acceptor) onOffer(ctx context.Context, peerPub string, msg signaling.Msg) {
 	short := nostr.ShortPubKey(peerPub)
 
-	// Hedef once: en ucuz kontrol ve basarisizsa WebRTC'ye hic girmiyoruz.
-	// Sessizce default'a dusmuyoruz — ziyaretci yanlis projeyi gezdigini
-	// fark etmeyebilir (BRIEF bolum 8).
+	// The target first: it is the cheapest check and if it fails we never
+	// enter WebRTC. We do not fall back to the default silently — the
+	// visitor may not notice they are browsing the wrong project (BRIEF
+	// section 8).
 	targetName, ok := a.resolveTarget(msg.Target)
 	if !ok {
-		a.log.Warn("bilinmeyen hedef, offer reddedildi",
-			slog.String("peer", short), slog.String("hedef", msg.Target))
+		a.log.Warn("unknown target, offer refused",
+			slog.String("peer", short), slog.String("target", msg.Target))
 		a.publish(ctx, peerPub, signaling.Msg{
 			Type: signaling.TypeBye, SID: msg.SID, Reason: "unknown-target",
 		})
@@ -500,31 +520,31 @@ func (a *Acceptor) onOffer(ctx context.Context, peerPub string, msg signaling.Ms
 	a.mu.Lock()
 	if _, dup := a.sessions[msg.SID]; dup {
 		a.mu.Unlock()
-		a.log.Debug("ayni sid ile ikinci offer atlandi",
+		a.log.Debug("a second offer with the same sid was skipped",
 			slog.String("peer", short), slog.String("sid", msg.SID))
 		return
 	}
 	if len(a.sessions) >= a.cfg.MaxSessions {
 		a.mu.Unlock()
-		a.log.Warn("oturum tavani asildi, offer reddedildi",
-			slog.String("peer", short), slog.Int("tavan", a.cfg.MaxSessions))
+		a.log.Warn("session limit exceeded, offer refused",
+			slog.String("peer", short), slog.Int("limit", a.cfg.MaxSessions))
 		a.publish(ctx, peerPub, signaling.Msg{
 			Type: signaling.TypeBye, SID: msg.SID, Reason: "too-many-sessions",
 		})
 		return
 	}
-	// Yer ayir: kilidi birakmadan once kaydi koyuyoruz ki ayni anda gelen
-	// ikinci offer tavani asamasin.
+	// Reserve the slot: we put the record in before releasing the lock, so
+	// a second offer arriving at the same moment cannot pass the limit.
 	placeholder := &visitorSession{sid: msg.SID, peerPub: peerPub, created: a.now()}
 	a.sessions[msg.SID] = placeholder
 	a.mu.Unlock()
 
-	a.log.Info("offer alindi",
+	a.log.Info("offer received",
 		slog.String("peer", short), slog.String("sid", msg.SID),
-		slog.String("hedef", targetName))
+		slog.String("target", targetName))
 
 	if err := a.startSession(ctx, peerPub, msg, targetName, placeholder); err != nil {
-		a.log.Warn("oturum kurulamadi",
+		a.log.Warn("the session could not be set up",
 			slog.String("peer", short), slog.String("err", err.Error()))
 		a.dropSession(msg.SID)
 		a.publish(ctx, peerPub, signaling.Msg{
@@ -533,10 +553,12 @@ func (a *Acceptor) onOffer(ctx context.Context, peerPub string, msg signaling.Ms
 	}
 }
 
-// resolveTarget offer'daki hedef adini yayinlanan hedeflerden birine cevirir.
+// resolveTarget maps the target name in an offer to one of the published
+// targets.
 //
-// Bos ad "belirtilmedi" demektir: default varsa o, yoksa alfabetik ilk hedef
-// (Targets, target.Set.Names() ciktisidir ve siralidir).
+// An empty name means "not specified": default if there is one, otherwise
+// the alphabetically first target (Targets is the output of
+// target.Set.Names() and is sorted).
 func (a *Acceptor) resolveTarget(name string) (string, bool) {
 	if name == "" {
 		for _, n := range a.cfg.Targets {
@@ -560,15 +582,16 @@ func (a *Acceptor) startSession(
 ) error {
 	px, err := a.cfg.NewProxy(targetName)
 	if err != nil {
-		return fmt.Errorf("proxy kurulamadi: %w", err)
+		return fmt.Errorf("the proxy could not be built: %w", err)
 	}
 
-	// Kopru kapaliysa (varsayilan) nil kalir ve ws-open reddedilir.
+	// When the bridge is off (the default) it stays nil and ws-open is
+	// refused.
 	var wsDialer tunnel.WSDialer
 	if a.cfg.NewWSDialer != nil {
 		wsDialer, err = a.cfg.NewWSDialer(targetName)
 		if err != nil {
-			return fmt.Errorf("ws koprusu kurulamadi: %w", err)
+			return fmt.Errorf("the ws bridge could not be built: %w", err)
 		}
 	}
 
@@ -587,8 +610,8 @@ func (a *Acceptor) startSession(
 		WSDialer:      wsDialer,
 		Logger:        a.log.With(slog.String("sid", offerMsg.SID)),
 		Verbose:       a.cfg.Verbose,
-		// Nostr yolunda trickle acik: adaylar ayri event olarak gider
-		// (BRIEF Faz 2).
+		// On the Nostr path trickle is on: candidates travel as separate
+		// events (BRIEF phase 2).
 		Trickle: true,
 	})
 	if err != nil {
@@ -602,15 +625,15 @@ func (a *Acceptor) startSession(
 	slot.cancel = cancel
 	a.mu.Unlock()
 
-	// Yerel adaylari ziyaretciye yolla.
+	// Send the local candidates to the visitor.
 	sess.OnLocalCandidate(func(c webrtc.ICECandidateInit) {
 		mid := ""
 		if c.SDPMid != nil {
 			mid = *c.SDPMid
 		}
 		if mid == "" {
-			// Yalnizca bir m-line var (data channel); mid'i bos bırakmak
-			// yerine tanimli degeri kullaniyoruz.
+			// There is only one m-line (the data channel); rather than
+			// leaving mid empty we use the defined value.
 			mid = "0"
 		}
 		a.publish(sessCtx, peerPub, signaling.Msg{
@@ -631,7 +654,7 @@ func (a *Acceptor) startSession(
 	if err != nil {
 		cancel()
 		_ = sess.Close()
-		return fmt.Errorf("answer uretilemedi: %w", err)
+		return fmt.Errorf("the answer could not be created: %w", err)
 	}
 
 	if err := a.publish(sessCtx, peerPub, signaling.Msg{
@@ -639,10 +662,10 @@ func (a *Acceptor) startSession(
 	}); err != nil {
 		cancel()
 		_ = sess.Close()
-		return fmt.Errorf("answer yayinlanamadi: %w", err)
+		return fmt.Errorf("the answer could not be published: %w", err)
 	}
 
-	// Oturumun acilmasini bekle ve kapaninca temizle.
+	// Wait for the session to open, and clean up when it closes.
 	go a.watchSession(sessCtx, peerPub, offerMsg.SID, sess)
 	return nil
 }
@@ -651,29 +674,30 @@ func (a *Acceptor) watchSession(ctx context.Context, peerPub, sid string, sess *
 	short := nostr.ShortPubKey(peerPub)
 
 	if err := sess.WaitReady(ctx, SessionSetupTimeout); err != nil {
-		a.log.Warn("tunel acilmadi, oturum kapatiliyor",
+		a.log.Warn("the tunnel did not open, closing the session",
 			slog.String("peer", short), slog.String("sid", sid),
 			slog.String("err", err.Error()))
 		a.dropSession(sid)
 		return
 	}
 
-	a.log.Info("tunel acik", slog.String("peer", short), slog.String("sid", sid))
+	a.log.Info("tunnel open", slog.String("peer", short), slog.String("sid", sid))
 
 	select {
 	case <-sess.Done():
-		// Kapanis nedenini yaziyoruz: bosta kalma, kopan ICE ve ziyaretcinin
-		// `bye`'i bugune kadar ayni satiri basiyordu, yani log'dan tunelin
-		// neden gittigi anlasilmiyordu.
-		a.log.Info("tunel kapandi",
+		// We write down why it closed: going idle, ICE dropping and the
+		// visitor's `bye` all printed the same line until now, so the log
+		// did not say why the tunnel went away.
+		a.log.Info("tunnel closed",
 			slog.String("peer", short), slog.String("sid", sid),
-			slog.String("neden", closeReason(sess.Err())))
+			slog.String("reason", closeReason(sess.Err())))
 	case <-ctx.Done():
 	}
 	a.dropSession(sid)
 }
 
-// iceConfig oturum icin ICE listesini alir; fabrika yoksa bos doner.
+// iceConfig gets the ICE list for a session; it returns empty when there
+// is no factory.
 func (a *Acceptor) iceConfig() ([]webrtc.ICEServer, webrtc.ICETransportPolicy) {
 	if a.cfg.ICE == nil {
 		return nil, webrtc.ICETransportPolicyAll
@@ -681,16 +705,16 @@ func (a *Acceptor) iceConfig() ([]webrtc.ICEServer, webrtc.ICETransportPolicy) {
 	return a.cfg.ICE()
 }
 
-// closeReason kapanma nedenini kisa bir etikete cevirir.
+// closeReason turns the close cause into a short label.
 func closeReason(err error) string {
 	switch {
 	case err == nil:
-		// Temiz kapanis: ziyaretci `bye` yolladi ya da kanal dusurdu.
-		return "temiz"
+		// A clean close: the visitor sent `bye` or the channel dropped.
+		return "clean"
 	case errors.Is(err, tunnel.ErrIdle):
-		return "bosta"
+		return "idle"
 	case errors.Is(err, tunnel.ErrDisconnected):
-		return "baglanti-koptu"
+		return "connection-lost"
 	default:
 		return err.Error()
 	}
@@ -703,20 +727,20 @@ func (a *Acceptor) onCandidate(peerPub string, msg signaling.Msg) {
 	vs, ok := a.sessions[msg.SID]
 	a.mu.Unlock()
 
-	// Bilinmeyen sid: durum kirletmeye izin vermiyoruz.
+	// An unknown sid: we do not allow state to be polluted.
 	if !ok {
-		a.log.Debug("bilinmeyen sid icin candidate atlandi",
+		a.log.Debug("candidate for an unknown sid was skipped",
 			slog.String("peer", short), slog.String("sid", msg.SID))
 		return
 	}
-	// Oturumu baska bir ziyaretci kapamasin/kirletmesin.
+	// Another visitor must not be able to close or pollute the session.
 	if vs.peerPub != peerPub {
-		a.log.Warn("baska bir pubkey bu oturuma candidate yolladi",
+		a.log.Warn("another pubkey sent a candidate to this session",
 			slog.String("peer", short), slog.String("sid", msg.SID))
 		return
 	}
 	if vs.sess == nil {
-		a.log.Debug("oturum henuz hazir degil, candidate atlandi",
+		a.log.Debug("the session is not ready yet, candidate skipped",
 			slog.String("sid", msg.SID))
 		return
 	}
@@ -726,7 +750,7 @@ func (a *Acceptor) onCandidate(peerPub string, msg signaling.Msg) {
 		Candidate: msg.Candidate,
 		SDPMid:    &mid,
 	}); err != nil {
-		a.log.Warn("aday eklenemedi",
+		a.log.Warn("the candidate could not be added",
 			slog.String("sid", msg.SID), slog.String("err", err.Error()))
 	}
 }
@@ -739,7 +763,7 @@ func (a *Acceptor) onBye(peerPub string, msg signaling.Msg) {
 		return
 	}
 
-	a.log.Info("ziyaretci ayrildi",
+	a.log.Info("visitor left",
 		slog.String("peer", nostr.ShortPubKey(peerPub)),
 		slog.String("sid", msg.SID),
 		slog.String("reason", msg.Reason))
@@ -784,22 +808,23 @@ func (a *Acceptor) closeAll() {
 	}
 }
 
-// publish bir signaling mesajini ziyaretciye yollar.
+// publish sends a signaling message to the visitor.
 func (a *Acceptor) publish(ctx context.Context, peerPub string, msg signaling.Msg) error {
 	payload, err := a.codec.Encode(msg)
 	if err != nil {
-		return fmt.Errorf("mesaj kodlanamadi: %w", err)
+		return fmt.Errorf("the message could not be encoded: %w", err)
 	}
 
-	// NIP-44: icerik yalnizca aliciya acik; relay'ler goremez.
+	// NIP-44: the content is readable only by the recipient; relays
+	// cannot see it.
 	content, err := nostr.Encrypt(a.cfg.Identity.SecretKey, peerPub, payload)
 	if err != nil {
-		return fmt.Errorf("NIP-44 sifreleme: %w", err)
+		return fmt.Errorf("NIP-44 encryption: %w", err)
 	}
 
 	ev := nostr.NewSignalingEvent(peerPub, content)
 	if err := ev.Sign(a.cfg.Identity.SecretKey); err != nil {
-		return fmt.Errorf("event imzalanamadi: %w", err)
+		return fmt.Errorf("the event could not be signed: %w", err)
 	}
 
 	pubCtx, cancel := context.WithTimeout(ctx, PublishTimeout)
@@ -807,19 +832,19 @@ func (a *Acceptor) publish(ctx context.Context, peerPub string, msg signaling.Ms
 
 	report, err := a.cfg.Pool.Publish(pubCtx, ev)
 	if err != nil {
-		return fmt.Errorf("yayin: %w", err)
+		return fmt.Errorf("publish: %w", err)
 	}
-	a.log.Debug("signaling mesaji yayinlandi",
+	a.log.Debug("signaling message published",
 		slog.String("t", string(msg.Type)),
 		slog.String("sid", msg.SID),
 		slog.Int("relay_ok", len(report.OK)))
 	return nil
 }
 
-// authMode hello mesajinda bildirilecek auth degeri.
+// authMode is the auth value announced in the hello message.
 //
-// Sir varsa "required": ziyaretci tarafi bunu gorup kullaniciya anlamli bir
-// mesaj gosterebilir.
+// With a secret it is "required": the visitor side can see that and show
+// the user a meaningful message.
 func (a *Acceptor) authMode() protocol.AuthMode {
 	if a.cfg.Sealer != nil {
 		return protocol.AuthRequired

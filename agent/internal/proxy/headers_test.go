@@ -27,62 +27,62 @@ func TestSanitizeRequestHeadersDropsHopByHop(t *testing.T) {
 		"Te", "Trailer", "Proxy-Authorization", "Proxy-Connection",
 	} {
 		if v := got.Get(drop); v != "" {
-			t.Errorf("%s silinmeliydi, geldi: %q", drop, v)
+			t.Errorf("%s should have been stripped, got: %q", drop, v)
 		}
 	}
 	if got.Get("Accept") != "text/html" {
-		t.Errorf("accept korunmali, geldi: %q", got.Get("Accept"))
+		t.Errorf("accept has to be preserved, got: %q", got.Get("Accept"))
 	}
 	if got.Get("User-Agent") != "test" {
-		t.Errorf("user-agent korunmali")
+		t.Errorf("user-agent has to be kept")
 	}
 }
 
 func TestSanitizeRequestHeadersDropsHostAndLength(t *testing.T) {
 	got := SanitizeRequestHeaders(map[string]string{
-		"host":           "kullanici.github.io",
+		"host":           "example.github.io",
 		"content-length": "123",
 		"expect":         "100-continue",
 	})
 	for _, drop := range []string{"Host", "Content-Length", "Expect"} {
 		if v := got.Get(drop); v != "" {
-			t.Errorf("%s silinmeliydi, geldi: %q", drop, v)
+			t.Errorf("%s should have been stripped, got: %q", drop, v)
 		}
 	}
 }
 
-// Ajan sikistirmayi cozmuyor: hedeften duz govde istenir.
+// The agent does not decompress: a plain body is asked of the target.
 func TestSanitizeRequestHeadersForcesIdentityEncoding(t *testing.T) {
 	got := SanitizeRequestHeaders(map[string]string{"accept-encoding": "gzip, br"})
 	if got.Get("Accept-Encoding") != "identity" {
-		t.Errorf("accept-encoding identity olmali, geldi: %q", got.Get("Accept-Encoding"))
+		t.Errorf("accept-encoding has to be identity, got: %q", got.Get("Accept-Encoding"))
 	}
 }
 
-// Ziyaretci guvenilmez: baslik enjeksiyonu denemeleri atilir.
+// The visitor is untrusted: header injection attempts are dropped.
 func TestSanitizeRequestHeadersRejectsInjection(t *testing.T) {
 	got := SanitizeRequestHeaders(map[string]string{
-		"x-kotu":         "deger\r\nX-Enjekte: evet",
-		"x-null":         "deger\x00",
-		"x-bosluklu ad":  "deger",
-		"x-parantez(li)": "deger",
-		"":               "deger",
-		"x-iyi":          "deger",
+		"x-kotu":              "value\r\nX-Injected: yes",
+		"x-null":              "value\x00",
+		"x-name with a space": "value",
+		"x-parantez(li)":      "value",
+		"":                    "value",
+		"x-iyi":               "value",
 	})
 	if got.Get("X-Kotu") != "" {
-		t.Error("CRLF iceren deger atilmaliydi")
+		t.Error("a value containing CRLF should have been dropped")
 	}
 	if got.Get("X-Null") != "" {
-		t.Error("NUL iceren deger atilmaliydi")
+		t.Error("a value containing NUL should have been dropped")
 	}
 	if got.Get("X-Bosluklu Ad") != "" {
-		t.Error("gecersiz baslik adi atilmaliydi")
+		t.Error("an invalid header name should have been dropped")
 	}
 	if got.Get("X-Parantez(li)") != "" {
-		t.Error("token olmayan baslik adi atilmaliydi")
+		t.Error("a header name that is not a token should have been dropped")
 	}
-	if got.Get("X-Iyi") != "deger" {
-		t.Error("gecerli baslik korunmaliydi")
+	if got.Get("X-Iyi") != "value" {
+		t.Error("a valid header should have been kept")
 	}
 }
 
@@ -101,15 +101,16 @@ func TestSanitizeResponseHeaders(t *testing.T) {
 	if got["content-type"] != "text/html" {
 		t.Errorf("content-type: %q", got["content-type"])
 	}
-	// Govde cercevelere bolundugu ve SW akitarak servis ettigi icin
-	// content-length yanlis olur; gercek uzunluk ctrl `end`.`len` ile gider.
+	// Because the body is split into frames and the SW serves it as a
+	// stream, content-length would be wrong; the real length travels in
+	// ctrl `end`.`len`.
 	for _, drop := range []string{"content-length", "content-encoding", "transfer-encoding", "connection"} {
 		if v, ok := got[drop]; ok {
-			t.Errorf("%s silinmeliydi, geldi: %q", drop, v)
+			t.Errorf("%s should have been stripped, got: %q", drop, v)
 		}
 	}
 	if got["vary"] != "Accept, Accept-Language" {
-		t.Errorf("cok degerli baslik birlestirilmeli, geldi: %q", got["vary"])
+		t.Errorf("a multi-value header has to be joined, got: %q", got["vary"])
 	}
 	if got["cache-control"] != "no-store" {
 		t.Errorf("cache-control: %q", got["cache-control"])
@@ -117,7 +118,8 @@ func TestSanitizeResponseHeaders(t *testing.T) {
 }
 
 func TestSanitizeResponseHeadersSetCookie(t *testing.T) {
-	// set-cookie virgulle birlestirilemez: ilk deger alinir.
+	// set-cookie cannot be joined with commas: the first value is
+	// taken.
 	got := SanitizeResponseHeaders(http.Header{
 		"Set-Cookie": []string{"a=1; Path=/", "b=2; Path=/"},
 	})
@@ -143,31 +145,32 @@ func TestRewriteLocation(t *testing.T) {
 		{"http://LOCALHOST:3000/a", "/a"},
 		{"HTTP://localhost:3000/a", "/a"},
 		{"http://localhost:3000/a#b", "/a#b"},
-		// Goreli olanlar oldugu gibi kalir.
+		// Relative ones stay as they are.
 		{"/zaten/goreli", "/zaten/goreli"},
 		{"goreli", "goreli"},
 		{"", ""},
-		// Baska origin: dokunmuyoruz, karar ziyaretcinin tarayicisinda.
-		{"https://ornek.com/x", "https://ornek.com/x"},
+		// Another origin: we do not touch it, the decision is in the
+		// visitor's browser.
+		{"https://example.com/x", "https://example.com/x"},
 		{"http://localhost:4000/x", "http://localhost:4000/x"},
 		{"http://baska:3000/x", "http://baska:3000/x"},
-		// Scheme farkli.
+		// A different scheme.
 		{"https://localhost:3000/x", "https://localhost:3000/x"},
 	}
 	for _, c := range cases {
 		if got := RewriteLocation(c.in, base); got != c.want {
-			t.Errorf("RewriteLocation(%q) = %q, beklenen %q", c.in, got, c.want)
+			t.Errorf("RewriteLocation(%q) = %q, expected %q", c.in, got, c.want)
 		}
 	}
 }
 
 func TestRewriteLocationWithBasePathPrefix(t *testing.T) {
-	base, err := url.Parse("http://localhost:3000/onek")
+	base, err := url.Parse("http://localhost:3000/prefix")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := RewriteLocation("http://localhost:3000/onek/sayfa", base); got != "/sayfa" {
-		t.Errorf("yol oneki dusurulmeli, geldi: %q", got)
+	if got := RewriteLocation("http://localhost:3000/prefix/page", base); got != "/page" {
+		t.Errorf("the path prefix has to be dropped, got: %q", got)
 	}
 }
 
@@ -186,12 +189,12 @@ func TestRewriteLocationHeaders(t *testing.T) {
 		"content-type":     "text/html",
 	}
 	if !reflect.DeepEqual(headers, want) {
-		t.Errorf("geldi %#v", headers)
+		t.Errorf("got %#v", headers)
 	}
 }
 
 func TestRewriteLocationNilBase(t *testing.T) {
 	if got := RewriteLocation("http://localhost:3000/a", nil); got != "http://localhost:3000/a" {
-		t.Errorf("nil base ile deger degismemeli, geldi: %q", got)
+		t.Errorf("with a nil base the value must not change, got: %q", got)
 	}
 }

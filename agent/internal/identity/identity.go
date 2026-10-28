@@ -1,13 +1,14 @@
-// Package identity ajanin Nostr kimligini (keypair) yonetir.
+// Package identity manages the agent's Nostr identity (its keypair).
 //
-// Anahtar `~/.peerpages/key` dosyasinda **nsec** (bech32) olarak tutulur.
-// Nedenleri: self-describing (nsec oneki ne oldugunu soyler), checksum'u
-// var (yanlis kopyalama yakalanir) ve kullanici isterse baska bir Nostr
-// aracina aktarabilir. Okuma tarafi ham hex'i de kabul eder.
+// The key is stored in `~/.peerpages/key` as an **nsec** (bech32). Why:
+// it is self-describing (the nsec prefix says what it is), it has a
+// checksum (a bad copy gets caught) and the user can move it into another
+// Nostr tool if they want. The read side accepts raw hex too.
 //
-// peer-id = TAM npub. BRIEF bolum 4 "npub'in kisa formu" diyordu ama NIP-44
-// sifreleme ve `#p` tag'i tam 32 baytlik pubkey gerektiriyor; kisaltilmis
-// id'den turetilemez. Karar ve gerekcesi BRIEF bolum 8'de.
+// peer-id = the FULL npub. BRIEF section 4 said "a short form of the
+// npub", but NIP-44 encryption and the `#p` tag need the complete 32-byte
+// pubkey, which cannot be derived from a shortened id. The decision and
+// its reasoning are in BRIEF section 8.
 package identity
 
 import (
@@ -24,32 +25,33 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/target"
 )
 
-// Dosya ve dizin izinleri.
+// File and directory permissions.
 //
-// Windows'ta POSIX izinleri yok sayilir; dosya kullanici profilinde durur ve
-// korumasi isletim sisteminin ACL'lerine kalir (docs/DEV.md'de yazili).
+// On Windows POSIX permissions are ignored; the file lives in the user
+// profile and its protection is left to the operating system's ACLs
+// (written down in docs/DEV.md).
 const (
 	keyFileMode = 0o600
 	keyDirMode  = 0o700
 )
 
-// Identity bir Nostr keypair'i.
+// Identity is a Nostr keypair.
 type Identity struct {
-	// SecretKey 32 bayt, hex.
+	// SecretKey is 32 bytes, hex.
 	SecretKey string
-	// PublicKey 32 bayt, hex.
+	// PublicKey is 32 bytes, hex.
 	PublicKey string
 }
 
-// Generate yeni bir keypair uretir.
+// Generate creates a new keypair.
 func Generate() (Identity, error) {
 	sk := gonostr.GeneratePrivateKey()
 	return FromSecretKey(sk)
 }
 
-// FromSecretKey verilen gizli anahtardan kimlik kurar.
+// FromSecretKey builds an identity from the given secret key.
 //
-// Girdi hem hex hem nsec olabilir.
+// The input may be either hex or an nsec.
 func FromSecretKey(raw string) (Identity, error) {
 	sk, err := normalizeSecretKey(raw)
 	if err != nil {
@@ -57,64 +59,66 @@ func FromSecretKey(raw string) (Identity, error) {
 	}
 	pub, err := gonostr.GetPublicKey(sk)
 	if err != nil {
-		return Identity{}, fmt.Errorf("pubkey turetilemedi: %w", err)
+		return Identity{}, fmt.Errorf("the pubkey could not be derived: %w", err)
 	}
 	return Identity{SecretKey: sk, PublicKey: pub}, nil
 }
 
-// normalizeSecretKey nsec ya da hex girdiyi hex'e cevirir.
+// normalizeSecretKey turns an nsec or hex input into hex.
 func normalizeSecretKey(raw string) (string, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
-		return "", errors.New("gizli anahtar bos")
+		return "", errors.New("the secret key is empty")
 	}
 
 	if strings.HasPrefix(s, "nsec") {
 		prefix, value, err := nip19.Decode(s)
 		if err != nil {
-			return "", fmt.Errorf("nsec okunamadi: %w", err)
+			return "", fmt.Errorf("the nsec could not be read: %w", err)
 		}
 		if prefix != "nsec" {
-			return "", fmt.Errorf("nsec bekleniyordu, gelen: %q", prefix)
+			return "", fmt.Errorf("expected an nsec, got: %q", prefix)
 		}
 		hex, ok := value.(string)
 		if !ok || !gonostr.IsValid32ByteHex(hex) {
-			return "", errors.New("nsec icerigi gecersiz")
+			return "", errors.New("the nsec content is invalid")
 		}
 		return hex, nil
 	}
 
 	s = strings.ToLower(s)
 	if !gonostr.IsValid32ByteHex(s) {
-		return "", errors.New("gizli anahtar 64 karakter hex ya da nsec olmali")
+		return "", errors.New("the secret key must be 64 hex characters or an nsec")
 	}
 	return s, nil
 }
 
-// Npub pubkey'in bech32 (npub) bicimi. peer-id olarak kullanilan deger.
+// Npub is the pubkey in bech32 (npub) form. The value used as the
+// peer-id.
 func (i Identity) Npub() (string, error) {
 	if i.PublicKey == "" {
-		return "", errors.New("pubkey bos")
+		return "", errors.New("the pubkey is empty")
 	}
 	return nip19.EncodePublicKey(i.PublicKey)
 }
 
-// Nsec gizli anahtarin bech32 bicimi. Yalnizca dosyaya yazmak ve kullaniciya
-// bilincli olarak gostermek icin; loglara ASLA girmemeli.
+// Nsec is the secret key in bech32 form. Only for writing to the file and
+// deliberately showing the user; it must NEVER reach the logs.
 func (i Identity) Nsec() (string, error) {
 	if i.SecretKey == "" {
-		return "", errors.New("gizli anahtar bos")
+		return "", errors.New("the secret key is empty")
 	}
 	return nip19.EncodePrivateKey(i.SecretKey)
 }
 
-// PeerID ziyaretci URL'sinde `#` sonrasina konan deger (tam npub).
+// PeerID is the value put after `#` in the visitor URL (the full
+// npub).
 func (i Identity) PeerID() (string, error) { return i.Npub() }
 
-// Short ekranda/logda gosterim icin kisaltilmis npub.
+// Short is the shortened npub for showing on screen or in a log.
 //
-// BRIEF bolum 4'un "okunur form" niyeti burada karsilaniyor: URL tam npub
-// tasir, insan gozune kisaltilmis hali gosterilir.
+// This is where BRIEF section 4's "readable form" intent is met: the URL
+// carries the full npub, and the human eye is shown the shortened one.
 func (i Identity) Short() string {
 	npub, err := i.Npub()
 	if err != nil {
@@ -123,7 +127,8 @@ func (i Identity) Short() string {
 	return ShortenNpub(npub)
 }
 
-// ShortenNpub npub'i okunur bicimde kisaltir: ilk 12 + son 4.
+// ShortenNpub shortens an npub into a readable form: the first 12 plus
+// the last 4.
 func ShortenNpub(npub string) string {
 	if len(npub) <= 20 {
 		return npub
@@ -131,23 +136,24 @@ func ShortenNpub(npub string) string {
 	return npub[:12] + "…" + npub[len(npub)-4:]
 }
 
-// DefaultKeyPath varsayilan anahtar dosyasi yolu: ~/.peerpages/key
+// DefaultKeyPath is the default key file path: ~/.peerpages/key
 func DefaultKeyPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("ev dizini bulunamadi: %w", err)
+		return "", fmt.Errorf("the home directory could not be found: %w", err)
 	}
 	return filepath.Join(home, ".peerpages", "key"), nil
 }
 
-// Load anahtari dosyadan okur.
+// Load reads the key from the file.
 func Load(path string) (Identity, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return Identity{}, err
 	}
 
-	// Dosyada yorum satirlari ve bos satirlar olabilir; ilk anlamli satiri al.
+	// The file may hold comment lines and blank lines; take the first
+	// meaningful line.
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -159,10 +165,11 @@ func Load(path string) (Identity, error) {
 		}
 		return id, nil
 	}
-	return Identity{}, fmt.Errorf("%s: anahtar bulunamadi (dosya bos)", path)
+	return Identity{}, fmt.Errorf("%s: no key found (the file is empty)", path)
 }
 
-// Save anahtari dosyaya yazar. Var olan dosyanin uzerine YAZMAZ.
+// Save writes the key to the file. It does NOT overwrite an existing
+// file.
 func Save(path string, id Identity) error {
 	nsec, err := id.Nsec()
 	if err != nil {
@@ -171,28 +178,29 @@ func Save(path string, id Identity) error {
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, keyDirMode); err != nil {
-		return fmt.Errorf("dizin olusturulamadi %s: %w", dir, err)
+		return fmt.Errorf("the directory could not be created %s: %w", dir, err)
 	}
 
-	// O_EXCL: yaris durumunda bile var olan anahtari ezmeyiz.
+	// O_EXCL: even in a race we never clobber an existing key.
 	f, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE|os.O_EXCL, keyFileMode)
 	if err != nil {
-		return fmt.Errorf("anahtar dosyasi olusturulamadi %s: %w", path, err)
+		return fmt.Errorf("the key file could not be created %s: %w", path, err)
 	}
 
-	content := "# PeerPages ajan anahtari — BU DOSYAYI KIMSEYLE PAYLASMA.\n" +
-		"# Bu anahtari kaybedersen peer-id'n (URL'n) degisir.\n" +
+	content := "# PeerPages agent key — DO NOT SHARE THIS FILE WITH ANYONE.\n" +
+		"# If you lose this key your peer-id (your URL) changes.\n" +
 		nsec + "\n"
 
 	if _, werr := f.WriteString(content); werr != nil {
 		_ = f.Close()
-		return fmt.Errorf("anahtar yazilamadi: %w", werr)
+		return fmt.Errorf("the key could not be written: %w", werr)
 	}
 	if cerr := f.Close(); cerr != nil {
-		return fmt.Errorf("anahtar dosyasi kapatilamadi: %w", cerr)
+		return fmt.Errorf("the key file could not be closed: %w", cerr)
 	}
 
-	// MkdirAll var olan dizinin iznini degistirmez; acikca daraltalim.
+	// MkdirAll does not change the permissions of an existing directory;
+	// narrow them explicitly.
 	if runtime.GOOS != "windows" {
 		_ = os.Chmod(dir, keyDirMode)
 		_ = os.Chmod(path, keyFileMode)
@@ -200,18 +208,20 @@ func Save(path string, id Identity) error {
 	return nil
 }
 
-// LoadOrCreate anahtari okur; yoksa uretip kaydeder.
+// LoadOrCreate reads the key, or creates and saves one when there is
+// none.
 //
-// created: anahtar bu cagriyla uretildiyse true.
+// created: true when the key was generated by this call.
 func LoadOrCreate(path string) (id Identity, created bool, err error) {
 	id, err = Load(path)
 	switch {
 	case err == nil:
 		return id, false, nil
 	case !errors.Is(err, os.ErrNotExist):
-		// Dosya var ama okunamadi/bozuk: SESSIZCE yeni anahtar URETMEYIZ.
-		// Yeni anahtar peer-id'yi degistirir, yani kullanicinin URL'si
-		// sessizce gecersiz olur. Hatayi gostermek daha dogru.
+		// The file exists but could not be read or is corrupt: we do NOT
+		// generate a new key SILENTLY. A new key changes the peer-id, so
+		// the user's URL would quietly stop working. Showing the error is
+		// the right thing.
 		return Identity{}, false, err
 	}
 
@@ -225,18 +235,20 @@ func LoadOrCreate(path string) (id Identity, created bool, err error) {
 	return id, true, nil
 }
 
-// VisitorURL ziyaretciye verilecek tam URL'yi uretir.
+// VisitorURL builds the full URL to hand to a visitor.
 //
-// appURL app shell'in yayinlandigi adres (ornegin
-// https://kullanici.github.io/PeerPages/). secret bossa URL'ye eklenmez.
+// appURL is the address the app shell is published at (for example
+// https://user.github.io/PeerPages/). An empty secret is not added to the
+// URL.
 //
-// Fragment dilbilgisi (protocol/signaling.md ve web/src/nostr/peerid.ts):
+// The fragment grammar (protocol/signaling.md and
+// web/src/nostr/peerid.ts):
 //
-//	npub [ "/" hedef ] [ ":" sir ]
+//	npub [ "/" target ] [ ":" secret ]
 //
-// Hedef "" ya da "default" ise eklenmez: varsayilan hedef icin kisa URL.
-// Sira onemli — hedef sirdan ONCE gelir, cunku sir serbest metindir ve
-// icinde "/" bulunabilir.
+// A target of "" or "default" is not added: a short URL for the default
+// target. The order matters — the target comes BEFORE the secret, because
+// the secret is free text and may contain a "/".
 func (i Identity) VisitorURL(appURL, secret, targetName string) (string, error) {
 	npub, err := i.Npub()
 	if err != nil {
@@ -244,7 +256,7 @@ func (i Identity) VisitorURL(appURL, secret, targetName string) (string, error) 
 	}
 	base := strings.TrimSpace(appURL)
 	if base == "" {
-		return "", errors.New("app URL'si bos")
+		return "", errors.New("the app URL is empty")
 	}
 	if !strings.HasSuffix(base, "/") {
 		base += "/"

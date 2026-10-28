@@ -13,18 +13,19 @@ import {
 } from "./framing";
 import { buildPattern, fromHex, type TestVectors, toHex } from "./vectors";
 
-// Go tarafi (agent/internal/protocol/framing_test.go) AYNI dosyayi okur.
+// The Go side (agent/internal/protocol/framing_test.go) reads the SAME
+// file.
 const vectorsPath = fileURLToPath(new URL("../../../protocol/testvectors.json", import.meta.url));
 const V = JSON.parse(readFileSync(vectorsPath, "utf8")) as TestVectors;
 
 describe("testvectors.json", () => {
-  it("TS sabitleriyle ayni degerleri bildiriyor", () => {
+  it("it reports the same values as the TS constants", () => {
     expect(V.framing.headerBytes).toBe(HEADER_BYTES);
     expect(V.framing.maxPayload).toBe(MAX_PAYLOAD);
     expect(V.framing.maxFrame).toBe(MAX_FRAME);
   });
 
-  it("beklenen sayida vektor iceriyor (kazara bosalmasin)", () => {
+  it("it holds the expected number of vectors (so it cannot empty by accident)", () => {
     expect(V.frames.valid.length).toBeGreaterThanOrEqual(6);
     expect(V.frames.generated.length).toBeGreaterThanOrEqual(3);
     expect(V.frames.encodeInvalid.length).toBeGreaterThanOrEqual(2);
@@ -32,7 +33,7 @@ describe("testvectors.json", () => {
   });
 });
 
-describe("encodeFrame — gecerli vektorler", () => {
+describe("encodeFrame — the valid vectors", () => {
   for (const v of V.frames.valid) {
     it(v.name, () => {
       const got = encodeFrame(v.id, v.seq, fromHex(v.payloadHex));
@@ -41,7 +42,7 @@ describe("encodeFrame — gecerli vektorler", () => {
   }
 });
 
-describe("decodeFrame — gecerli vektorler", () => {
+describe("decodeFrame — the valid vectors", () => {
   for (const v of V.frames.valid) {
     it(v.name, () => {
       const got = decodeFrame(fromHex(v.frameHex));
@@ -52,7 +53,7 @@ describe("decodeFrame — gecerli vektorler", () => {
   }
 });
 
-describe("uretilen vektorler (buyuk payload)", () => {
+describe("the generated vectors (a large payload)", () => {
   for (const v of V.frames.generated) {
     it(`${v.name} — roundtrip`, () => {
       const payload = buildPattern(v.pattern);
@@ -69,7 +70,7 @@ describe("uretilen vektorler (buyuk payload)", () => {
   }
 });
 
-describe("encodeFrame — reddedilmesi gerekenler", () => {
+describe("encodeFrame — what has to be refused", () => {
   for (const v of V.frames.encodeInvalid) {
     it(`${v.name} → ${v.error}`, () => {
       const payload = buildPattern(v.pattern);
@@ -84,7 +85,7 @@ describe("encodeFrame — reddedilmesi gerekenler", () => {
   }
 });
 
-describe("decodeFrame — reddedilmesi gerekenler", () => {
+describe("decodeFrame — what has to be refused", () => {
   for (const v of V.frames.decodeInvalid) {
     it(`${v.name} → ${v.error}`, () => {
       let frame: Uint8Array;
@@ -111,8 +112,8 @@ describe("decodeFrame — reddedilmesi gerekenler", () => {
   }
 });
 
-describe("encodeFrame — id/seq araligi", () => {
-  it("uint32 disindaki degerleri reddeder", () => {
+describe("encodeFrame — the id/seq range", () => {
+  it("it refuses values outside uint32", () => {
     const p = new Uint8Array(0);
     expect(() => encodeFrame(-1, 0, p)).toThrow(RangeError);
     expect(() => encodeFrame(0x1_0000_0000, 0, p)).toThrow(RangeError);
@@ -121,40 +122,40 @@ describe("encodeFrame — id/seq araligi", () => {
     expect(() => encodeFrame(0, 0x1_0000_0000, p)).toThrow(RangeError);
   });
 
-  it("sinir degerlerini kabul eder", () => {
+  it("it accepts the boundary values", () => {
     expect(() => encodeFrame(0, 0, new Uint8Array(0))).not.toThrow();
     expect(() => encodeFrame(0xffffffff, 0xffffffff, new Uint8Array(0))).not.toThrow();
   });
 });
 
-describe("decodeFrame — payload kopyasi", () => {
-  it("cerceve tamponuna referans tutmaz", () => {
+describe("decodeFrame — the payload copy", () => {
+  it("it keeps no reference to the frame buffer", () => {
     const frame = encodeFrame(1, 0, new Uint8Array([1, 2, 3]));
     const got = decodeFrame(frame);
-    frame[HEADER_BYTES] = 99; // kaynak tamponu bozalim
+    frame[HEADER_BYTES] = 99; // corrupt the source buffer
     expect(Array.from(got.payload)).toEqual([1, 2, 3]);
   });
 });
 
 describe("frameBody", () => {
-  it("bos govde icin cerceve uretmez", () => {
+  it("it yields no frame for an empty body", () => {
     expect([...frameBody(1, new Uint8Array(0))]).toEqual([]);
   });
 
-  it("tam sinirdaki govdeyi tek cerceveye koyar", () => {
+  it("a body exactly at the limit goes into one frame", () => {
     const frames = [...frameBody(1, new Uint8Array(MAX_PAYLOAD))];
     expect(frames).toHaveLength(1);
     expect(frames[0]?.byteLength).toBe(MAX_FRAME);
   });
 
-  it("sinirin bir bayt ustunu iki cerceveye boler", () => {
+  it("one byte over the limit splits into two frames", () => {
     const frames = [...frameBody(1, new Uint8Array(MAX_PAYLOAD + 1))];
     expect(frames).toHaveLength(2);
     expect(decodeFrame(frames[0] as Uint8Array).payload.byteLength).toBe(MAX_PAYLOAD);
     expect(decodeFrame(frames[1] as Uint8Array).payload.byteLength).toBe(1);
   });
 
-  it("seq'i sirayla artirir ve icerigi korur", () => {
+  it("it increments seq in order and preserves the content", () => {
     const body = buildPattern({ kind: "counter", len: MAX_PAYLOAD * 2 + 7 });
     const frames = [...frameBody(42, body, 3)];
     expect(frames).toHaveLength(3);

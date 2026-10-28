@@ -1,18 +1,20 @@
 import { defineConfig } from "vite";
 
 /**
- * WebSocket shim derlemesi — app shell ve SW'den AYRI (Faz 6).
+ * The WebSocket shim build — SEPARATE from the app shell and the SW
+ * (phase 6).
  *
- * Neden ayri:
- *  - Dosya adi hash'siz ve sabit olmali (`dist/ws-shim.js`): Service Worker
- *    bu adi `<script src="...">` olarak enjekte ediyor ve `isAppShellPath`
- *    bu adi taniyor.
- *  - KLASIK script olmali (modul degil): ziyaretcinin sayfasina enjekte
- *    ediliyor ve sayfanin kendi script'lerinden ONCE kosmasi gerekiyor.
- *    `type="module"` ertelenmis calisirdi, yani sayfa WebSocket'i once
- *    alirdi.
+ * Why separate:
+ *  - the file name has to be fixed and unhashed (`dist/ws-shim.js`): the
+ *    Service Worker injects that name as `<script src="...">` and
+ *    `isAppShellPath` recognises it.
+ *  - it has to be a CLASSIC script (not a module): it is injected into the
+ *    visitor's page and has to run BEFORE the page's own scripts. With
+ *    `type="module"` it would run deferred, so the page would grab
+ *    WebSocket first.
  *
- * `emptyOutDir: false` — app derlemesinden sonra calisir, dist'i silmemeli.
+ * `emptyOutDir: false` — it runs after the app build and must not wipe
+ * dist.
  */
 export default defineConfig({
   base: process.env.PEERPAGES_BASE ?? "/",
@@ -23,7 +25,7 @@ export default defineConfig({
     sourcemap: true,
     lib: {
       entry: "src/ws-shim.ts",
-      // IIFE = klasik script.
+      // IIFE = a classic script.
       formats: ["iife"],
       name: "PeerPagesWsShim",
       fileName: () => "ws-shim.js",

@@ -1,18 +1,18 @@
-# Tum birim testleri: web (vitest) + ajan (go test).
-# `make test` esdegeri.
+# Every unit test: web (vitest) plus the agent (go test).
+# The equivalent of `make test`.
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
-Write-Host "== web birim testleri ==" -ForegroundColor Cyan
+Write-Host "== the web unit tests ==" -ForegroundColor Cyan
 Push-Location (Join-Path $root "web")
-try { npm test; if ($LASTEXITCODE -ne 0) { throw "web testleri basarisiz" } } finally { Pop-Location }
+try { npm test; if ($LASTEXITCODE -ne 0) { throw "the web tests failed" } } finally { Pop-Location }
 
-Write-Host "== ajan birim testleri ==" -ForegroundColor Cyan
+Write-Host "== the agent unit tests ==" -ForegroundColor Cyan
 Push-Location (Join-Path $root "agent")
 try {
   if (Test-Path "internal/testsite/gen") { go run ./internal/testsite/gen }
   go test ./...
-  if ($LASTEXITCODE -ne 0) { throw "ajan testleri basarisiz" }
+  if ($LASTEXITCODE -ne 0) { throw "the agent tests failed" }
 } finally { Pop-Location }
 
-Write-Host "tum testler yesil" -ForegroundColor Green
+Write-Host "every test is green" -ForegroundColor Green

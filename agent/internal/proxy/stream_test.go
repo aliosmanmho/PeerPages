@@ -14,10 +14,11 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/target"
 )
 
-// Uzun yasayan akislarin zaman asimi (Faz 6).
+// The timeout of long-lived streams (phase 6).
 //
-// Faz 6'ya kadar `Timeout` TUM cevabi sariyordu: 60 saniyeden uzun yasayan
-// her SSE akisi sessizce kesiliyordu. Artik yalnizca BASLIK fazinin siniri.
+// Until phase 6 `Timeout` wrapped the WHOLE response: every SSE stream
+// living longer than 60 seconds was cut off silently. It now bounds the
+// HEADER phase only.
 
 func newProxyWithTimeout(t *testing.T, serverURL string, timeout time.Duration) *Proxy {
 	t.Helper()
@@ -38,7 +39,8 @@ func newProxyWithTimeout(t *testing.T, serverURL string, timeout time.Duration) 
 	return p
 }
 
-// Baslik geldikten sonra govde, zaman asimindan UZUN sure susabilir.
+// Once the head has arrived the body may stay quiet for LONGER than the
+// timeout.
 func TestServeBodyHasNoDeadline(t *testing.T) {
 	const timeout = 300 * time.Millisecond
 
@@ -53,8 +55,8 @@ func TestServeBodyHasNoDeadline(t *testing.T) {
 		_, _ = io.WriteString(w, "data: ilk\n\n")
 		flusher.Flush()
 
-		// Zaman asimindan belirgin sekilde uzun sus: eski davranis burada
-		// akisi keserdi.
+		// Stay quiet clearly longer than the timeout: the old behaviour
+		// would cut the stream off here.
 		select {
 		case <-time.After(4 * timeout):
 		case <-r.Context().Done():
@@ -80,28 +82,28 @@ func TestServeBodyHasNoDeadline(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
-		t.Fatal("Serve bitmedi")
+		t.Fatal("Serve did not finish")
 	}
 
 	_, _, body, ended, abort := sink.snapshot()
 	if abort != "" {
-		t.Fatalf("akis iptal edildi: %q (govde: %q)", abort, body)
+		t.Fatalf("the stream was cancelled: %q (body: %q)", abort, body)
 	}
 	if !ended {
-		t.Error("akis end ile bitmeliydi")
+		t.Error("the stream should have ended with end")
 	}
 	if !strings.Contains(string(body), "data: son") {
-		t.Errorf("gecikmeli olay gelmedi, govde: %q", body)
+		t.Errorf("the delayed event did not arrive, body: %q", body)
 	}
 }
 
-// Baslik fazinin siniri DURUYOR: cevap vermeyen bir hedef istegi sonsuza
-// kadar askida tutamaz.
+// The bound on the header phase IS STILL THERE: a target that never
+// answers cannot hold a request forever.
 func TestServeHeaderPhaseStillTimesOut(t *testing.T) {
 	const timeout = 300 * time.Millisecond
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Hic baslik yazmadan bekle.
+		// Wait without writing any head at all.
 		select {
 		case <-time.After(10 * time.Second):
 		case <-r.Context().Done():
@@ -125,19 +127,20 @@ func TestServeHeaderPhaseStillTimesOut(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("baslik fazi zaman asimina ugramadi: istek askida kaldi")
+		t.Fatal("the header phase did not time out: the request hung")
 	}
 
 	if elapsed := time.Since(started); elapsed > 3*time.Second {
-		t.Errorf("zaman asimi %s surdu, sinir %s", elapsed, timeout)
+		t.Errorf("the timeout took %s, the bound is %s", elapsed, timeout)
 	}
 	status, _, _, _, abort := sink.snapshot()
 	if abort == "" && status != http.StatusBadGateway {
-		t.Errorf("ziyaretciye bir sonuc gitmeliydi (status=%d abort=%q)", status, abort)
+		t.Errorf("some outcome should have reached the visitor (status=%d abort=%q)", status, abort)
 	}
 }
 
-// Ziyaretci vazgecerse akis hemen bitmeli (context iptali).
+// If the visitor gives up the stream has to end right away (context
+// cancellation).
 func TestServeStreamStopsOnCancel(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("content-type", "text/event-stream")
@@ -171,7 +174,7 @@ func TestServeStreamStopsOnCancel(t *testing.T) {
 		}, nil, sink)
 	}()
 
-	// Ilk olaylar aksin, sonra vazgec.
+	// Let the first events flow, then give up.
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, _, body, _, _ := sink.snapshot(); len(body) > 0 {
@@ -184,12 +187,12 @@ func TestServeStreamStopsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("iptalden sonra akis durmadi")
+		t.Fatal("the stream did not stop after the cancellation")
 	}
 }
 
-// --inject-ws-shim verilmediyse HTML cevabina DOKUNULMAZ: shim isareti de
-// eklenmez.
+// Without --inject-ws-shim the HTML response is NOT TOUCHED: no shim
+// hint is added either.
 func TestShimHeaderOnlyWhenEnabled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("content-type", "text/html; charset=utf-8")
@@ -207,8 +210,8 @@ func TestShimHeaderOnlyWhenEnabled(t *testing.T) {
 		inject bool
 		want   string
 	}{
-		{"kapali", false, ""},
-		{"acik", true, "1"},
+		{"off", false, ""},
+		{"on", true, "1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, err := New(Config{
@@ -228,21 +231,23 @@ func TestShimHeaderOnlyWhenEnabled(t *testing.T) {
 
 			_, headers, body, _, _ := sink.snapshot()
 			if got := headers[protocol.HeaderWSShim]; got != tc.want {
-				t.Errorf("%s basligi %q, beklenen %q", protocol.HeaderWSShim, got, tc.want)
+				t.Errorf("the %s header is %q, expected %q", protocol.HeaderWSShim, got, tc.want)
 			}
-			// Govde HER DURUMDA bayt bayt ayni: enjeksiyonu SW yapiyor.
+			// The body is byte-for-byte the same IN EVERY CASE: the SW
+			// does the injection.
 			if string(body) != "<html><head></head><body>selam</body></html>" {
-				t.Errorf("govde degismis: %q", body)
+				t.Errorf("the body changed: %q", body)
 			}
 		})
 	}
 }
 
-// Shim isareti yalnizca HTML'e: JSON ya da gorsel cevaplari isaretlenmez.
+// The shim hint goes on HTML only: JSON and image responses are not
+// marked.
 func TestShimHeaderOnlyForHTML(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("content-type", r.URL.Query().Get("ct"))
-		_, _ = io.WriteString(w, "govde")
+		_, _ = io.WriteString(w, "body")
 	}))
 	defer srv.Close()
 
@@ -275,15 +280,15 @@ func TestShimHeaderOnlyForHTML(t *testing.T) {
 	} {
 		sink := &fakeSink{}
 		p.Serve(context.Background(), protocol.Req{
-			// QueryEscape sart: `;` ve `+` ham halde baska anlam tasiyor
-			// ("application/xhtml+xml" bosluga donusurdu).
+			// QueryEscape is required: raw `;` and `+` mean something
+			// else ("application/xhtml+xml" would turn into a space).
 			ID: 1, Method: "GET", Path: "/?ct=" + url.QueryEscape(tc.ct),
 			Headers: map[string]string{},
 		}, nil, sink)
 
 		_, headers, _, _, _ := sink.snapshot()
 		if got := headers[protocol.HeaderWSShim] == "1"; got != tc.want {
-			t.Errorf("content-type %q: isaret %v, beklenen %v", tc.ct, got, tc.want)
+			t.Errorf("content-type %q: hint %v, expected %v", tc.ct, got, tc.want)
 		}
 	}
 }
@@ -301,7 +306,7 @@ func TestIsHTML(t *testing.T) {
 		{"application/json", false},
 	} {
 		if got := isHTML(tc.in); got != tc.want {
-			t.Errorf("isHTML(%q) = %v, beklenen %v", tc.in, got, tc.want)
+			t.Errorf("isHTML(%q) = %v, expected %v", tc.in, got, tc.want)
 		}
 	}
 }

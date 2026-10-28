@@ -6,8 +6,9 @@ import (
 	"time"
 )
 
-// Ziyaretci guvenilmez (BRIEF bolum 6 ilke 4). Bu testler korumalarin
-// kendisini dogrular; akis icindeki kullanimlari connect_test.go'da.
+// The visitor is untrusted (BRIEF section 6, principle 4). These tests
+// check the guards themselves; their use inside the flow lives in
+// connect_test.go.
 
 func TestSeenSetDetectsReplay(t *testing.T) {
 	now := time.Now()
@@ -15,17 +16,18 @@ func TestSeenSetDetectsReplay(t *testing.T) {
 	s := newSeenSet(time.Minute, clock)
 
 	if s.seen("a") {
-		t.Error("ilk gorulme false donmeli")
+		t.Error("the first sighting has to return false")
 	}
 	if !s.seen("a") {
-		t.Error("ikinci gorulme true donmeli (replay)")
+		t.Error("the second sighting has to return true (a replay)")
 	}
 	if s.seen("b") {
-		t.Error("farkli id false donmeli")
+		t.Error("a different id has to return false")
 	}
 }
 
-// TTL gecince id unutulur: bellek sinirsiz buyumesin.
+// Once the TTL passes the id is forgotten, so memory does not grow
+// without bound.
 func TestSeenSetExpires(t *testing.T) {
 	now := time.Now()
 	clock := func() time.Time { return now }
@@ -33,20 +35,21 @@ func TestSeenSetExpires(t *testing.T) {
 
 	s.seen("a")
 	if s.size() != 1 {
-		t.Fatalf("boyut %d", s.size())
+		t.Fatalf("size %d", s.size())
 	}
 
 	now = now.Add(2 * time.Minute)
 	if s.seen("a") {
-		t.Error("TTL gecince id unutulmaliydi")
+		t.Error("the id should have been forgotten once the TTL passed")
 	}
 }
 
-// SeenTTL, MaxClockSkew'den buyuk olmali: aksi halde hatirlamayi biraktigimiz
-// bir event hala "zamaninda" sayilip tekrar kabul edilirdi.
+// SeenTTL has to be larger than MaxClockSkew: otherwise an event we
+// stopped remembering would still count as "in time" and be accepted
+// again.
 func TestSeenTTLCoversClockSkew(t *testing.T) {
 	if SeenTTL <= MaxClockSkew {
-		t.Errorf("SeenTTL (%v) MaxClockSkew'den (%v) buyuk olmali", SeenTTL, MaxClockSkew)
+		t.Errorf("SeenTTL (%v) has to be larger than MaxClockSkew (%v)", SeenTTL, MaxClockSkew)
 	}
 }
 
@@ -57,14 +60,14 @@ func TestSeenSetConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			s.seen("ortak")
+			s.seen("shared")
 			s.seen(string(rune('a' + n%26)))
 		}(i)
 	}
 	wg.Wait()
-	// Yaris hatasi yoksa ve "ortak" bir kez kaydedildiyse yeterli.
-	if !s.seen("ortak") {
-		t.Error("ortak id kaydedilmis olmaliydi")
+	// It is enough that there is no race and "shared" was recorded once.
+	if !s.seen("shared") {
+		t.Error("the shared id should have been recorded")
 	}
 }
 
@@ -77,17 +80,17 @@ func TestFreshEnough(t *testing.T) {
 		fresh bool
 	}{
 		{"simdi", now, true},
-		{"1 dk once", now.Add(-time.Minute), true},
-		{"1 dk sonra", now.Add(time.Minute), true},
-		{"tam sinir (gecmis)", now.Add(-MaxClockSkew), true},
-		{"tam sinir (gelecek)", now.Add(MaxClockSkew), true},
-		{"sinirin otesi (gecmis)", now.Add(-MaxClockSkew - time.Second), false},
-		{"sinirin otesi (gelecek)", now.Add(MaxClockSkew + time.Second), false},
-		{"cok eski", now.Add(-24 * time.Hour), false},
+		{"1 min ago", now.Add(-time.Minute), true},
+		{"1 min ahead", now.Add(time.Minute), true},
+		{"exactly the limit (in the past)", now.Add(-MaxClockSkew), true},
+		{"exactly the limit (in the future)", now.Add(MaxClockSkew), true},
+		{"beyond the limit (in the past)", now.Add(-MaxClockSkew - time.Second), false},
+		{"beyond the limit (in the future)", now.Add(MaxClockSkew + time.Second), false},
+		{"too old", now.Add(-24 * time.Hour), false},
 	}
 	for _, c := range cases {
 		if got := freshEnough(c.at, now, MaxClockSkew); got != c.fresh {
-			t.Errorf("%s: %v, beklenen %v", c.name, got, c.fresh)
+			t.Errorf("%s: %v, expected %v", c.name, got, c.fresh)
 		}
 	}
 }
@@ -99,15 +102,15 @@ func TestRateLimiterAllowsBurstThenBlocks(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		if !r.allow("pk") {
-			t.Fatalf("%d. istek izinli olmaliydi", i+1)
+			t.Fatalf("request %d should have been allowed", i+1)
 		}
 	}
 	if r.allow("pk") {
-		t.Error("tavan asildiktan sonra reddedilmeliydi")
+		t.Error("it should have been refused once the limit was passed")
 	}
 }
 
-// Hiz limiti pubkey basina: bir ziyaretci digerini etkilemez.
+// The rate limit is per pubkey: one visitor does not affect another.
 func TestRateLimiterIsPerKey(t *testing.T) {
 	now := time.Now()
 	clock := func() time.Time { return now }
@@ -116,10 +119,10 @@ func TestRateLimiterIsPerKey(t *testing.T) {
 	r.allow("a")
 	r.allow("a")
 	if r.allow("a") {
-		t.Error("a tavani asmis olmali")
+		t.Error("a should have passed its limit")
 	}
 	if !r.allow("b") {
-		t.Error("b kendi tavanini kullanabilmeli")
+		t.Error("b has to be able to use its own limit")
 	}
 }
 
@@ -129,23 +132,23 @@ func TestRateLimiterWindowResets(t *testing.T) {
 	r := newRateLimiter(time.Minute, 1, clock)
 
 	if !r.allow("pk") {
-		t.Fatal("ilk istek izinli olmaliydi")
+		t.Fatal("the first request should have been allowed")
 	}
 	if r.allow("pk") {
-		t.Fatal("ayni pencerede ikinci istek reddedilmeliydi")
+		t.Fatal("a second request in the same window should have been refused")
 	}
 
 	now = now.Add(time.Minute + time.Second)
 	if !r.allow("pk") {
-		t.Error("pencere yenilenince izin verilmeliydi")
+		t.Error("it should have been allowed once the window reset")
 	}
 }
 
-// Trickle ICE'ta bir oturum onlarca candidate yollar; varsayilan tavan
-// bunu bogmamali.
+// With trickle ICE one session sends dozens of candidates; the default
+// limit must not choke that.
 func TestRateBurstAllowsTrickleTraffic(t *testing.T) {
 	if RateBurst < 60 {
-		t.Errorf("RateBurst (%d) trickle ICE icin fazla dar", RateBurst)
+		t.Errorf("RateBurst (%d) is too tight for trickle ICE", RateBurst)
 	}
 }
 
@@ -158,12 +161,12 @@ func TestRateLimiterPrunesOldBuckets(t *testing.T) {
 		r.allow(string(rune('a' + i)))
 	}
 	now = now.Add(3 * time.Minute)
-	r.allow("yeni")
+	r.allow("fresh")
 
 	r.mu.Lock()
 	size := len(r.buckets)
 	r.mu.Unlock()
 	if size > 1 {
-		t.Errorf("eski kovalar temizlenmeliydi, kalan: %d", size)
+		t.Errorf("the old buckets should have been cleared, left: %d", size)
 	}
 }

@@ -1,11 +1,11 @@
-# goreleaser yapilandirmasi (Faz 4).
+# The goreleaser configuration (phase 4).
 #
-# Ajan ic ice bir modul (`agent/go.mod`); repo kokunde go.mod YOK. Bu yuzden
-# builds[].dir ile modul dizini veriliyor ve main paketi modulun kokunde
-# duruyor (agent/main.go) — `go install .../agent@latest` de ayni yuzden
-# calisiyor.
+# The agent is a nested module (`agent/go.mod`); there is NO go.mod at the
+# repo root. That is why builds[].dir points at the module directory and
+# the main package sits at the module root (agent/main.go) — the same
+# reason `go install .../agent@latest` works.
 #
-# Yerel dogrulama (yayin yapmaz):
+# Local verification (it does not publish):
 #   goreleaser check
 #   goreleaser release --snapshot --clean
 version: 2
@@ -22,7 +22,7 @@ builds:
     main: .
     binary: peerpages
     env:
-      # Saf Go: capraz derleme icin C derleyicisi gerekmesin.
+      # Pure Go: cross-compiling should need no C compiler.
       - CGO_ENABLED=0
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
@@ -54,28 +54,29 @@ checksum:
   name_template: checksums.txt
 
 snapshot:
-  version_template: "{{ incpatch .Version }}-anlik"
+  version_template: "{{ incpatch .Version }}-snapshot"
 
 changelog:
   use: git
   sort: asc
   filters:
     exclude:
-      - "^dokumantasyon:"
+      - "^docs:"
       - "^test:"
 
 release:
-  # Taslak olarak acilir: etiket atmak kazara yayin yapmasin, notlar elle
-  # gozden gecirilsin.
+  # Opened as a draft: pushing a tag should not publish by accident, and
+  # the notes get reviewed by hand.
   draft: true
   prerelease: auto
 
-# Scoop ve Homebrew TASLAK (BRIEF Faz 4: "tap taslagi").
+# Scoop and Homebrew are a DRAFT (BRIEF phase 4: "a tap draft").
 #
-# Proje adi Faz 7'de KESINLESTI (peerpages). Yukleme hala kapali, cunku tap
-# depolari (aliosmanmho/homebrew-tap, aliosmanmho/scoop-bucket) henuz yok.
-# Acmak icin: depolari olustur, skip_upload'u kaldir ve release workflow'una
-# tap deposuna yazma izni olan bir token ekle.
+# The project name was SETTLED in phase 7 (peerpages). Uploading is still
+# off, because the tap repositories (aliosmanmho/homebrew-tap,
+# aliosmanmho/scoop-bucket) do not exist yet. To turn it on: create the
+# repositories, drop skip_upload, and add a token with write access to the
+# tap repository to the release workflow.
 homebrew_casks:
   - name: peerpages
     ids: [peerpages]
@@ -84,7 +85,7 @@ homebrew_casks:
       owner: aliosmanmho
       name: homebrew-tap
     homepage: https://github.com/aliosmanmho/PeerPages
-    description: localhost'u sunucusuz yayinla (WebRTC + Nostr signaling)
+    description: Share your localhost with no server (WebRTC + Nostr signaling)
 
 scoops:
   - name: peerpages
@@ -94,5 +95,5 @@ scoops:
       owner: aliosmanmho
       name: scoop-bucket
     homepage: https://github.com/aliosmanmho/PeerPages
-    description: localhost'u sunucusuz yayinla (WebRTC + Nostr signaling)
+    description: Share your localhost with no server (WebRTC + Nostr signaling)
     license: MIT

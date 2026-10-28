@@ -11,20 +11,21 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/protocol"
 )
 
-// Bu dosya ws koprusunu GERCEK bir WebRTC baglantisi uzerinde test eder
-// (harness_test.go'daki pion loopback'i). Yerel sunucu tarafi sahte: amac
-// koprunun protokolu dogru konusmasi, coder/websocket'in calistigi degil.
+// This file tests the ws bridge over a REAL WebRTC connection (the pion
+// loopback in harness_test.go). The local server side is fake: the point
+// is that the bridge speaks the protocol correctly, not that
+// coder/websocket works.
 
 type wsMsg struct {
 	binary bool
 	data   []byte
 }
 
-// fakeWSConn yerel sunucu yerine gecer.
+// fakeWSConn stands in for the local server.
 type fakeWSConn struct {
-	// toAgent: yerel sunucudan ajana gelen mesajlar.
+	// toAgent: the messages coming from the local server to the agent.
 	toAgent chan wsMsg
-	// fromAgent: ajanin yerel sunucuya yazdigi mesajlar.
+	// fromAgent: the messages the agent writes to the local server.
 	fromAgent chan wsMsg
 
 	closeOnce   sync.Once
@@ -32,7 +33,7 @@ type fakeWSConn struct {
 	closeCode   atomic.Int32
 	closeReason atomic.Value
 
-	// writeErr Write'in dondurecegi hata (nil degilse).
+	// writeErr is the error Write will return (when not nil).
 	writeErr error
 }
 
@@ -84,12 +85,12 @@ func (f *fakeWSConn) waitClosed(t *testing.T, d time.Duration) int {
 	case <-f.closed:
 		return int(f.closeCode.Load())
 	case <-time.After(d):
-		t.Fatalf("yerel baglanti %s icinde kapanmadi", d)
+		t.Fatalf("the local connection did not close within %s", d)
 		return 0
 	}
 }
 
-// echo ajanin yazdigi her mesaji geri yollar.
+// echo sends back every message the agent writes.
 func (f *fakeWSConn) echo() {
 	go func() {
 		for {
@@ -107,7 +108,8 @@ func (f *fakeWSConn) echo() {
 	}()
 }
 
-// fakeDialer tunnel.WSDialer arayuzunu sahte baglantiyla uygular.
+// fakeDialer implements the tunnel.WSDialer interface with a fake
+// connection.
 type fakeDialer struct {
 	conn  *fakeWSConn
 	proto string
@@ -135,10 +137,10 @@ func (d *fakeDialer) opened() []protocol.WSOpen {
 	return out
 }
 
-// wsReader ziyaretci tarafindaki ws mesaj birlestiricisi.
+// wsReader is the visitor-side ws message assembler.
 //
-// Tarayici tarafinin (web/src/tunnel.ts) yapacagi isin aynisi: cerceveleri
-// seq sirasina gore birlestirir, FIN'de mesaji tamamlar.
+// The same job the browser side does (web/src/tunnel.ts): it joins the
+// frames in seq order and completes the message on FIN.
 type wsReader struct {
 	id      uint32
 	nextSeq uint32
@@ -149,12 +151,12 @@ type wsReader struct {
 func (r *wsReader) feed(t *testing.T, f protocol.Frame) (msg *wsMsg) {
 	t.Helper()
 	if f.Seq != r.nextSeq {
-		t.Fatalf("ws cerceve sirasi bozuk: %d, beklenen %d", f.Seq, r.nextSeq)
+		t.Fatalf("the ws frame order is broken: %d, expected %d", f.Seq, r.nextSeq)
 	}
 	r.nextSeq++
 	chunk, err := protocol.DecodeWSPayload(f.Payload)
 	if err != nil {
-		t.Fatalf("ws cercevesi cozulemedi: %v", err)
+		t.Fatalf("the ws frame could not be decoded: %v", err)
 	}
 	r.binary = chunk.Binary
 	r.partial = append(r.partial, chunk.Payload...)
@@ -166,7 +168,8 @@ func (r *wsReader) feed(t *testing.T, f protocol.Frame) (msg *wsMsg) {
 	return &out
 }
 
-// nextWSEvent ziyaretcinin bir sonraki ws olayini bekler: mesaj ya da kapanis.
+// nextWSEvent waits for the visitor's next ws event: a message or a
+// close.
 func (v *visitor) nextWSEvent(t *testing.T, r *wsReader, d time.Duration) (*wsMsg, *protocol.WSClose) {
 	t.Helper()
 	deadline := time.After(d)
@@ -180,9 +183,9 @@ func (v *visitor) nextWSEvent(t *testing.T, r *wsReader, d time.Duration) (*wsMs
 					return nil, &cp
 				}
 			case protocol.WSOk, protocol.Hello, protocol.Ping, protocol.Pong:
-				// yok say
+				// ignore it
 			default:
-				t.Errorf("beklenmeyen ctrl mesaji: %s", m.Type())
+				t.Errorf("unexpected ctrl message: %s", m.Type())
 			}
 		case f := <-v.dataCh:
 			if f.ID != r.id {
@@ -192,13 +195,13 @@ func (v *visitor) nextWSEvent(t *testing.T, r *wsReader, d time.Duration) (*wsMs
 				return msg, nil
 			}
 		case <-deadline:
-			t.Fatalf("ws olayi %s icinde gelmedi", d)
+			t.Fatalf("no ws event arrived within %s", d)
 			return nil, nil
 		}
 	}
 }
 
-// waitWSOk ws-ok mesajini bekler.
+// waitWSOk waits for the ws-ok message.
 func (v *visitor) waitWSOk(t *testing.T, id uint32, d time.Duration) protocol.WSOk {
 	t.Helper()
 	deadline := time.After(d)
@@ -212,17 +215,18 @@ func (v *visitor) waitWSOk(t *testing.T, id uint32, d time.Duration) protocol.WS
 				}
 			case protocol.WSClose:
 				if msg.ID == id {
-					t.Fatalf("ws-ok beklenirdi, ws-close geldi: %d %q", msg.Code, msg.Reason)
+					t.Fatalf("a ws-ok was expected, a ws-close arrived: %d %q", msg.Code, msg.Reason)
 				}
 			}
 		case <-deadline:
-			t.Fatalf("ws-ok %s icinde gelmedi", d)
+			t.Fatalf("no ws-ok arrived within %s", d)
 			return protocol.WSOk{}
 		}
 	}
 }
 
-// waitWSClose ws-close mesajini bekler (ws-ok gelmeden de olabilir).
+// waitWSClose waits for the ws-close message (which may come without a
+// ws-ok).
 func (v *visitor) waitWSClose(t *testing.T, id uint32, d time.Duration) protocol.WSClose {
 	t.Helper()
 	deadline := time.After(d)
@@ -233,13 +237,13 @@ func (v *visitor) waitWSClose(t *testing.T, id uint32, d time.Duration) protocol
 				return msg
 			}
 		case <-deadline:
-			t.Fatalf("ws-close %s icinde gelmedi", d)
+			t.Fatalf("no ws-close arrived within %s", d)
 			return protocol.WSClose{}
 		}
 	}
 }
 
-// sendWSMessage bir ws mesajini parcalara bolerek yollar.
+// sendWSMessage sends a ws message split into chunks.
 func (v *visitor) sendWSMessage(t *testing.T, id uint32, seq *uint32, binary bool, data []byte) {
 	t.Helper()
 	for off := 0; ; off += protocol.MaxWSPayload {
@@ -264,8 +268,8 @@ func (v *visitor) sendWSMessage(t *testing.T, id uint32, seq *uint32, binary boo
 	}
 }
 
-// noopProxy ws testlerinde HTTP tarafi kullanilmiyor, ama Config.Proxy
-// zorunlu.
+// noopProxy: the HTTP side is unused in the ws tests, but Config.Proxy
+// is mandatory.
 func noopProxy() proxyFunc {
 	return func(_ context.Context, _ protocol.Req, _ io.Reader, _ ResponseSink) {}
 }
@@ -287,12 +291,12 @@ func TestWSEchoBothDirections(t *testing.T) {
 
 	ok := v.waitWSOk(t, id, 5*time.Second)
 	if ok.Proto != "vite-hmr" {
-		t.Errorf("alt protokol %q, beklenen %q", ok.Proto, "vite-hmr")
+		t.Errorf("the subprotocol is %q, expected %q", ok.Proto, "vite-hmr")
 	}
-	// Hedef yolun dialer'a oldugu gibi gectigini dogrula (host ASLA
-	// path'ten turetilmez; onu allowlist cozer).
+	// Check the target path reaches the dialer as it was (the host is
+	// NEVER derived from the path; the allowlist resolves it).
 	if opens := dialer.opened(); len(opens) != 1 || opens[0].Path != "/socket?x=1" {
-		t.Errorf("dialer'a giden ws-open: %+v", opens)
+		t.Errorf("the ws-open that reached the dialer: %+v", opens)
 	}
 
 	r := &wsReader{id: id}
@@ -301,28 +305,28 @@ func TestWSEchoBothDirections(t *testing.T) {
 	v.sendWSMessage(t, id, &seq, false, []byte("merhaba"))
 	msg, cl := v.nextWSEvent(t, r, 5*time.Second)
 	if cl != nil {
-		t.Fatalf("beklenmeyen kapanis: %d %q", cl.Code, cl.Reason)
+		t.Fatalf("unexpected close: %d %q", cl.Code, cl.Reason)
 	}
 	if msg.binary || string(msg.data) != "merhaba" {
-		t.Errorf("metin yankisi: binary=%v %q", msg.binary, msg.data)
+		t.Errorf("the text echo: binary=%v %q", msg.binary, msg.data)
 	}
 
 	v.sendWSMessage(t, id, &seq, true, []byte{0, 255, 16})
 	msg, cl = v.nextWSEvent(t, r, 5*time.Second)
 	if cl != nil {
-		t.Fatalf("beklenmeyen kapanis: %d %q", cl.Code, cl.Reason)
+		t.Fatalf("unexpected close: %d %q", cl.Code, cl.Reason)
 	}
 	if !msg.binary || len(msg.data) != 3 || msg.data[1] != 255 {
-		t.Errorf("ikili yanki: binary=%v %v", msg.binary, msg.data)
+		t.Errorf("the binary echo: binary=%v %v", msg.binary, msg.data)
 	}
 
-	// Bos mesaj da gecmeli: sinirini FIN bayragi belirliyor.
+	// An empty message has to pass too: the FIN flag marks its end.
 	v.sendWSMessage(t, id, &seq, false, nil)
 	msg, cl = v.nextWSEvent(t, r, 5*time.Second)
 	if cl != nil {
-		t.Fatalf("beklenmeyen kapanis: %d %q", cl.Code, cl.Reason)
+		t.Fatalf("unexpected close: %d %q", cl.Code, cl.Reason)
 	}
 	if len(msg.data) != 0 {
-		t.Errorf("bos mesaj beklenirdi, %d bayt geldi", len(msg.data))
+		t.Errorf("an empty message was expected, %d bytes arrived", len(msg.data))
 	}
 }

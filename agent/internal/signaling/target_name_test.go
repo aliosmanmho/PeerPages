@@ -7,46 +7,49 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/target"
 )
 
-// TestTargetNameRulesMatchTargetPackage iki ad dogrulayicisinin ayni kumeyi
-// kabul ettigini gosterir.
+// TestTargetNameRulesMatchTargetPackage shows the two name validators
+// accept the same set.
 //
-// Neden ayri iki dogrulayici var: signaling paketi yalnizca mesaj bicimini
-// bilir (protokolun bir parcasi), target paketi ise CLI'dan gelen hedefleri
-// cozer. Birbirlerini import etmiyorlar ki katmanlar karismasin — ama
-// kurallari ayrismaya baslarsa URL'den gelen bir ad signaling'i gecip
-// target'ta patlar (ya da tersi). Bu test tam o kaymayi yakalar.
+// Why there are two: the signaling package knows only the message format
+// (part of the protocol), while the target package resolves the targets
+// coming from the CLI. They do not import each other, so the layers stay
+// separate — but if their rules drift apart, a name from a URL passes
+// signaling and blows up in target (or the other way around). This test
+// catches exactly that drift.
 func TestTargetNameRulesMatchTargetPackage(t *testing.T) {
 	names := []string{
 		"default", "admin", "a", "A", "0", "web-2_eski",
 		"a-b-c", "ABC_123",
-		"a123456789012345678901234567890b",  // 32: tam sinir
+		"a123456789012345678901234567890b",  // 32: exactly at the limit
 		"a1234567890123456789012345678901b", // 33: asiyor
-		"", "-admin", "_admin", "a/b", "a.b", "a b", "tr-ç",
+		"", "-admin", "_admin", "a/b", "a.b", "a b", "x-é",
 	}
 
 	for _, name := range names {
-		// target.Parse'in kabulu: "ad=url" bicimi gecerli bir Set uretiyor mu.
+		// What target.Parse accepts: does the "name=url" form produce a
+		// valid Set.
 		_, err := target.Parse([]string{name + "=http://localhost:3000"})
 		targetOK := err == nil
 		signalingOK := signaling.ValidTargetName(name)
 
 		if targetOK != signalingOK {
-			t.Errorf("%q: target kabul=%v, signaling kabul=%v (kurallar ayrismis)",
+			t.Errorf("%q: target accepts=%v, signaling accepts=%v (the rules have drifted apart)",
 				name, targetOK, signalingOK)
 		}
 	}
 }
 
-// TestTargetNameNotTrimmed signaling tarafinin ad etrafindaki bosluklari
-// KIRPMADIGINI gosterir.
+// TestTargetNameNotTrimmed shows the signaling side does NOT TRIM the
+// whitespace around a name.
 //
-// target paketi CLI'dan gelen `--target " admin "=url` icin kirpma yapiyor
-// (kullaniciya kolaylik). Tel uzerinde ise kirpma yok: aksi halde "admin" ve
-// " admin" ayni hedefe cozulur ve kanonik bicim belirsizlesir.
+// The target package does trim for a CLI `--target " admin "=url` (a
+// convenience for the user). On the wire there is no trimming: otherwise
+// "admin" and " admin" would resolve to the same target and the canonical
+// form would become ambiguous.
 func TestTargetNameNotTrimmed(t *testing.T) {
 	for _, name := range []string{" admin", "admin ", "\tadmin", "admin\n"} {
 		if signaling.ValidTargetName(name) {
-			t.Errorf("%q kabul edildi; tel uzerinde bosluk kirpilmamali", name)
+			t.Errorf("%q was accepted; whitespace must not be trimmed on the wire", name)
 		}
 	}
 }

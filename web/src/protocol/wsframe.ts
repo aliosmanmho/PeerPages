@@ -1,41 +1,42 @@
 /**
- * WebSocket koprusunun cerceve alt bicimi (Faz 6).
+ * The frame sub-format of the WebSocket bridge (phase 6).
  *
- * Dis cerceve (`[4B id][4B seq][payload]`, `framing.ts`) AYNEN korunur: ws
- * yuku ayri bir kanal ya da ayri bir framing kullanmaz. Bir ws id'sine ait
- * cercevenin PAYLOAD'i su bicimdedir:
+ * The outer frame (`[4B id][4B seq][payload]`, `framing.ts`) is kept
+ * EXACTLY as is: the ws payload uses neither a separate channel nor a
+ * separate framing. The PAYLOAD of a frame belonging to a ws id looks like
+ * this:
  *
- *     [1B bayrak][parca]
+ *     [1B flags][chunk]
  *
- * Boylece backpressure, seq denetimi ve 16 KiB parcalama bedavaya gelir;
- * ikili veri base64 sismesi yemez ve toplu ws trafigi `ctrl` kanalini (ping,
- * abort) tikamaz.
+ * That way backpressure, the seq check and 16 KiB chunking come for free;
+ * binary data takes no base64 inflation, and bulk ws traffic does not clog
+ * the `ctrl` channel (ping, abort).
  *
- * Normatif tanim: `protocol/README.md`. Go karsiligi
- * `agent/internal/protocol/wsframe.go`; iki taraf ayni vektorleri okur.
+ * Normative definition: `protocol/README.md`. Go counterpart:
+ * `agent/internal/protocol/wsframe.go`; both sides read the same vectors.
  */
 
 import { MAX_PAYLOAD } from "./framing";
 
-/** Bayrak: 1 ise ikili, 0 ise metin mesaji. */
+/** Flag: 1 means a binary message, 0 a text one. */
 export const WS_FLAG_BINARY = 0x01;
 
-/** Bayrak: 1 ise bu, ws mesajinin SON parcasi. */
+/** Flag: 1 means this is the LAST chunk of the ws message. */
 export const WS_FLAG_FIN = 0x02;
 
-/** Tanimli bitler; disindaki bitler protokol hatasi. */
+/** The defined bits; any bit outside them is a protocol error. */
 export const WS_FLAG_KNOWN = WS_FLAG_BINARY | WS_FLAG_FIN;
 
-/** ws alt basligi: yalnizca bayrak bayti. */
+/** The ws sub-header: just the flag byte. */
 export const WS_HEADER_BYTES = 1;
 
-/** Bir ws parcasinin en buyuk boyu. */
+/** Largest size of a single ws chunk. */
 export const MAX_WS_PAYLOAD = MAX_PAYLOAD - WS_HEADER_BYTES;
 
-/** ws cerceve hata kodlari — iki dilde ayni. */
+/** ws frame error codes — the same in both languages. */
 export type WsFrameErrorCode = "ws-empty-frame" | "ws-bad-flags" | "ws-payload-too-large";
 
-/** ws cerceve hatasi. `code` iki dilde aynidir; testvectors.json buna gore dogrular. */
+/** A ws frame error. `code` is the same in both languages; testvectors.json checks against it. */
 export class WsFrameError extends Error {
   readonly code: WsFrameErrorCode;
 
@@ -47,11 +48,11 @@ export class WsFrameError extends Error {
 }
 
 export interface WsChunk {
-  /** Mesaj ikili mi. Bir mesajin TUM parcalarinda ayni olmak zorunda. */
+  /** Whether the message is binary. Must be the same on ALL chunks of a message. */
   readonly binary: boolean;
-  /** Bu parca mesajin sonu mu. */
+  /** Whether this chunk ends the message. */
   readonly fin: boolean;
-  /** Parcanin kendisi; bos olabilir (bos ws mesaji tek bayraktir). */
+  /** The chunk itself; may be empty (an empty ws message is just flags). */
   readonly payload: Uint8Array<ArrayBuffer>;
 }
 
@@ -60,9 +61,9 @@ function flagsOf(binary: boolean, fin: boolean): number {
 }
 
 /**
- * ws parcasini dis cercevenin payload'ina cevirir.
+ * Turns a ws chunk into the outer frame's payload.
  *
- * @throws {WsFrameError} parca `MAX_WS_PAYLOAD`'dan buyukse
+ * @throws {WsFrameError} when the chunk is larger than `MAX_WS_PAYLOAD`
  */
 export function encodeWsPayload(
   binary: boolean,
@@ -72,7 +73,7 @@ export function encodeWsPayload(
   if (payload.byteLength > MAX_WS_PAYLOAD) {
     throw new WsFrameError(
       "ws-payload-too-large",
-      `${payload.byteLength} bayt, sinir ${MAX_WS_PAYLOAD}`,
+      `${payload.byteLength} bytes, limit ${MAX_WS_PAYLOAD}`,
     );
   }
   const out = new Uint8Array(WS_HEADER_BYTES + payload.byteLength);
@@ -82,25 +83,26 @@ export function encodeWsPayload(
 }
 
 /**
- * Dis cercevenin payload'ini ws parcasina cozer.
+ * Decodes the outer frame's payload into a ws chunk.
  *
- * Donen `payload` verilen tamponun GORUNUMUDUR (kopya degil): `decodeFrame`
- * zaten kopya uretiyor, ikinci kopya gereksiz olurdu.
+ * The returned `payload` is a VIEW of the given buffer (not a copy):
+ * `decodeFrame` already made a copy, a second one would be pointless.
  *
- * @throws {WsFrameError} payload bossa ya da bayrakta tanimsiz bit varsa
+ * @throws {WsFrameError} when the payload is empty or the flags carry an
+ * undefined bit
  */
 export function decodeWsPayload(payload: Uint8Array<ArrayBuffer>): WsChunk {
   if (payload.byteLength < WS_HEADER_BYTES) {
     throw new WsFrameError(
       "ws-empty-frame",
-      "ws cercevesinin payload'i en az 1 bayt olmali (bayrak)",
+      "the payload of a ws frame must be at least 1 byte (the flags)",
     );
   }
   const flags = payload[0] as number;
   if ((flags & ~WS_FLAG_KNOWN) !== 0) {
     throw new WsFrameError(
       "ws-bad-flags",
-      `tanimsiz bit: 0x${flags.toString(16).padStart(2, "0")}`,
+      `undefined bit: 0x${flags.toString(16).padStart(2, "0")}`,
     );
   }
   return {

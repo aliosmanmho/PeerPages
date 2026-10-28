@@ -1,23 +1,24 @@
-// Package fakerelay testler icin surec icinde calisan kucuk bir Nostr relay'i.
+// Package fakerelay is a small in-process Nostr relay for tests.
 //
-// NIP-01'in YALNIZCA PeerPages'in kullandigi alt kumesini konusur:
+// It speaks ONLY the subset of NIP-01 that PeerPages uses:
 //
-//	istemci -> relay : ["EVENT", <event>]              yayin
-//	                   ["REQ", <subId>, <filter>]      abonelik
-//	                   ["CLOSE", <subId>]              abonelikten cik
-//	relay -> istemci : ["OK", <id>, true|false, <msg>] yayin sonucu
-//	                   ["EVENT", <subId>, <event>]     eslesen event
-//	                   ["EOSE", <subId>]               gecmis bitti
-//	                   ["NOTICE", <msg>]               bilgi
+//	client -> relay : ["EVENT", <event>]              publish
+//	                  ["REQ", <subId>, <filter>]      subscribe
+//	                  ["CLOSE", <subId>]              unsubscribe
+//	relay -> client : ["OK", <id>, true|false, <msg>] publish result
+//	                  ["EVENT", <subId>, <event>]     a matching event
+//	                  ["EOSE", <subId>]               end of stored events
+//	                  ["NOTICE", <msg>]               information
 //
-// Neden var: gercek internet relay'lerine bagimli CI testi kirilgan olur
-// (relay dusebilir, hiz limiti uygulayabilir, ephemeral event'i atabilir).
-// Akisin kendisi burada deterministik dogrulanir; gercek relay'ler
-// `peerpages doctor` ile ayrica olculur.
+// Why it exists: a CI test that depends on real relays out on the
+// internet is fragile (a relay can go down, rate-limit, or drop an
+// ephemeral event). The flow itself is verified deterministically here;
+// the real relays are measured separately with `peerpages doctor`.
 //
-// Ephemeral event'ler (kind 20000-29999) NIP-01'e uygun olarak SAKLANMAZ:
-// yalnizca o anda dinleyen abonelere iletilir. Boylece "relay ephemeral
-// event'i dusurur mu" sorusu testte dogru modellenir.
+// Ephemeral events (kind 20000-29999) are NOT STORED, as NIP-01 says:
+// they only go to the subscribers listening right then. That way the
+// question "does the relay drop an ephemeral event" is modelled correctly
+// in the test.
 package fakerelay
 
 import (
@@ -34,22 +35,24 @@ import (
 	gonostr "github.com/nbd-wtf/go-nostr"
 )
 
-// Options relay davranisini test senaryosuna gore degistirir.
+// Options changes the relay's behaviour to suit a test scenario.
 type Options struct {
-	// DropEphemeral true ise ephemeral event'ler kabul edilir ama abonelere
-	// ILETILMEZ. BRIEF bolum 8'deki "bazi relay'ler ephemeral event'leri
-	// dusurebilir" durumunu modellemek icin.
+	// DropEphemeral set to true means ephemeral events are accepted but
+	// NOT FORWARDED to subscribers. It models the "some relays may drop
+	// ephemeral events" case from BRIEF section 8.
 	DropEphemeral bool
-	// RejectAll true ise her yayin "OK false" ile reddedilir.
+	// RejectAll set to true means every publish is refused with "OK
+	// false".
 	RejectAll bool
-	// RequireAuth true ise NIP-42 isteyen bir relay gibi davranir: yayin
-	// "auth-required" ile reddedilir.
+	// RequireAuth set to true makes it behave like a relay that wants
+	// NIP-42: a publish is refused with "auth-required".
 	RequireAuth bool
-	// PublishDelay yayin cevabini geciktirir (hedged yayini test etmek icin).
+	// PublishDelay delays the publish answer (to test the hedged
+	// publish).
 	PublishDelay time.Duration
 }
 
-// Relay surec ici test relay'i.
+// Relay is the in-process test relay.
 type Relay struct {
 	srv  *http.Server
 	ln   net.Listener
@@ -58,8 +61,8 @@ type Relay struct {
 	mu   sync.Mutex
 	subs map[*subscription]struct{}
 
-	// published gorulen tum event'ler (ephemeral dahil) — testler
-	// "relay'e ulasti mi" diye bakabilsin.
+	// published holds every event seen (ephemeral ones included), so
+	// tests can check "did it reach the relay".
 	publishedMu sync.Mutex
 	published   []gonostr.Event
 }
@@ -71,19 +74,19 @@ type subscription struct {
 	writeM *sync.Mutex
 }
 
-// Start relay'i bos bir portta baslatir ve ws:// adresini dondurur.
+// Start starts the relay on a free port and returns its ws:// address.
 func Start(opts Options) (*Relay, error) {
 	return StartOn(0, opts)
 }
 
-// StartOn relay'i belirtilen portta baslatir (0 = bos port sec).
+// StartOn starts the relay on the given port (0 = pick a free one).
 //
-// Ayri bir surecte calistirmak icin: `peerpages fakerelay --port N`.
-// Nostr e2e testi tarayicidan baglanabilsin diye gerekiyor.
+// To run it in a separate process: `peerpages fakerelay --port N`. Needed
+// so the Nostr e2e test can connect from the browser.
 func StartOn(port int, opts Options) (*Relay, error) {
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
-		return nil, fmt.Errorf("dinlenemedi: %w", err)
+		return nil, fmt.Errorf("could not listen: %w", err)
 	}
 
 	r := &Relay{
@@ -101,19 +104,19 @@ func StartOn(port int, opts Options) (*Relay, error) {
 	return r, nil
 }
 
-// URL relay'in ws adresi.
+// URL is the relay's ws address.
 func (r *Relay) URL() string {
 	return "ws://" + r.ln.Addr().String()
 }
 
-// Close relay'i kapatir.
+// Close shuts the relay down.
 func (r *Relay) Close() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = r.srv.Shutdown(ctx)
 }
 
-// Published relay'e ulasan event'lerin kopyasini dondurur.
+// Published returns a copy of the events that reached the relay.
 func (r *Relay) Published() []gonostr.Event {
 	r.publishedMu.Lock()
 	defer r.publishedMu.Unlock()
@@ -122,7 +125,7 @@ func (r *Relay) Published() []gonostr.Event {
 	return out
 }
 
-// SubscriberCount acik abonelik sayisi.
+// SubscriberCount is the number of open subscriptions.
 func (r *Relay) SubscriberCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -130,12 +133,12 @@ func (r *Relay) SubscriberCount() int {
 }
 
 func (r *Relay) handle(w http.ResponseWriter, req *http.Request) {
-	// NIP-11: istemci bilgi dokumani istiyor olabilir.
+	// NIP-11: the client may be asking for the information document.
 	if req.Header.Get("Accept") == "application/nostr+json" {
 		w.Header().Set("content-type", "application/nostr+json")
 		info := map[string]any{
 			"name":           "fakerelay",
-			"description":    "PeerPages test relay'i",
+			"description":    "the PeerPages test relay",
 			"supported_nips": []int{1, 11, 44},
 		}
 		if r.opts.RequireAuth {
@@ -154,7 +157,8 @@ func (r *Relay) handle(w http.ResponseWriter, req *http.Request) {
 	}
 	defer func() { _ = conn.CloseNow() }()
 
-	// Mesaj boyutu: 5 MB'lik gövde buradan gecmiyor ama SDP buyuk olabilir.
+	// Message size: a 5 MB body does not go through here, but an SDP can
+	// be large.
 	conn.SetReadLimit(1 << 20)
 
 	writeM := &sync.Mutex{}
@@ -176,12 +180,12 @@ func (r *Relay) handle(w http.ResponseWriter, req *http.Request) {
 func (r *Relay) onMessage(ctx context.Context, conn *websocket.Conn, writeM *sync.Mutex, data []byte) error {
 	var raw []json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil || len(raw) == 0 {
-		return r.write(ctx, conn, writeM, []any{"NOTICE", "gecersiz mesaj"})
+		return r.write(ctx, conn, writeM, []any{"NOTICE", "invalid message"})
 	}
 
 	var verb string
 	if err := json.Unmarshal(raw[0], &verb); err != nil {
-		return r.write(ctx, conn, writeM, []any{"NOTICE", "gecersiz mesaj tipi"})
+		return r.write(ctx, conn, writeM, []any{"NOTICE", "invalid message type"})
 	}
 
 	switch verb {
@@ -192,17 +196,17 @@ func (r *Relay) onMessage(ctx context.Context, conn *websocket.Conn, writeM *syn
 	case "CLOSE":
 		return r.onClose(raw)
 	default:
-		return r.write(ctx, conn, writeM, []any{"NOTICE", "desteklenmeyen: " + verb})
+		return r.write(ctx, conn, writeM, []any{"NOTICE", "unsupported: " + verb})
 	}
 }
 
 func (r *Relay) onEvent(ctx context.Context, conn *websocket.Conn, writeM *sync.Mutex, raw []json.RawMessage) error {
 	if len(raw) < 2 {
-		return r.write(ctx, conn, writeM, []any{"NOTICE", "EVENT eksik"})
+		return r.write(ctx, conn, writeM, []any{"NOTICE", "EVENT is missing"})
 	}
 	var ev gonostr.Event
 	if err := json.Unmarshal(raw[1], &ev); err != nil {
-		return r.write(ctx, conn, writeM, []any{"OK", "", false, "invalid: event okunamadi"})
+		return r.write(ctx, conn, writeM, []any{"OK", "", false, "invalid: the event could not be read"})
 	}
 
 	if r.opts.PublishDelay > 0 {
@@ -213,11 +217,11 @@ func (r *Relay) onEvent(ctx context.Context, conn *websocket.Conn, writeM *sync.
 		}
 	}
 
-	// Imza dogrulamasi: gercek relay'ler yapar, biz de yapiyoruz ki
-	// imzalamayi atlayan bir hata testte yakalanabilsin.
+	// Signature verification: real relays do it, and so do we, so a bug
+	// that skips signing gets caught in the tests.
 	ok, err := ev.CheckSignature()
 	if err != nil || !ok {
-		return r.write(ctx, conn, writeM, []any{"OK", ev.ID, false, "invalid: imza dogrulanamadi"})
+		return r.write(ctx, conn, writeM, []any{"OK", ev.ID, false, "invalid: the signature could not be verified"})
 	}
 
 	r.publishedMu.Lock()
@@ -226,9 +230,9 @@ func (r *Relay) onEvent(ctx context.Context, conn *websocket.Conn, writeM *sync.
 
 	switch {
 	case r.opts.RequireAuth:
-		return r.write(ctx, conn, writeM, []any{"OK", ev.ID, false, "auth-required: oturum acilmali"})
+		return r.write(ctx, conn, writeM, []any{"OK", ev.ID, false, "auth-required: you must authenticate"})
 	case r.opts.RejectAll:
-		return r.write(ctx, conn, writeM, []any{"OK", ev.ID, false, "blocked: test relay'i reddediyor"})
+		return r.write(ctx, conn, writeM, []any{"OK", ev.ID, false, "blocked: the test relay is refusing"})
 	}
 
 	if err := r.write(ctx, conn, writeM, []any{"OK", ev.ID, true, ""}); err != nil {
@@ -237,7 +241,8 @@ func (r *Relay) onEvent(ctx context.Context, conn *websocket.Conn, writeM *sync.
 
 	ephemeral := ev.Kind >= 20000 && ev.Kind < 30000
 	if ephemeral && r.opts.DropEphemeral {
-		// Kabul ettik ama iletmiyoruz: "ephemeral'i dusuren relay".
+		// Accepted but not forwarded: "a relay that drops ephemeral
+		// events".
 		return nil
 	}
 	r.broadcast(ctx, ev)
@@ -246,15 +251,15 @@ func (r *Relay) onEvent(ctx context.Context, conn *websocket.Conn, writeM *sync.
 
 func (r *Relay) onReq(ctx context.Context, conn *websocket.Conn, writeM *sync.Mutex, raw []json.RawMessage) error {
 	if len(raw) < 3 {
-		return r.write(ctx, conn, writeM, []any{"NOTICE", "REQ eksik"})
+		return r.write(ctx, conn, writeM, []any{"NOTICE", "REQ is missing"})
 	}
 	var subID string
 	if err := json.Unmarshal(raw[1], &subID); err != nil {
-		return r.write(ctx, conn, writeM, []any{"NOTICE", "REQ subId okunamadi"})
+		return r.write(ctx, conn, writeM, []any{"NOTICE", "the REQ subId could not be read"})
 	}
 	var filter gonostr.Filter
 	if err := json.Unmarshal(raw[2], &filter); err != nil {
-		return r.write(ctx, conn, writeM, []any{"CLOSED", subID, "invalid: filtre okunamadi"})
+		return r.write(ctx, conn, writeM, []any{"CLOSED", subID, "invalid: the filter could not be read"})
 	}
 
 	sub := &subscription{conn: conn, subID: subID, filter: filter, writeM: writeM}
@@ -262,7 +267,7 @@ func (r *Relay) onReq(ctx context.Context, conn *websocket.Conn, writeM *sync.Mu
 	r.subs[sub] = struct{}{}
 	r.mu.Unlock()
 
-	// Ephemeral event saklamadigimiz icin gonderilecek gecmis yok.
+	// Because we store no ephemeral events there is no history to send.
 	return r.write(ctx, conn, writeM, []any{"EOSE", subID})
 }
 

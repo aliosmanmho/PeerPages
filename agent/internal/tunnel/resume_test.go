@@ -10,14 +10,14 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/protocol"
 )
 
-// Faz 4: laptop uyuyup uyaninca tunel kendini toparlamali.
+// Phase 4: the tunnel has to recover when the laptop sleeps and wakes.
 //
-// Faz 3'un bosta kalma denetimi uyanmadan sonra oturumu KESIN olarak
-// olduruyordu: lastSeen unix nano olarak saklanip time.Unix ile geri
-// okunuyordu, bu da monotonik okumayi dusurup karsilastirmayi duvar saatine
-// ceviriyordu. Askiya alma suresi oldugu gibi "sessizlik" sayiliyor ve
-// uyanmadan sonraki ilk tik tum oturumlari kapatiyordu — ziyaretci hala
-// orada olsa bile, tek bir ping denemesi yapmadan.
+// The phase 3 idle check killed the session after a wake WITHOUT FAIL:
+// lastSeen was stored as unix nanos and read back with time.Unix, which
+// dropped the monotonic reading and turned the comparison into a wall
+// clock one. The suspended time counted as "silence" as it was, and the
+// first tick after the wake closed every session — even with the visitor
+// still there, without a single ping attempt.
 
 func TestIdleDecide(t *testing.T) {
 	const (
@@ -32,28 +32,29 @@ func TestIdleDecide(t *testing.T) {
 		want    idleAction
 	}{
 		{"normal tik", interval, 3 * time.Second, idlePing},
-		{"sessizlik tavanda", interval, idle, idleClose},
-		{"sessizlik tavani asti", interval, 2 * idle, idleClose},
+		{"the silence is at the limit", interval, idle, idleClose},
+		{"the silence passed the limit", interval, 2 * idle, idleClose},
 		{"tik biraz gecikti", 2 * interval, 5 * time.Second, idlePing},
-		// Asil mesele bu: uzun bir askiya almadan sonra sessizlik tavani
-		// asmis GORUNUR. Kapatmak yanlis olur; once ping'le sinanir.
-		{"uyanma, sessizlik tavani asmis gorunuyor", 20 * time.Minute, 20 * time.Minute, idleResume},
+		// This is the real case: after a long suspend the silence APPEARS
+		// to have passed the limit. Closing would be wrong; it is tested
+		// with a ping first.
+		{"a wake, where the silence looks like it passed the limit", 20 * time.Minute, 20 * time.Minute, idleResume},
 		{"uyanma, sessizlik az", 5 * interval, time.Second, idleResume},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if got := idleDecide(c.gap, c.silence, idle, interval); got != c.want {
-				t.Errorf("idleDecide(%v, %v) = %v, beklenen %v", c.gap, c.silence, got, c.want)
+				t.Errorf("idleDecide(%v, %v) = %v, expected %v", c.gap, c.silence, got, c.want)
 			}
 		})
 	}
 }
 
-// lastSeen bir ZAMAN DAMGASI degil, oturumun kurulusundan bu yana gecen
-// SURE tutmali. Bu ayrim duvar saati degisimlerine (NTP adimi, elle saat
-// degisikligi) karsi korumanin tamami: unix nano'ya geri donen bir
-// degisiklik bu testi buyuklugunden yakalar.
+// lastSeen must hold the TIME ELAPSED since the session was built, not a
+// TIMESTAMP. That distinction is the whole protection against wall clock
+// changes (an NTP step, a manual clock change): a change back to unix
+// nanos gets caught by this test through the magnitude.
 func TestLastSeenIsMonotonicElapsed(t *testing.T) {
 	sess, _ := connect(t, Config{
 		IdleTimeout:  time.Hour,
@@ -67,19 +68,20 @@ func TestLastSeenIsMonotonicElapsed(t *testing.T) {
 	sess.touch()
 	stored := sess.lastSeen.Load()
 
-	// Oturum yeni kuruldu: gecen sure bir kac saniyeden fazla olamaz.
+	// The session was just built: the elapsed time cannot be more than a
+	// few seconds.
 	if stored < 0 || time.Duration(stored) > time.Minute {
-		t.Errorf("lastSeen = %v; gecen sure gibi gorunmuyor (unix damgasi mi?)", time.Duration(stored))
+		t.Errorf("lastSeen = %v; that does not look like an elapsed time (a unix timestamp?)", time.Duration(stored))
 	}
 	if s := sess.silence(); s < 0 || s > time.Minute {
-		t.Errorf("silence() = %v, makul degil", s)
+		t.Errorf("silence() = %v, which is not plausible", s)
 	}
 }
 
-// ICE "Disconnected"a dustugunde oturum HEMEN kapanmamali: bu durum
-// gecicidir ve geri donebilir (tunnel.go'daki yorumun kendisi de boyle
-// diyor). Faz 3'e kadar kod bunu aninda ve TEMIZ kapanis olarak
-// isliyordu.
+// When ICE drops to "Disconnected" the session must not close
+// IMMEDIATELY: the state is temporary and may come back (the comment in
+// tunnel.go says so itself). Until phase 3 the code treated it as an
+// instant, CLEAN close.
 func TestDisconnectGraceRecovers(t *testing.T) {
 	sess, _ := connect(t, Config{
 		IdleTimeout:     time.Hour,
@@ -93,21 +95,22 @@ func TestDisconnectGraceRecovers(t *testing.T) {
 
 	sess.armDisconnectTimer()
 
-	// Baglanti geri geldi: bekleyen kapatma iptal edilmeli.
+	// The connection came back: the pending close must be cancelled.
 	time.Sleep(200 * time.Millisecond)
 	if !sess.cancelDisconnectTimer() {
-		t.Fatal("bekleyen kapatma bulunamadi")
+		t.Fatal("no pending close was found")
 	}
 
 	select {
 	case <-sess.Done():
-		t.Fatalf("baglanti geri geldiginde oturum kapanmamaliydi: %v", sess.Err())
+		t.Fatalf("the session should not have closed when the connection came back: %v", sess.Err())
 	case <-time.After(1500 * time.Millisecond):
 	}
 }
 
-// Geri donmezse sure dolunca kapanir ve neden AYIRT EDILEBILIR olur: daha
-// once bu yol closeWith(nil) ile ziyaretcinin `bye`'indan farksizdi.
+// If it does not come back it closes once the grace expires and the
+// reason is DISTINGUISHABLE: this path used to be indistinguishable from
+// the visitor's `bye` because of closeWith(nil).
 func TestDisconnectGraceCloses(t *testing.T) {
 	sess, _ := connect(t, Config{
 		IdleTimeout:     time.Hour,
@@ -124,15 +127,15 @@ func TestDisconnectGraceCloses(t *testing.T) {
 	select {
 	case <-sess.Done():
 	case <-time.After(5 * time.Second):
-		t.Fatal("geri donmeyen baglanti kapatilmadi")
+		t.Fatal("a connection that never came back was not closed")
 	}
 	if !errors.Is(sess.Err(), ErrDisconnected) {
-		t.Errorf("kapanis nedeni: %v, beklenen ErrDisconnected", sess.Err())
+		t.Errorf("the close reason: %v, expected ErrDisconnected", sess.Err())
 	}
 }
 
-// Ikinci bir Disconnected ilk kopmanin saatini sifirlamamali: aksi halde
-// durum iki arada gidip gelirken kapatma hic gerceklesmezdi.
+// A second Disconnected must not reset the clock of the first drop:
+// otherwise, with the state flapping, the close would never happen.
 func TestDisconnectTimerNotRearmed(t *testing.T) {
 	sess, _ := connect(t, Config{
 		IdleTimeout:     time.Hour,
@@ -152,9 +155,9 @@ func TestDisconnectTimerNotRearmed(t *testing.T) {
 	select {
 	case <-sess.Done():
 		if elapsed := time.Since(start); elapsed > 1200*time.Millisecond {
-			t.Errorf("kapanis %v surdu; sure sifirlanmis gorunuyor", elapsed)
+			t.Errorf("the close took %v; the grace looks like it was reset", elapsed)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("oturum kapanmadi")
+		t.Fatal("the session did not close")
 	}
 }

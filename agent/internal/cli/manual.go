@@ -16,16 +16,17 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
 
-// Elle signaling akisinda stdout'a basilan isaretciler.
+// The markers printed to stdout in the manual signaling flow.
 //
-// Hem insan hem makine okur: Playwright e2e testi answer'i bu isaretciler
-// arasindan alir, offer'i stdin'e yazar ve TunnelOpenMarker'i bekler
-// (web/e2e/fixtures/agent.ts).
+// Both humans and machines read them: the Playwright e2e test takes the
+// answer from between these markers, writes the offer to stdin and waits
+// for TunnelOpenMarker (web/e2e/fixtures/agent.ts).
 //
-// YON: Faz 2'de rol degisti. Artik SAYFA offer uretiyor, ajan answer doniyor
-// (protocol/signaling.md). Yani kopyalama yonu Faz 1'in tersi.
+// DIRECTION: the roles swapped in phase 2. The PAGE produces the offer now
+// and the agent answers (protocol/signaling.md), so the copy direction is
+// the reverse of phase 1.
 const (
-	OfferPrompt      = "---PEERPAGES-OFFER-BEKLENIYOR---"
+	OfferPrompt      = "---PEERPAGES-OFFER-WAITING---"
 	AnswerBeginMark  = "---PEERPAGES-ANSWER-BEGIN---"
 	AnswerEndMark    = "---PEERPAGES-ANSWER-END---"
 	TunnelOpenMarker = "---PEERPAGES-TUNNEL-OPEN---"
@@ -35,16 +36,16 @@ const (
 	iceGatheringLimit = 45 * time.Second
 )
 
-// runManual elle signaling ile tek bir tunel oturumu calistirir.
+// runManual runs a single tunnel session with manual signaling.
 //
-// Akis: ziyaretci sayfasi offer uretir -> kullanici ajana yapistirir -> ajan
-// answer basar -> kullanici sayfaya yapistirir -> tunel acilir. Signaling
-// sunucusu ve Nostr YOK.
+// The flow: the visitor page produces an offer -> the user pastes it into
+// the agent -> the agent prints an answer -> the user pastes it into the
+// page -> the tunnel opens. NO signaling server and no Nostr.
 func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io.Writer) error {
 	log := cfg.Logger
 
-	// Elle yolda ziyaretcinin URL'si yok, hedefi bayrak soyler
-	// (--manual-target); dogrulamasi serve.go'da yapildi.
+	// On the manual path there is no visitor URL, so a flag states the
+	// target (--manual-target); it was validated in serve.go.
 	targetName := cfg.ManualTarget
 
 	iceServers, icePolicy := cfg.iceServers()
@@ -64,7 +65,7 @@ func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io
 		return err
 	}
 
-	// Kopru kapaliysa nil kalir ve ws-open reddedilir.
+	// When the bridge is off it stays nil and ws-open is refused.
 	var wsDialer tunnel.WSDialer
 	if cfg.InjectWSShim {
 		if wsDialer, err = cfg.newWSDialer(targetName); err != nil {
@@ -85,8 +86,9 @@ func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io
 		WSDialer:      wsDialer,
 		Logger:        log,
 		Verbose:       cfg.Verbose,
-		// Elle signaling: adaylar tam SDP'nin icinde gitsin, tek parca
-		// kopyalanabilsin. Trickle Nostr yolunda aciliyor.
+		// Manual signaling: let the candidates travel inside the complete
+		// SDP so a single blob can be copied. Trickle is turned on on the
+		// Nostr path.
 		Trickle: false,
 	})
 	if err != nil {
@@ -94,13 +96,13 @@ func runManual(ctx context.Context, cfg *ServeConfig, stdin io.Reader, stdout io
 	}
 	defer func() {
 		if cerr := sess.Close(); cerr != nil {
-			log.Debug("oturum kapatilirken", slog.String("err", cerr.Error()))
+			log.Debug("while closing the session", slog.String("err", cerr.Error()))
 		}
 	}()
 
 	fmt.Fprintf(stdout, `
-Ziyaretci sayfasini ac (baglanti ekrani), "Offer uret" butonuna bas ve
-uretilen offer'i asagiya yapistirip Enter'a bas.
+Open the visitor page (the connect screen), press "Create offer", then
+paste the offer it produced below and press Enter.
 
 %s
 `, OfferPrompt)
@@ -111,18 +113,18 @@ uretilen offer'i asagiya yapistirip Enter'a bas.
 	}
 	offer, err := signal.Decode(offerLine)
 	if err != nil {
-		return fmt.Errorf("offer okunamadi: %w", err)
+		return fmt.Errorf("the offer could not be read: %w", err)
 	}
 
-	// Kimlik bilgisi log'a GIRMEZ: Describe yalnizca adresleri ve sifre
-	// uzunlugunu yaziyor.
-	log.Info("ICE adaylari toplaniyor", slog.String("ice", cfg.iceDescribe()))
+	// No credential reaches the log: Describe only writes the addresses
+	// and the password length.
+	log.Info("gathering ICE candidates", slog.String("ice", cfg.iceDescribe()))
 	answerCtx, cancelAnswer := context.WithTimeout(ctx, iceGatheringLimit)
 	defer cancelAnswer()
 
 	answer, err := sess.Answer(answerCtx, offer)
 	if err != nil {
-		return fmt.Errorf("answer uretilemedi: %w", err)
+		return fmt.Errorf("the answer could not be created: %w", err)
 	}
 	encoded, err := signal.Encode(answer)
 	if err != nil {
@@ -130,14 +132,14 @@ uretilen offer'i asagiya yapistirip Enter'a bas.
 	}
 
 	fmt.Fprintf(stdout, "\n%s\n%s\n%s\n", AnswerBeginMark, encoded, AnswerEndMark)
-	fmt.Fprint(stdout, "\nBu answer'i ziyaretci sayfasindaki answer alanina yapistir.\n")
+	fmt.Fprint(stdout, "\nPaste this answer into the answer field on the visitor page.\n")
 
 	if err := sess.WaitReady(ctx, channelOpenWait); err != nil {
-		return fmt.Errorf("tunel acilamadi: %w", err)
+		return fmt.Errorf("the tunnel could not be opened: %w", err)
 	}
 
 	fmt.Fprintf(stdout, "\n%s\n", TunnelOpenMarker)
-	log.Info("tunel acik",
+	log.Info("tunnel open",
 		slog.String("target", targetName),
 		slog.Any("targets", cfg.Targets.Names()))
 
@@ -147,19 +149,19 @@ uretilen offer'i asagiya yapistirip Enter'a bas.
 		if serr := sess.Err(); serr != nil {
 			return serr
 		}
-		log.Info("tunel kapandi")
+		log.Info("tunnel closed")
 		return nil
 	case <-ctx.Done():
 		fmt.Fprintf(stdout, "\n%s\n", TunnelClosedMark)
-		log.Info("kapatiliyor")
+		log.Info("shutting down")
 		return nil
 	}
 }
 
-// readPastedLine stdin'den tek satirlik yapistirilmis metni okur.
+// readPastedLine reads a single pasted line from stdin.
 //
-// Okuma ayri bir goroutine'de yapilir; aksi halde Ctrl+C bir satir
-// gelmedikce islemez (stdin okumasi iptal edilemez).
+// The read happens on its own goroutine; otherwise Ctrl+C does nothing
+// until a line arrives (a stdin read cannot be cancelled).
 func readPastedLine(ctx context.Context, stdin io.Reader) (string, error) {
 	type result struct {
 		line string
@@ -178,10 +180,10 @@ func readPastedLine(ctx context.Context, stdin io.Reader) (string, error) {
 			}
 			if err != nil {
 				if errors.Is(err, io.EOF) {
-					ch <- result{err: errors.New("girdi okunamadi: girdi bitti")}
+					ch <- result{err: errors.New("the input could not be read: the input ended")}
 					return
 				}
-				ch <- result{err: fmt.Errorf("girdi okunamadi: %w", err)}
+				ch <- result{err: fmt.Errorf("the input could not be read: %w", err)}
 				return
 			}
 		}

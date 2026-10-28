@@ -6,10 +6,10 @@ import { decodeWsPayload, encodeWsPayload, MAX_WS_PAYLOAD } from "./protocol/wsf
 import { Tunnel } from "./tunnel";
 
 /**
- * Tunel uzerindeki WebSocket oturumlari (Faz 6).
+ * The WebSocket sessions over the tunnel (phase 6).
  *
- * Sahte kanallarla: tarayici gerekmiyor ve kanallar arasi siralama
- * eksikligini serbestce taklit edebiliyoruz.
+ * With fake channels: no browser is needed and we can imitate the
+ * missing ordering between the channels freely.
  */
 
 class FakeChannel extends EventTarget {
@@ -20,7 +20,7 @@ class FakeChannel extends EventTarget {
   readonly sent: Array<string | Uint8Array> = [];
 
   send(data: string | Uint8Array): void {
-    if (this.readyState !== "open") throw new Error("kanal kapali");
+    if (this.readyState !== "open") throw new Error("the channel is closed");
     this.sent.push(data);
   }
 
@@ -37,7 +37,7 @@ class FakeChannel extends EventTarget {
     return this.sent.filter((x): x is string => typeof x === "string").map((t) => parseCtrl(t));
   }
 
-  /** Gonderilen ws cercevelerini cozer. */
+  /** Decodes the ws frames that were sent. */
   wsFrames() {
     return this.sent
       .filter((x): x is Uint8Array => typeof x !== "string")
@@ -52,7 +52,7 @@ function asChannel(c: FakeChannel): RTCDataChannel {
   return c as unknown as RTCDataChannel;
 }
 
-/** Ajandan gelmis gibi bir ws cercevesi uretir. */
+/** Builds a ws frame as if it came from the agent. */
 function wsFrame(id: number, seq: number, binary: boolean, fin: boolean, data: Uint8Array) {
   return encodeFrame(id, seq, encodeWsPayload(binary, fin, data)).buffer;
 }
@@ -92,7 +92,7 @@ describe("Tunnel.openSocket", () => {
     });
   }
 
-  it("ws-open mesajini kanonik bicimde yollar", () => {
+  it("it sends the ws-open message in canonical form", () => {
     open("/socket?x=1", ["vite-hmr"]);
     const msgs = ctrl.ctrlMessages();
     expect(msgs).toHaveLength(1);
@@ -104,7 +104,7 @@ describe("Tunnel.openSocket", () => {
     });
   });
 
-  it("ws-ok alt protokolu bildirir", () => {
+  it("ws-ok announces the subprotocol", () => {
     const sock = open();
     expect(sock.protocol).toBe("");
     ctrl.deliver(canonicalCtrl({ t: "ws-ok", id: sock.id, proto: "json" }));
@@ -112,11 +112,11 @@ describe("Tunnel.openSocket", () => {
     expect(sock.protocol).toBe("json");
   });
 
-  it("gelen mesaji FIN bayraginda tamamlar", () => {
+  it("it completes an incoming message on the FIN flag", () => {
     const sock = open();
     ctrl.deliver(canonicalCtrl({ t: "ws-ok", id: sock.id, proto: "" }));
 
-    // Iki parcali tek mesaj: ilk parcada FIN yok.
+    // One message in two chunks: the first chunk carries no FIN.
     data.deliver(wsFrame(sock.id, 0, false, false, enc.encode("mer")));
     expect(rec.messages).toHaveLength(0);
     data.deliver(wsFrame(sock.id, 1, false, true, enc.encode("haba")));
@@ -124,20 +124,20 @@ describe("Tunnel.openSocket", () => {
     expect(rec.messages).toEqual([{ binary: false, text: "merhaba", bytes: 7 }]);
   });
 
-  it("bos mesaji da teslim eder", () => {
+  it("it delivers an empty message too", () => {
     const sock = open();
     data.deliver(wsFrame(sock.id, 0, false, true, new Uint8Array()));
     expect(rec.messages).toEqual([{ binary: false, text: "", bytes: 0 }]);
   });
 
-  it("ikili mesaji isaretler", () => {
+  it("it marks a binary message", () => {
     const sock = open();
     data.deliver(wsFrame(sock.id, 0, true, true, new Uint8Array([1, 2, 3])));
     expect(rec.messages[0]?.binary).toBe(true);
     expect(rec.messages[0]?.bytes).toBe(3);
   });
 
-  it("gonderilen mesaji parcalara boler ve seq artirir", async () => {
+  it("it splits an outgoing message into chunks and increments seq", async () => {
     const sock = open();
     const big = new Uint8Array(MAX_WS_PAYLOAD + 10);
     big.fill(7);
@@ -154,9 +154,10 @@ describe("Tunnel.openSocket", () => {
     expect(frames[1]?.chunk.payload.byteLength).toBe(10);
   });
 
-  it("ard arda gonderimlerde seq sirasi bozulmaz", async () => {
+  it("the seq order holds across back-to-back sends", async () => {
     const sock = open();
-    // Beklemeden ust uste: zincirleme olmasa seq sirasi karisirdi.
+    // Back to back with no wait: without the chaining the seq order
+    // would get mixed up.
     const a = sock.send(false, enc.encode("bir"));
     const b = sock.send(false, enc.encode("iki"));
     await Promise.all([a, b]);
@@ -167,7 +168,7 @@ describe("Tunnel.openSocket", () => {
     expect(dec.decode(frames[1]?.chunk.payload)).toBe("iki");
   });
 
-  it("yerel kapanis ws-close yollar", () => {
+  it("a local close sends a ws-close", () => {
     const sock = open();
     sock.close(4001, "bitti");
 
@@ -176,17 +177,17 @@ describe("Tunnel.openSocket", () => {
     expect(rec.closes).toEqual([{ code: 4001, reason: "bitti" }]);
   });
 
-  it("ajandan gelen ws-close geri yollanmaz", () => {
+  it("a ws-close from the agent is not sent back", () => {
     const sock = open();
     const before = ctrl.ctrlMessages().length;
     ctrl.deliver(canonicalCtrl({ t: "ws-close", id: sock.id, code: 1000, reason: "" }));
 
     expect(rec.closes).toEqual([{ code: 1000, reason: "" }]);
-    // Kapanis ping-pong'u olmamali.
+    // There must be no close ping-pong.
     expect(ctrl.ctrlMessages()).toHaveLength(before);
   });
 
-  it("onClose yalnizca bir kez cagrilir", () => {
+  it("onClose is called exactly once", () => {
     const sock = open();
     sock.close(1000, "");
     sock.close(1000, "");
@@ -194,35 +195,35 @@ describe("Tunnel.openSocket", () => {
     expect(rec.closes).toHaveLength(1);
   });
 
-  it("bozuk seq oturumu 1002 ile kapatir", () => {
+  it("a broken seq closes the session with 1002", () => {
     const sock = open();
-    // seq 0 bekleniyor, 1 geliyor.
+    // seq 0 is expected and 1 arrives.
     data.deliver(wsFrame(sock.id, 1, false, true, enc.encode("x")));
 
     expect(rec.closes).toEqual([{ code: 1002, reason: "bad-seq" }]);
     expect(ctrl.ctrlMessages().at(-1)).toMatchObject({ t: "ws-close", code: 1002 });
   });
 
-  it("tanimsiz bayrak oturumu 1002 ile kapatir", () => {
+  it("an undefined flag closes the session with 1002", () => {
     const sock = open();
     data.deliver(encodeFrame(sock.id, 0, new Uint8Array([0xff, 1])).buffer);
     expect(rec.closes[0]?.code).toBe(1002);
   });
 
-  it("bos payload oturumu 1002 ile kapatir", () => {
+  it("an empty payload closes the session with 1002", () => {
     const sock = open();
     data.deliver(encodeFrame(sock.id, 0, new Uint8Array()).buffer);
     expect(rec.closes[0]?.code).toBe(1002);
   });
 
-  it("mesajin parcalari farkli tipte olamaz", () => {
+  it("the chunks of a message cannot have different types", () => {
     const sock = open();
     data.deliver(wsFrame(sock.id, 0, false, false, enc.encode("a")));
     data.deliver(wsFrame(sock.id, 1, true, true, new Uint8Array([2])));
     expect(rec.closes).toEqual([{ code: 1002, reason: "ws-mixed-type" }]);
   });
 
-  it("tunel kapaninca oturumlar 1006 ile duser", () => {
+  it("when the tunnel closes the sessions go down with 1006", () => {
     open();
     open();
     expect(tunnel.socketCount).toBe(2);
@@ -232,7 +233,7 @@ describe("Tunnel.openSocket", () => {
     expect(tunnel.socketCount).toBe(0);
   });
 
-  it("id uzayi HTTP istekleriyle paylasilir", () => {
+  it("the id space is shared with HTTP requests", () => {
     const sock = open();
     void tunnel.request({ method: "GET", path: "/", headers: {} });
     const ids = ctrl
@@ -243,13 +244,13 @@ describe("Tunnel.openSocket", () => {
     expect(ids).toContain(sock.id);
   });
 
-  it("kapali oturuma gonderim hata verir", async () => {
+  it("sending on a closed session errors", async () => {
     const sock = open();
     sock.close();
     await expect(sock.send(false, enc.encode("x"))).rejects.toThrow();
   });
 
-  it("acik oturum sayisini bildirir", () => {
+  it("it reports the number of open sessions", () => {
     const a = open();
     open();
     expect(tunnel.socketCount).toBe(2);

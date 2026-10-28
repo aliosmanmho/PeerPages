@@ -13,39 +13,41 @@ import (
 	"golang.org/x/crypto/hkdf"
 )
 
-// Paylasilan sir katmani (protocol/signaling.md).
+// The shared-secret layer (protocol/signaling.md).
 //
-// Amac: peer-id'yi (npub) bilen ama sirri bilmeyen birinin ajana gecerli bir
-// offer gonderememesi. NIP-44'un ALTINDA ek bir katman.
+// The point: someone who knows the peer-id (npub) but not the secret
+// cannot send the agent a valid offer. An extra layer BENEATH NIP-44.
 //
-// Sir neyi KORUMAZ: relay'ler yine "bu npub bir sey aldi" gorur. Sir yalnizca
-// baglanma yetkisini korur, ajanin cevrimici oldugunu gizlemez.
+// What the secret does NOT protect: relays still see "this npub received
+// something". The secret only guards the right to connect; it does not
+// hide that the agent is online.
 const (
-	// SecretPrefix sirli payload oneki.
+	// SecretPrefix is the prefix of a sealed payload.
 	SecretPrefix = "pps1."
-	// secretSalt HKDF tuzu.
+	// secretSalt is the HKDF salt.
 	secretSalt = "peerpages-secret-v1"
-	// secretInfo HKDF info etiketi.
+	// secretInfo is the HKDF info label.
 	secretInfo = "signaling"
-	// secretAAD AEAD iliskili verisi.
+	// secretAAD is the AEAD associated data.
 	secretAAD = "peerpages-signaling-v1"
-	// nonceBytes ChaCha20-Poly1305 nonce uzunlugu.
+	// nonceBytes is the ChaCha20-Poly1305 nonce length.
 	nonceBytes = chacha20poly1305.NonceSize
 )
 
-// Sealer paylasilan sirla sifreleme/cozme yapar.
+// Sealer encrypts and decrypts with the shared secret.
 //
-// Nil Sealer "sir yok" anlamina gelir ve Seal/Open duz JSON ile calisir.
+// A nil Sealer means "no secret", and Seal/Open work with plain JSON.
 type Sealer struct {
 	key []byte
 }
 
-// NewSealer sirdan anahtar turetir.
+// NewSealer derives the key from the secret.
 //
-// Bos sir hata verir: "sir var ama bos" sessizce sirsiza donmemeli.
+// An empty secret is an error: "there is a secret but it is empty" must
+// not quietly turn into no secret at all.
 func NewSealer(secret string) (*Sealer, error) {
 	if secret == "" {
-		return nil, errors.New("paylasilan sir bos")
+		return nil, errors.New("the shared secret is empty")
 	}
 	key, err := deriveKey(secret)
 	if err != nil {
@@ -54,18 +56,18 @@ func NewSealer(secret string) (*Sealer, error) {
 	return &Sealer{key: key}, nil
 }
 
-// deriveKey HKDF-SHA256 ile 32 baytlik anahtar turetir.
+// deriveKey derives a 32-byte key with HKDF-SHA256.
 func deriveKey(secret string) ([]byte, error) {
 	r := hkdf.New(sha256.New, []byte(secret), []byte(secretSalt), []byte(secretInfo))
 	key := make([]byte, chacha20poly1305.KeySize)
 	if _, err := io.ReadFull(r, key); err != nil {
-		return nil, fmt.Errorf("anahtar turetilemedi: %w", err)
+		return nil, fmt.Errorf("the key could not be derived: %w", err)
 	}
 	return key, nil
 }
 
-// KeyHex turetilen anahtari hex olarak dondurur. YALNIZCA test vektorlerini
-// dogrulamak icin; uretimde kullanilmaz.
+// KeyHex returns the derived key as hex. ONLY for checking the test
+// vectors; it is not used in production.
 func (s *Sealer) KeyHex() string {
 	if s == nil {
 		return ""
@@ -73,29 +75,30 @@ func (s *Sealer) KeyHex() string {
 	return fmt.Sprintf("%x", s.key)
 }
 
-// Seal kanonik JSON'u payload'a cevirir.
+// Seal turns canonical JSON into a payload.
 //
-// Sealer nil ise payload duz JSON'dur (sir yok).
+// With a nil Sealer the payload is plain JSON (no secret).
 func (s *Sealer) Seal(canonical string) (string, error) {
 	if s == nil {
 		return canonical, nil
 	}
 	var nonce [nonceBytes]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
-		return "", fmt.Errorf("nonce uretilemedi: %w", err)
+		return "", fmt.Errorf("the nonce could not be generated: %w", err)
 	}
 	return s.sealWithNonce(nonce[:], canonical)
 }
 
-// sealWithNonce sabit nonce ile sifreler. Test vektorleri icin ayrildi;
-// uretimde Seal kullanilir (nonce her mesajda rastgele olmali).
+// sealWithNonce encrypts with a fixed nonce. Split out for the test
+// vectors; production uses Seal (the nonce must be random for every
+// message).
 func (s *Sealer) sealWithNonce(nonce []byte, canonical string) (string, error) {
 	if len(nonce) != nonceBytes {
-		return "", fmt.Errorf("nonce %d bayt olmali, verilen: %d", nonceBytes, len(nonce))
+		return "", fmt.Errorf("the nonce must be %d bytes, got: %d", nonceBytes, len(nonce))
 	}
 	aead, err := chacha20poly1305.New(s.key)
 	if err != nil {
-		return "", fmt.Errorf("AEAD kurulamadi: %w", err)
+		return "", fmt.Errorf("the AEAD could not be set up: %w", err)
 	}
 	ct := aead.Seal(nil, nonce, []byte(canonical), []byte(secretAAD))
 
@@ -105,52 +108,54 @@ func (s *Sealer) sealWithNonce(nonce []byte, canonical string) (string, error) {
 	return SecretPrefix + base64.RawURLEncoding.EncodeToString(blob), nil
 }
 
-// IsSealed payload sirli mi.
+// IsSealed says whether the payload is sealed.
 func IsSealed(payload string) bool {
 	return strings.HasPrefix(payload, SecretPrefix)
 }
 
-// Open payload'i kanonik JSON'a cevirir.
+// Open turns a payload back into canonical JSON.
 //
-// Kurallar (protocol/signaling.md):
-//   - Sealer varsa payload sirli OLMAK ZORUNDA; duz JSON reddedilir
-//     (sirsiz teklifler kabul edilmez).
-//   - Sealer yoksa sirli payload reddedilir (cozemeyiz).
+// The rules (protocol/signaling.md):
+//   - with a Sealer the payload MUST be sealed; plain JSON is rejected
+//     (unsealed offers are not accepted),
+//   - without a Sealer a sealed payload is rejected (we cannot open it).
 func (s *Sealer) Open(payload string) (string, error) {
 	sealed := IsSealed(payload)
 
 	if s == nil {
 		if sealed {
-			return "", errf(CodeBadSecret, "payload sirli ama paylasilan sir verilmedi")
+			return "", errf(CodeBadSecret, "the payload is sealed but no shared secret was given")
 		}
 		return payload, nil
 	}
 	if !sealed {
-		return "", errf(CodeBadSecret, "paylasilan sir gerekli ama payload sirsiz")
+		return "", errf(CodeBadSecret, "a shared secret is required but the payload is not sealed")
 	}
 
 	body := strings.TrimPrefix(payload, SecretPrefix)
 	blob, err := base64.RawURLEncoding.DecodeString(body)
 	if err != nil {
-		return "", errf(CodeBadSecret, "base64 cozulemedi")
+		return "", errf(CodeBadSecret, "base64 could not be decoded")
 	}
 	if len(blob) < nonceBytes+chacha20poly1305.Overhead {
-		return "", errf(CodeBadSecret, "payload cok kisa (%d bayt)", len(blob))
+		return "", errf(CodeBadSecret, "the payload is too short (%d bytes)", len(blob))
 	}
 
 	aead, aerr := chacha20poly1305.New(s.key)
 	if aerr != nil {
-		return "", errf(CodeBadSecret, "AEAD kurulamadi: %v", aerr)
+		return "", errf(CodeBadSecret, "the AEAD could not be set up: %v", aerr)
 	}
 	plain, oerr := aead.Open(nil, blob[:nonceBytes], blob[nonceBytes:], []byte(secretAAD))
 	if oerr != nil {
-		// Yanlis sir, bozuk etiket ya da oynanmis veri: ayrim yapmiyoruz.
-		return "", errf(CodeBadSecret, "payload dogrulanamadi (yanlis sir ya da bozuk veri)")
+		// Wrong secret, broken tag or tampered data: we do not
+		// distinguish.
+		return "", errf(CodeBadSecret, "the payload could not be verified (wrong secret or corrupt data)")
 	}
 	return string(plain), nil
 }
 
-// Encode mesaji payload'a cevirir (kanonik JSON + varsa sir katmani).
+// Encode turns a message into a payload (canonical JSON plus the secret
+// layer when there is one).
 func (s *Sealer) Encode(m Msg) (string, error) {
 	if err := m.Validate(); err != nil {
 		return "", err
@@ -158,7 +163,8 @@ func (s *Sealer) Encode(m Msg) (string, error) {
 	return s.Seal(m.Canonical())
 }
 
-// Decode payload'i mesaja cevirir (varsa sir katmanini acar).
+// Decode turns a payload into a message (opening the secret layer when
+// there is one).
 func (s *Sealer) Decode(payload string) (Msg, error) {
 	canonical, err := s.Open(payload)
 	if err != nil {

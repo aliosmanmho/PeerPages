@@ -10,21 +10,22 @@ import {
 } from "./fixtures/nostr";
 
 /**
- * Faz 5 kabul kriteri:
+ * The phase 5 acceptance criterion:
  *
- *   "Simetrik NAT simulasyonunda (or. mobil hotspot ↔ kurumsal ag) TURN ile
- *    baglaniyor."
+ *   "It connects over TURN in a symmetric NAT simulation (for example a
+ *    mobile hotspot <-> a corporate network)."
  *
- * Simetrik NAT'i tek makinede taklit edemiyoruz. Yerine AYNI SONUCU ureten
- * durumu kuruyoruz: ajani `--ice-relay-only` ile yalnizca relay adayi
- * toplamaya zorluyoruz, yani dogrudan yol IMKANSIZ. Tunelin acilmasi, o
- * trafigin TURN'den gectiginin kanitidir — hotspot denemesinden guclu,
- * cunku orada dogrudan yol da calismis olabilir.
+ * We cannot imitate symmetric NAT on a single machine. Instead we build
+ * the situation that produces the SAME RESULT: we force the agent with
+ * `--ice-relay-only` to gather relay candidates only, so the direct path
+ * is IMPOSSIBLE. The tunnel opening is proof that the traffic went over
+ * TURN — stronger than a hotspot attempt, where the direct path may have
+ * worked as well.
  *
- * Ziyaretci tarafi NORMAL yapilandirmayla geliyor: TURN kimlik bilgisi
- * sayfaya hic gitmiyor (BRIEF §8).
+ * The visitor side arrives with the NORMAL configuration: no TURN
+ * credential ever reaches the page (BRIEF section 8).
  *
- * Gercek iki ag denemesi elle: docs/MANUAL-TEST.md.
+ * The real two-network attempt is done by hand: docs/MANUAL-TEST.md.
  */
 
 const BASE = "/PeerPages/";
@@ -44,8 +45,8 @@ test.afterAll(() => {
   site?.stop();
 });
 
-test.describe("Faz 5 — TURN uzerinden baglanma", () => {
-  test("relay-only ajan TURN ile baglaniyor", async ({ context }) => {
+test.describe("phase 5 — connecting over TURN", () => {
+  test("a relay-only agent connects over TURN", async ({ context }) => {
     const turn: FakeTurn = await startFakeTurn();
     const agent = await startNostrAgent({
       targetURL: site.url,
@@ -58,7 +59,7 @@ test.describe("Faz 5 — TURN uzerinden baglanma", () => {
     try {
       const page = await context.newPage();
       page.on("console", (msg) => {
-        if (msg.type() === "error") console.log(`[sayfa hatasi] ${msg.text()}`);
+        if (msg.type() === "error") console.log(`[page error] ${msg.text()}`);
       });
       const hash = agent.visitorURL.slice(agent.visitorURL.indexOf("#"));
       const started = Date.now();
@@ -68,18 +69,19 @@ test.describe("Faz 5 — TURN uzerinden baglanma", () => {
       await page.waitForFunction(() => window.__peerpages?.hasTunnel() === true, null, {
         timeout: 90_000,
       });
-      console.log(`OLCUM URL'den tunele (yalnizca TURN): ${Date.now() - started} ms`);
+      console.log(`MEASURED from URL to tunnel (TURN only): ${Date.now() - started} ms`);
 
-      // Ekran da dogruyu soylemeli: trafik bir sunucudan geciyor.
+      // The screen has to tell the truth too: the traffic goes through a
+      // server.
       await page.waitForFunction(() => window.__peerpages?.iceRoute() === "relay", null, {
         timeout: 30_000,
       });
-      await expect(page.locator("#metrics")).toContainText("TURN uzerinden");
+      await expect(page.locator("#metrics")).toContainText("through TURN");
 
-      // Tunel gercekten calisiyor: ziyaretci sekmesi siteyi goruyor.
+      // The tunnel really works: the visitor tab sees the site.
       const visitor = await context.newPage();
       await visitor.goto(BASE);
-      await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi", {
+      await expect(visitor.locator("#title")).toHaveText("PeerPages test site", {
         timeout: 30_000,
       });
       await visitor.close();
@@ -90,15 +92,15 @@ test.describe("Faz 5 — TURN uzerinden baglanma", () => {
     }
   });
 
-  // NEGATIF KONTROL: bu test olmadan yukaridaki testin dogrudan yoldan
-  // gecip yanlislikla yesil kalmasi mumkun olurdu.
-  test("relay-only ajan TURN olmadan baglanamiyor", async ({ context }) => {
+  // THE NEGATIVE CONTROL: without this test the one above could pass
+  // over the direct path and stay green by accident.
+  test("a relay-only agent cannot connect without TURN", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs: [relay.url],
       appURL: APP_URL,
-      // Dinlemeyen adres: allocation alinamaz, yani hic kullanilabilir
-      // aday toplanmaz.
+      // An address nothing listens on: no allocation is granted, so no
+      // usable candidate is gathered at all.
       turn: { url: "turn:127.0.0.1:1", user: "u", pass: "p" },
       iceRelayOnly: true,
     });
@@ -108,8 +110,9 @@ test.describe("Faz 5 — TURN uzerinden baglanma", () => {
       const hash = agent.visitorURL.slice(agent.visitorURL.indexOf("#"));
       await page.goto(`${CONNECT}?relay=${encodeURIComponent(relay.url)}${hash}`);
 
-      // Baglanti kurulmamali; ekran durumu "yeniden deneniyor"a duser
-      // (Faz 4 denetleyicisi) ama tunel acilmaz.
+      // No connection may be made; the screen status falls back to
+      // "retrying" (the phase 4 supervisor) but the tunnel never
+      // opens.
       await page.waitForTimeout(20_000);
       expect(await page.evaluate(() => window.__peerpages?.hasTunnel())).toBe(false);
       await expect(page.locator("#panel-connected")).toBeHidden();
@@ -120,15 +123,17 @@ test.describe("Faz 5 — TURN uzerinden baglanma", () => {
     }
   });
 
-  // TURN verilse bile dogrudan yol varsa ICE onu secer: kota bosa gitmez.
-  test("TURN varken dogrudan yol tercih ediliyor", async ({ context }) => {
+  // Even with TURN given, if the direct path exists ICE picks it: no
+  // quota is wasted.
+  test("with TURN available the direct path is still preferred", async ({ context }) => {
     const turn = await startFakeTurn();
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs: [relay.url],
       appURL: APP_URL,
       turn: { url: turn.url, user: turn.user, pass: turn.pass },
-      // relay-only YOK: ajan hem host/srflx hem relay adayi topluyor.
+      // NO relay-only: the agent gathers host/srflx and relay
+      // candidates.
     });
 
     try {
@@ -140,14 +145,14 @@ test.describe("Faz 5 — TURN uzerinden baglanma", () => {
       await page.waitForFunction(
         () => {
           const r = window.__peerpages?.iceRoute();
-          return r !== undefined && r !== "bilinmiyor";
+          return r !== undefined && r !== "unknown";
         },
         null,
         { timeout: 60_000 },
       );
 
       const route = await page.evaluate(() => window.__peerpages?.iceRoute());
-      console.log(`OLCUM TURN verildi ama secilen yol: ${route}`);
+      console.log(`MEASURED TURN was given but the chosen route: ${route}`);
       expect(route).not.toBe("relay");
 
       await page.close();
@@ -158,8 +163,8 @@ test.describe("Faz 5 — TURN uzerinden baglanma", () => {
   });
 });
 
-test.describe("Faz 5 — doctor TURN raporu", () => {
-  test("doctor allocation'i dogruluyor", async () => {
+test.describe("phase 5 — the doctor TURN report", () => {
+  test("doctor verifies the allocation", async () => {
     const turn = await startFakeTurn();
     try {
       const { runAgent } = await import("./fixtures/agent");
@@ -179,11 +184,11 @@ test.describe("Faz 5 — doctor TURN raporu", () => {
       expect(report.turn.servers[0].ok).toBe(true);
       expect(report.turn.servers[0].relayed_addr).not.toBe("");
       expect(report.advice).toBeTruthy();
-      console.log(`OLCUM doctor TURN allocation: ${report.turn.servers[0].ms} ms`);
+      console.log(`MEASURED doctor TURN allocation: ${report.turn.servers[0].ms} ms`);
 
-      // Yanlis sifre: allocation alinamaz ve cikis kodu sifirdan farkli
-      // olmali — sessizce 0 donmek, kullanicinin TURN'un calistigini
-      // sanmasina yol acar.
+      // The wrong password: no allocation is granted and the exit code
+      // has to be non-zero — returning 0 quietly would let the user think
+      // TURN works.
       const bad = await runAgent([
         "doctor",
         "--json",
@@ -194,7 +199,7 @@ test.describe("Faz 5 — doctor TURN raporu", () => {
         "--turn-user",
         turn.user,
         "--turn-pass",
-        "yanlis-sifre",
+        "wrong-password",
       ]);
       expect(bad.code).not.toBe(0);
       const badReport = JSON.parse(bad.stdout);

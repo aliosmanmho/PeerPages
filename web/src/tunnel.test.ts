@@ -5,11 +5,11 @@ import { encodeFrame, MAX_PAYLOAD } from "./protocol/framing";
 import { Tunnel } from "./tunnel";
 
 /**
- * Sahte RTCDataChannel: tarayici olmadan tunel mantigini test eder.
+ * A fake RTCDataChannel: it tests the tunnel logic without a browser.
  *
- * Ozellikle kanallar arasi siralama eksikligini (ctrl ve data arasinda sira
- * garantisi yok) burada SERBESTCE taklit edebiliyoruz: `end`'i cercevelerden
- * once ya da sonra yollamak tek satirlik fark.
+ * In particular we can imitate the missing ordering between the channels
+ * (there is no ordering guarantee between ctrl and data) FREELY here:
+ * sending `end` before or after the frames is a one-line difference.
  */
 class FakeChannel extends EventTarget {
   readyState: RTCDataChannelState = "open";
@@ -25,11 +25,11 @@ class FakeChannel extends EventTarget {
   }
 
   send(data: string | Uint8Array): void {
-    if (this.readyState !== "open") throw new Error("kanal kapali");
+    if (this.readyState !== "open") throw new Error("the channel is closed");
     this.sent.push(data);
   }
 
-  /** Karsi taraftan mesaj gelmis gibi yapar. */
+  /** Pretends a message arrived from the other side. */
   deliver(data: string | ArrayBuffer): void {
     this.dispatchEvent(new MessageEvent("message", { data }));
   }
@@ -39,7 +39,7 @@ class FakeChannel extends EventTarget {
     this.dispatchEvent(new Event("close"));
   }
 
-  /** Gonderilen ctrl mesajlarini ayristirip dondurur. */
+  /** Parses and returns the ctrl messages that were sent. */
   ctrlMessages() {
     return this.sent
       .filter((x): x is string => typeof x === "string")
@@ -90,13 +90,13 @@ describe("Tunnel", () => {
     tunnel = new Tunnel(asChannel(ctrl), asChannel(data));
   });
 
-  it("acik kanallarla acik sayilir ve backpressure esigini kurar", () => {
+  it("with the channels open it counts as open and sets the backpressure threshold", () => {
     expect(tunnel.isOpen).toBe(true);
     expect(data.bufferedAmountLowThreshold).toBe(256 << 10);
     expect(data.binaryType).toBe("arraybuffer");
   });
 
-  it("req mesajini kanonik bicimde yollar", async () => {
+  it("it sends the req message in canonical form", async () => {
     const promise = tunnel.request({
       method: "get",
       path: "/api/items",
@@ -108,7 +108,7 @@ describe("Tunnel", () => {
     expect(msgs[0]).toEqual({
       t: "req",
       id: 1,
-      method: "GET", // buyuk harfe cevrilir
+      method: "GET", // it is upper-cased
       path: "/api/items",
       headers: { accept: "application/json" },
       hasBody: false,
@@ -122,7 +122,7 @@ describe("Tunnel", () => {
     expect(await readAll(res.body)).toEqual(new Uint8Array(0));
   });
 
-  it("cevap govdesini birlestirir", async () => {
+  it("it assembles the response body", async () => {
     const promise = tunnel.request({ method: "GET", path: "/", headers: {} });
 
     ctrl.deliver(
@@ -138,16 +138,17 @@ describe("Tunnel", () => {
   });
 
   /**
-   * KRITIK: ctrl ve data ayri SCTP stream'leri. `end` govde cercevelerinden
-   * ONCE gelebilir; akis sayaclar tamamlanmadan kapanmamali.
+   * CRITICAL: ctrl and data are separate SCTP streams. `end` can arrive
+   * BEFORE the body frames; the stream must not close until the counters
+   * are complete.
    */
-  it("end cercevelerden once gelirse akisi erken kapatmaz", async () => {
+  it("when end arrives before the frames it does not close the stream early", async () => {
     const promise = tunnel.request({ method: "GET", path: "/", headers: {} });
 
     ctrl.deliver(canonicalCtrl({ t: "res", id: 1, status: 200, headers: {} }));
-    // end ONCE
+    // end FIRST
     ctrl.deliver(canonicalCtrl({ t: "end", id: 1, frames: 2, len: 7 }));
-    // cerceveler SONRA
+    // the frames AFTER
     data.deliver(frameOf(1, 0, enc.encode("mer")));
     data.deliver(frameOf(1, 1, enc.encode("haba")));
 
@@ -155,10 +156,10 @@ describe("Tunnel", () => {
     expect(new TextDecoder().decode(await readAll(res.body))).toBe("merhaba");
   });
 
-  it("res cercevelerden sonra gelse de govde kaybolmaz", async () => {
+  it("even when res arrives after the frames the body is not lost", async () => {
     const promise = tunnel.request({ method: "GET", path: "/", headers: {} });
 
-    // Cerceveler res'ten ONCE.
+    // The frames BEFORE res.
     data.deliver(frameOf(1, 0, enc.encode("once")));
     ctrl.deliver(canonicalCtrl({ t: "res", id: 1, status: 200, headers: {} }));
     ctrl.deliver(canonicalCtrl({ t: "end", id: 1, frames: 1, len: 4 }));
@@ -167,12 +168,12 @@ describe("Tunnel", () => {
     expect(new TextDecoder().decode(await readAll(res.body))).toBe("once");
   });
 
-  it("beklenmeyen seq gelirse abort yollar", async () => {
+  it("on an unexpected seq it sends an abort", async () => {
     const promise = tunnel.request({ method: "GET", path: "/", headers: {} });
     ctrl.deliver(canonicalCtrl({ t: "res", id: 1, status: 200, headers: {} }));
 
     const res = await promise;
-    // seq 0 atlanip 3 geliyor.
+    // seq 0 is skipped and 3 arrives.
     data.deliver(frameOf(1, 3, enc.encode("bozuk")));
 
     await expect(readAll(res.body)).rejects.toThrow();
@@ -181,7 +182,7 @@ describe("Tunnel", () => {
     expect(aborts[0]).toMatchObject({ t: "abort", id: 1, reason: "bad-seq" });
   });
 
-  it("bildirilenden fazla govde gelirse abort yollar", async () => {
+  it("when more body arrives than was reported it sends an abort", async () => {
     const promise = tunnel.request({ method: "GET", path: "/", headers: {} });
     ctrl.deliver(canonicalCtrl({ t: "res", id: 1, status: 200, headers: {} }));
     const res = await promise;
@@ -194,13 +195,13 @@ describe("Tunnel", () => {
     expect(aborts[0]).toMatchObject({ reason: "body-length-mismatch" });
   });
 
-  it("ajan abort yollarsa istek hata verir", async () => {
+  it("when the agent sends an abort the request errors", async () => {
     const promise = tunnel.request({ method: "GET", path: "/", headers: {} });
     ctrl.deliver(canonicalCtrl({ t: "abort", id: 1, reason: "upstream-read-error" }));
     await expect(promise).rejects.toThrow(/upstream-read-error/);
   });
 
-  it("istek govdesini cercevelere boler ve end sayaclarini dogru yollar", async () => {
+  it("it splits the request body into frames and sends the end counters correctly", async () => {
     const body = new Uint8Array(MAX_PAYLOAD + 10).fill(7);
     const promise = tunnel.request({
       method: "POST",
@@ -209,7 +210,8 @@ describe("Tunnel", () => {
       body,
     });
 
-    // Govde arka planda akitiliyor; mikro gorevlerin bitmesini bekle.
+    // The body streams in the background; wait for the microtasks to
+    // finish.
     await new Promise((r) => setTimeout(r, 10));
 
     const frames = data.sent.filter((x): x is Uint8Array => typeof x !== "string");
@@ -225,25 +227,25 @@ describe("Tunnel", () => {
     expect((await promise).status).toBe(201);
   });
 
-  it("ping/pong gidis donus suresini olcer", async () => {
+  it("it measures the ping/pong round trip", async () => {
     const promise = tunnel.ping(1000);
     expect(ctrl.ctrlMessages().some((m) => m.t === "ping")).toBe(true);
     ctrl.deliver(canonicalCtrl({ t: "pong" }));
     expect(await promise).toBeGreaterThanOrEqual(0);
   });
 
-  it("ajandan gelen ping'e pong doner", () => {
+  it("it answers a ping from the agent with a pong", () => {
     ctrl.deliver(canonicalCtrl({ t: "ping" }));
     expect(ctrl.ctrlMessages().some((m) => m.t === "pong")).toBe(true);
   });
 
-  it("hello mesajini saklar", () => {
+  it("it keeps the hello message", () => {
     ctrl.deliver(canonicalCtrl({ t: "hello", v: 1, targets: ["default", "admin"], auth: "none" }));
     expect(tunnel.hello?.targets).toEqual(["default", "admin"]);
   });
 
-  it("bozuk ctrl mesaji tuneli dusurmez", async () => {
-    ctrl.deliver("bu json degil");
+  it("a malformed ctrl message does not drop the tunnel", async () => {
+    ctrl.deliver("this is not json");
     ctrl.deliver('{"t":"zipzip"}');
     expect(tunnel.isOpen).toBe(true);
 
@@ -253,10 +255,10 @@ describe("Tunnel", () => {
     expect((await promise).status).toBe(204);
   });
 
-  it("bozuk cerceve tuneli dusurmez", async () => {
+  it("a malformed frame does not drop the tunnel", async () => {
     const promise = tunnel.request({ method: "GET", path: "/", headers: {} });
     ctrl.deliver(canonicalCtrl({ t: "res", id: 1, status: 200, headers: {} }));
-    // 8 bayttan kisa: short-frame.
+    // Shorter than 8 bytes: short-frame.
     data.deliver(new Uint8Array([1, 2, 3]).buffer);
 
     data.deliver(frameOf(1, 0, enc.encode("iyi")));
@@ -266,21 +268,21 @@ describe("Tunnel", () => {
     expect(new TextDecoder().decode(await readAll(res.body))).toBe("iyi");
   });
 
-  it("kanal kapaninca bekleyen istekler hata verir", async () => {
+  it("when the channel closes the pending requests error", async () => {
     const promise = tunnel.request({ method: "GET", path: "/", headers: {} });
     data.close();
-    await expect(promise).rejects.toThrow(/tunel kapandi/);
+    await expect(promise).rejects.toThrow(/tunnel closed/);
     expect(tunnel.isOpen).toBe(false);
   });
 
-  it("kapali tunelde istek yapilmaz", async () => {
+  it("no request is made on a closed tunnel", async () => {
     tunnel.close();
     await expect(tunnel.request({ method: "GET", path: "/", headers: {} })).rejects.toThrow(
-      /acik degil/,
+      /not open/,
     );
   });
 
-  it("AbortSignal istegi iptal eder ve ajana bildirir", async () => {
+  it("an AbortSignal cancels the request and tells the agent", async () => {
     const ac = new AbortController();
     const promise = tunnel.request({
       method: "GET",
@@ -290,19 +292,20 @@ describe("Tunnel", () => {
     });
     ac.abort();
 
-    await expect(promise).rejects.toThrow(/iptal/);
+    await expect(promise).rejects.toThrow(/aborted/);
     const aborts = ctrl.ctrlMessages().filter((m) => m.t === "abort");
     expect(aborts[0]).toMatchObject({ reason: "client-cancel" });
   });
 
-  it("eszamanli istekler ayri id alir ve karismaz", async () => {
+  it("concurrent requests get separate ids and do not get mixed up", async () => {
     const p1 = tunnel.request({ method: "GET", path: "/bir", headers: {} });
     const p2 = tunnel.request({ method: "GET", path: "/iki", headers: {} });
 
     const reqs = ctrl.ctrlMessages().filter((m) => m.t === "req");
     expect(reqs.map((r) => (r as { id: number }).id)).toEqual([1, 2]);
 
-    // Cevaplar ters sirada ve cerceveler ic ice gelsin.
+    // Let the responses arrive in reverse order with the frames
+    // interleaved.
     ctrl.deliver(canonicalCtrl({ t: "res", id: 2, status: 200, headers: {} }));
     ctrl.deliver(canonicalCtrl({ t: "res", id: 1, status: 200, headers: {} }));
     data.deliver(frameOf(2, 0, enc.encode("IKI")));
@@ -315,7 +318,7 @@ describe("Tunnel", () => {
     expect(new TextDecoder().decode(await readAll(r2.body))).toBe("IKI");
   });
 
-  it("istatistikleri sayar", async () => {
+  it("it counts the statistics", async () => {
     const promise = tunnel.request({ method: "GET", path: "/", headers: {} });
     ctrl.deliver(canonicalCtrl({ t: "res", id: 1, status: 200, headers: {} }));
     data.deliver(frameOf(1, 0, new Uint8Array(100)));

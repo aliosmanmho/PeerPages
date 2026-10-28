@@ -1,19 +1,20 @@
 import { defineConfig } from "vite";
 
 /**
- * Faz 6 e2e fixture'i: HMR'in tunel uzerinden calistigini dogrulamak icin
- * kucuk bir Vite dev projesi.
+ * The phase 6 e2e fixture: a small Vite dev project, there to prove that HMR
+ * works over the tunnel.
  *
- * `base` app shell'in scope koku ile AYNI olmali ve ajan hedefi de o oneki
- * tasimali (`--target http://127.0.0.1:PORT/PeerPages/`). Gerekcesi:
- * Service Worker scope onekini kirparak ajana yolluyor, Vite ise onekli
- * yollar bekliyor; iki tarafi hizalamak, sayfanin urettigi KOK-MUTLAK
- * yollarin scope icinde kalmasini da sagliyor (README §8'deki yapisal
- * sinir).
+ * `base` has to be THE SAME as the app shell's scope root, and the agent's
+ * target has to carry that prefix too
+ * (`--target http://127.0.0.1:PORT/PeerPages/`). The reason: the Service
+ * Worker strips the scope prefix before sending the path to the agent, while
+ * Vite expects prefixed paths; lining the two up also keeps the
+ * ROOT-ABSOLUTE paths the page produces inside the scope (the structural
+ * boundary in BRIEF section 8).
  *
- * HMR icin hicbir ozel ayar YOK ve bu bilincli: kabul kriteri
- * "Vite HMR tunel uzerinden calisiyor" ise, kullanicinin HMR
- * yapilandirmasina dokunmadan calismasi gerekir.
+ * There is NO special HMR setting here, and that is deliberate: if the
+ * acceptance criterion is "Vite HMR works over the tunnel", then it has to
+ * work without anyone touching their HMR configuration.
  */
 export default defineConfig({
   base: process.env.PEERPAGES_FIXTURE_BASE ?? "/PeerPages/",

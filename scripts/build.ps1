@@ -1,25 +1,25 @@
-# Web (app shell + sw.js) ve ajan binary'sini derler.
-# `make build` esdegeri.
+# Builds the web app (the app shell plus sw.js) and the agent binary.
+# The equivalent of `make build`.
 #
-# GitHub Pages alt yolu icin:
+# For the GitHub Pages subpath:
 #   .\scripts\build.ps1 -Base "/PeerPages/"
 param([string]$Base = "/")
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
-Write-Host "== web derleniyor (base=$Base) ==" -ForegroundColor Cyan
+Write-Host "== building the web app (base=$Base) ==" -ForegroundColor Cyan
 Push-Location (Join-Path $root "web")
 try {
   node scripts/build.mjs $Base
-  if ($LASTEXITCODE -ne 0) { throw "web derlemesi basarisiz" }
+  if ($LASTEXITCODE -ne 0) { throw "the web build failed" }
 } finally { Pop-Location }
 
-Write-Host "== ajan derleniyor ==" -ForegroundColor Cyan
+Write-Host "== building the agent ==" -ForegroundColor Cyan
 Push-Location (Join-Path $root "agent")
 try {
   go build -o peerpages.exe .
-  if ($LASTEXITCODE -ne 0) { throw "ajan derlemesi basarisiz" }
+  if ($LASTEXITCODE -ne 0) { throw "the agent build failed" }
 } finally { Pop-Location }
 
-Write-Host "hazir: web/dist ve agent/peerpages.exe" -ForegroundColor Green
+Write-Host "ready: web/dist and agent/peerpages.exe" -ForegroundColor Green

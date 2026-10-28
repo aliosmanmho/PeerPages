@@ -1,9 +1,10 @@
 /**
- * Sayfa tarafindaki koprunun Service Worker ucu.
+ * The page end of the bridge to the Service Worker.
  *
- * Service Worker yakaladigi istekleri `MessageChannel` ile buraya yollar;
- * burada tunele cevrilir ve cevap parca parca geri gonderilir. SW cevabi
- * `ReadableStream` ile servis eder, yani tam govde beklenmez.
+ * The SW forwards every request it catches here over a `MessageChannel`;
+ * this file turns it into a tunnel request and sends the response back
+ * chunk by chunk. The SW serves it as a `ReadableStream`, so the full body
+ * is never awaited.
  */
 
 import type {
@@ -17,18 +18,19 @@ import type {
 import type { Tunnel, TunnelSocket } from "./tunnel";
 
 export interface BridgeHooks {
-  /** Her istek tamamlandiginda cagrilir (durum ekranindaki sayaclar icin). */
+  /** Called when a request finishes (for the status panel counters). */
   onRequestDone?: (info: { path: string; status: number; bytes: number }) => void;
   onRequestError?: (info: { path: string; message: string }) => void;
-  /** Acik ws oturumu sayisi degisti (Faz 6, durum ekrani icin). */
+  /** Number of open ws sessions changed (phase 6, for the status panel). */
   onSocketChange?: (open: number) => void;
 }
 
 /**
- * SW mesajlarini dinlemeye baslar.
+ * Starts listening to SW messages.
  *
- * `getTunnel` cagri aninda aktif tuneli dondurur (ya da null): tunel yeniden
- * kurulabilir, bu yuzden referans degil fonksiyon aliyoruz.
+ * `getTunnel` returns the tunnel that is active at call time, or null: a
+ * tunnel can be rebuilt, which is why this takes a function rather than a
+ * reference.
  */
 export function installBridge(getTunnel: () => Tunnel | null, hooks: BridgeHooks = {}): void {
   if (!("serviceWorker" in navigator)) return;
@@ -65,32 +67,33 @@ export function installBridge(getTunnel: () => Tunnel | null, hooks: BridgeHooks
   });
 }
 
-/** Sayfanin kendini tunel sahibi olarak kaydetmesi. */
+/** The page registering itself as the tunnel owner. */
 export function announceTunnelReady(): void {
   navigator.serviceWorker?.controller?.postMessage({ type: "bridge-tunnel-ready" });
 }
 
-/** Tunelin kapandigini SW'ye bildirir. */
+/** Tells the SW the tunnel has closed. */
 export function announceTunnelGone(): void {
   navigator.serviceWorker?.controller?.postMessage({ type: "bridge-tunnel-gone" });
 }
 
 /**
- * Tunelin koptugunu ama yeniden baglanildigini bildirir (Faz 4).
+ * Tells the SW the tunnel dropped but is being rebuilt (phase 4).
  *
- * SW bu haberi aldiktan sonra istekleri kisa bir sure bekletir; boylece
- * ziyaretcinin gezdigi site kopma aninda 503 yemek yerine yeniden
- * baglanmayi bekler.
+ * Once the SW hears this it holds requests for a short while, so the site
+ * the visitor is browsing waits for the reconnect instead of getting a 503
+ * the moment the tunnel drops.
  */
 export function announceTunnelReconnecting(): void {
   navigator.serviceWorker?.controller?.postMessage({ type: "bridge-tunnel-reconnecting" });
 }
 
 /**
- * Shim'in ws oturumunu tunele baglar (Faz 6).
+ * Wires the shim's ws session to the tunnel (phase 6).
  *
- * Port iki yone pompalaniyor: shim'den gelen `ws-send` tunele, tunelden
- * gelen mesaj shim'e. SW bu noktadan sonra devrede DEGIL.
+ * The port is pumped both ways: `ws-send` from the shim goes to the
+ * tunnel, messages from the tunnel go to the shim. From this point on the
+ * SW is NOT involved.
  */
 function serveSocket(
   msg: BridgeWsOpenForward,
@@ -104,7 +107,7 @@ function serveSocket(
   };
 
   if (!tunnel?.isOpen) {
-    fail(1013, "tunel acik degil");
+    fail(1013, "tunnel is not open");
     return;
   }
 
@@ -116,8 +119,8 @@ function serveSocket(
         hooks.onSocketChange?.(tunnel.socketCount);
       },
       onMessage: (binary, data) => {
-        // Kopyalamadan transfer et (istek govdelerindeki ayni gerekce):
-        // dilimin tamponu paylasilan olabilir, kendi tamponunu cikariyoruz.
+        // Transfer instead of copying (same reasoning as request bodies):
+        // the slice's buffer may be shared, so we take its own buffer out.
         const buf = data.slice().buffer;
         port.postMessage({ type: "ws-message", binary, data: buf } satisfies WsPortToShim, [buf]);
       },
@@ -139,8 +142,8 @@ function serveSocket(
     if (!m || typeof m !== "object") return;
     switch (m.type) {
       case "ws-send":
-        // Gonderim hatasi oturumu zaten kapatir; burada yutuyoruz ki
-        // yakalanmamis promise reddi olusmasin.
+        // A send failure already closes the session; we swallow it here
+        // so no unhandled promise rejection is produced.
         void socket.send(m.binary, new Uint8Array(m.data)).catch(() => {});
         break;
       case "ws-close":
@@ -167,11 +170,11 @@ async function serveRequest(
   };
 
   if (!tunnel?.isOpen) {
-    // Istek hedefe hic gitmedi: SW yeniden baglanmayi bekleyip tekrar
-    // deneyebilir.
-    send({ type: "error", message: "tunel acik degil", retryable: true });
+    // The request never reached the target: the SW can wait for the
+    // reconnect and try again.
+    send({ type: "error", message: "tunnel is not open", retryable: true });
     port.close();
-    hooks.onRequestError?.({ path: msg.path, message: "tunel acik degil" });
+    hooks.onRequestError?.({ path: msg.path, message: "tunnel is not open" });
     return;
   }
 
@@ -195,9 +198,9 @@ async function serveRequest(
       if (!value || value.byteLength === 0) continue;
       bytes += value.byteLength;
 
-      // Kopyalamadan transfer et: 5 MB'lik indirmede fark ediyor.
-      // Not: value'nun tamponu paylasilan olabilir, bu yuzden dilimin
-      // kendi tamponunu cikariyoruz.
+      // Transfer instead of copying: it shows up on a 5 MB download.
+      // Note: value's buffer may be shared, so we take the slice's own
+      // buffer out.
       const copy = value.slice().buffer;
       send({ type: "chunk", data: copy }, [copy]);
     }
@@ -207,10 +210,10 @@ async function serveRequest(
     hooks.onRequestDone?.({ path: msg.path, status: res.status, bytes });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // Cevap basligi hic gitmediyse VE tunel artik kapaliysa, istek tunel
-    // koptugu icin dustu: SW yeniden baglanmayi bekleyip tekrar
-    // deneyebilir. Hedeften gelen hatalar (500 vb.) basligi gonderdigi
-    // icin bu yola girmez.
+    // If the response head never went out AND the tunnel is now closed,
+    // the request died because the tunnel dropped: the SW can wait for the
+    // reconnect and retry. Errors from the target (500 and friends) sent a
+    // head, so they never take this path.
     const retryable = !headSent && !tunnel.isOpen;
     send({ type: "error", message, retryable });
     port.close();

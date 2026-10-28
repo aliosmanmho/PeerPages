@@ -14,25 +14,26 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/ice"
 )
 
-// DefaultTURNTimeout tek bir TURN allocation denemesi icin.
+// DefaultTURNTimeout bounds a single TURN allocation attempt.
 const DefaultTURNTimeout = 10 * time.Second
 
-// TURNServerReport bir TURN sunucusunun sonucu.
+// TURNServerReport is a TURN server's result.
 type TURNServerReport struct {
 	URL string `json:"url"`
 	OK  bool   `json:"ok"`
-	// RelayedAddr sunucunun bize verdigi relay adresi; asil kanit bu.
+	// RelayedAddr is the relay address the server gave us; that is the
+	// real proof.
 	RelayedAddr string  `json:"relayed_addr,omitempty"`
 	MS          float64 `json:"ms"`
 	Err         string  `json:"err,omitempty"`
 }
 
-// TURNReport TURN kontrolunun sonucu.
+// TURNReport is the result of the TURN check.
 type TURNReport struct {
 	Servers []TURNServerReport `json:"servers"`
 }
 
-// Usable en az bir TURN sunucusu allocation verdi mi.
+// Usable says whether at least one TURN server granted an allocation.
 func (r TURNReport) Usable() bool {
 	for _, s := range r.Servers {
 		if s.OK {
@@ -42,12 +43,12 @@ func (r TURNReport) Usable() bool {
 	return false
 }
 
-// CheckTURN her TURN sunucusundan ALLOCATION ISTER.
+// CheckTURN ASKS every TURN server FOR AN ALLOCATION.
 //
-// "Sunucu ayakta mi" degil "bana relay adresi veriyor mu" sorusunu
-// cevapliyoruz: yanlis kimlik bilgisi, dolu kota ya da yalnizca TCP dinleyen
-// bir sunucu ayakta gorunup allocation vermez, ve o zaman TURN hic ise
-// yaramaz.
+// The question we answer is not "is the server up" but "does it give me a
+// relay address": with wrong credentials, a full quota, or a server
+// listening on TCP only, it looks up yet grants no allocation — and then
+// TURN is of no use at all.
 func CheckTURN(ctx context.Context, cfg ice.Config, opts Options) TURNReport {
 	opts = opts.withDefaults()
 
@@ -71,13 +72,13 @@ func checkTURNServer(
 		return out
 	}
 
-	// turns: (TLS) burada denenmiyor: pion/turn istemcisi TLS icin ayri bir
-	// baglanti kurmayi gerektiriyor ve bu kontrolun amaci sunucunun
-	// allocation verip vermedigi. Durust olalim: TLS'i atlayip UDP'yi
-	// deniyoruz ve bunu rapora yaziyoruz.
+	// turns: (TLS) is not attempted here: the pion/turn client needs a
+	// separate connection for TLS, and the point of this check is whether
+	// the server grants an allocation. Let us be honest: we skip TLS, try
+	// UDP, and write that down in the report.
 	conn, err := net.ListenPacket("udp4", "0.0.0.0:0")
 	if err != nil {
-		out.Err = fmt.Sprintf("yerel UDP soketi acilamadi: %v", err)
+		out.Err = fmt.Sprintf("the local UDP socket could not be opened: %v", err)
 		out.MS = msSince(started)
 		return out
 	}
@@ -93,20 +94,20 @@ func checkTURNServer(
 		LoggerFactory:  &logging.DefaultLoggerFactory{Writer: io.Discard},
 	})
 	if err != nil {
-		out.Err = fmt.Sprintf("istemci kurulamadi: %v", err)
+		out.Err = fmt.Sprintf("the client could not be built: %v", err)
 		out.MS = msSince(started)
 		return out
 	}
 	defer client.Close()
 
 	if err := client.Listen(); err != nil {
-		out.Err = fmt.Sprintf("dinleme baslatilamadi: %v", err)
+		out.Err = fmt.Sprintf("listening could not be started: %v", err)
 		out.MS = msSince(started)
 		return out
 	}
 
-	// Allocation denemesini sureyle sinirla: ulasilamayan bir TURN
-	// sunucusunda istemci yeniden denemeye devam eder.
+	// Bound the allocation attempt: against an unreachable TURN server
+	// the client keeps retrying.
 	type result struct {
 		addr net.Addr
 		err  error
@@ -130,7 +131,7 @@ func checkTURNServer(
 	case r := <-done:
 		out.MS = msSince(started)
 		if r.err != nil {
-			out.Err = fmt.Sprintf("allocation alinamadi: %v", r.err)
+			out.Err = fmt.Sprintf("no allocation was granted: %v", r.err)
 			return out
 		}
 		out.OK = true
@@ -140,7 +141,7 @@ func checkTURNServer(
 		return out
 	case <-timer.C:
 		out.MS = msSince(started)
-		out.Err = fmt.Sprintf("allocation %s icinde alinamadi", timeout)
+		out.Err = fmt.Sprintf("no allocation was granted within %s", timeout)
 		return out
 	case <-ctx.Done():
 		out.MS = msSince(started)
@@ -149,10 +150,10 @@ func checkTURNServer(
 	}
 }
 
-// turnHostPort `turn:host:port` bicimini host:port'a cevirir.
+// turnHostPort turns the `turn:host:port` form into host:port.
 //
-// ice.ParseServerURL zaten normalize ediyor (port ekliyor, kimlik bilgisi
-// reddediyor); burada yalnizca semayi ve query'yi kirpiyoruz.
+// ice.ParseServerURL already normalizes it (adds the port, refuses
+// credentials); here we only trim the scheme and the query.
 func turnHostPort(raw string) (string, error) {
 	normalized, err := ice.ParseServerURL(raw)
 	if err != nil {
@@ -164,11 +165,11 @@ func turnHostPort(raw string) (string, error) {
 	}
 	i := strings.Index(s, ":")
 	if i < 0 {
-		return "", fmt.Errorf("TURN adresi okunamadi: %q", raw)
+		return "", fmt.Errorf("the TURN address could not be read: %q", raw)
 	}
 	hostPort := s[i+1:]
 	if _, _, err := net.SplitHostPort(hostPort); err != nil {
-		return "", fmt.Errorf("TURN adresi host:port olmali: %q", raw)
+		return "", fmt.Errorf("a TURN address must be host:port: %q", raw)
 	}
 	return hostPort, nil
 }

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "PeerPages data channel protokolunun paylasilan test vektorleri. Hem web/src/protocol (TS) hem agent/internal/protocol (Go) BU dosyayi okur. Framing: [4B id BE][4B seq BE][payload]. Ayrintilar: protocol/README.md",
+  "note": "The shared test vectors of the PeerPages data channel protocol. Both web/src/protocol (TS) and agent/internal/protocol (Go) read THIS file. The framing: [4B id BE][4B seq BE][payload]. Details: protocol/README.md",
   "framing": {
     "headerBytes": 8,
     "maxPayload": 16384,
@@ -26,42 +26,42 @@
   "frames": {
     "valid": [
       {
-        "name": "sifir-id-sifir-seq-bos-payload",
+        "name": "zero-id-zero-seq-empty-payload",
         "id": 0,
         "seq": 0,
         "payloadHex": "",
         "frameHex": "0000000000000000"
       },
       {
-        "name": "basit-hello",
+        "name": "simple-hello",
         "id": 17,
         "seq": 3,
         "payloadHex": "68656c6c6f",
         "frameHex": "000000110000000368656c6c6f"
       },
       {
-        "name": "uint32-ust-sinir",
+        "name": "uint32-upper-bound",
         "id": 4294967295,
         "seq": 4294967295,
         "payloadHex": "78",
         "frameHex": "ffffffffffffffff78"
       },
       {
-        "name": "utf8-coklu-bayt",
+        "name": "utf8-multi-byte",
         "id": 258,
         "seq": 1,
         "payloadHex": "c3a7c49fc3bc",
         "frameHex": "0000010200000001c3a7c49fc3bc"
       },
       {
-        "name": "ikili-veri-null-ve-ff",
+        "name": "binary-data-null-and-ff",
         "id": 2,
         "seq": 0,
         "payloadHex": "0001ff7f",
         "frameHex": "00000002000000000001ff7f"
       },
       {
-        "name": "tek-null-bayt",
+        "name": "single-null-byte",
         "id": 1,
         "seq": 0,
         "payloadHex": "00",
@@ -70,7 +70,7 @@
     ],
     "generated": [
       {
-        "name": "tam-16384-bayt-payload",
+        "name": "exactly-16384-byte-payload",
         "id": 7,
         "seq": 65535,
         "pattern": {
@@ -80,7 +80,7 @@
         }
       },
       {
-        "name": "sinir-eksi-bir-16383-bayt",
+        "name": "limit-minus-one-16383-bytes",
         "id": 8,
         "seq": 0,
         "pattern": {
@@ -100,7 +100,7 @@
     ],
     "encodeInvalid": [
       {
-        "name": "payload-sinirin-bir-bayt-uzerinde",
+        "name": "payload-one-byte-over-the-limit",
         "id": 1,
         "seq": 0,
         "pattern": {
@@ -111,7 +111,7 @@
         "error": "payload-too-large"
       },
       {
-        "name": "payload-cok-buyuk",
+        "name": "payload-too-large",
         "id": 1,
         "seq": 0,
         "pattern": {
@@ -124,28 +124,28 @@
     ],
     "decodeInvalid": [
       {
-        "name": "bos-cerceve",
+        "name": "empty-frame",
         "frame": {
           "hex": ""
         },
         "error": "short-frame"
       },
       {
-        "name": "yedi-bayt-baslik",
+        "name": "seven-byte-header",
         "frame": {
           "hex": "00000001000000"
         },
         "error": "short-frame"
       },
       {
-        "name": "tek-bayt",
+        "name": "single-byte",
         "frame": {
           "hex": "ff"
         },
         "error": "short-frame"
       },
       {
-        "name": "payload-16385-bayt",
+        "name": "payload-16385-bytes",
         "frame": {
           "id": 3,
           "seq": 4,
@@ -162,22 +162,22 @@
   "ctrl": {
     "valid": [
       {
-        "name": "req-get-sorgulu",
+        "name": "req-get-with-query",
         "text": "{\"t\":\"req\",\"id\":17,\"method\":\"GET\",\"path\":\"/api/items?x=1\",\"headers\":{\"accept\":\"application/json\",\"accept-encoding\":\"identity\"},\"hasBody\":false}",
         "canonical": "{\"t\":\"req\",\"id\":17,\"method\":\"GET\",\"path\":\"/api/items?x=1\",\"headers\":{\"accept\":\"application/json\",\"accept-encoding\":\"identity\"},\"hasBody\":false}"
       },
       {
-        "name": "req-get-basliksiz",
+        "name": "req-get-no-headers",
         "text": "{\"t\":\"req\",\"id\":0,\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
         "canonical": "{\"t\":\"req\",\"id\":0,\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}"
       },
       {
-        "name": "req-post-govdeli",
+        "name": "req-post-with-body",
         "text": "{\"t\":\"req\",\"id\":4294967295,\"method\":\"POST\",\"path\":\"/api/items\",\"headers\":{\"content-type\":\"application/json\"},\"hasBody\":true}",
         "canonical": "{\"t\":\"req\",\"id\":4294967295,\"method\":\"POST\",\"path\":\"/api/items\",\"headers\":{\"content-type\":\"application/json\"},\"hasBody\":true}"
       },
       {
-        "name": "req-basliklar-siralanir",
+        "name": "req-headers-sorted",
         "text": "{\"t\":\"req\",\"id\":2,\"method\":\"GET\",\"path\":\"/a\",\"headers\":{\"a-ilk\":\"1\",\"m-orta\":\"2\",\"z-son\":\"3\"},\"hasBody\":false}",
         "canonical": "{\"t\":\"req\",\"id\":2,\"method\":\"GET\",\"path\":\"/a\",\"headers\":{\"a-ilk\":\"1\",\"m-orta\":\"2\",\"z-son\":\"3\"},\"hasBody\":false}"
       },
@@ -187,32 +187,32 @@
         "canonical": "{\"t\":\"res\",\"id\":17,\"status\":200,\"headers\":{\"content-type\":\"text/html\"}}"
       },
       {
-        "name": "res-304-basliksiz",
+        "name": "res-304-no-headers",
         "text": "{\"t\":\"res\",\"id\":1,\"status\":304,\"headers\":{}}",
         "canonical": "{\"t\":\"res\",\"id\":1,\"status\":304,\"headers\":{}}"
       },
       {
-        "name": "res-100-alt-sinir",
+        "name": "res-100-lower-bound",
         "text": "{\"t\":\"res\",\"id\":2,\"status\":100,\"headers\":{}}",
         "canonical": "{\"t\":\"res\",\"id\":2,\"status\":100,\"headers\":{}}"
       },
       {
-        "name": "res-599-ust-sinir",
+        "name": "res-599-upper-bound",
         "text": "{\"t\":\"res\",\"id\":3,\"status\":599,\"headers\":{}}",
         "canonical": "{\"t\":\"res\",\"id\":3,\"status\":599,\"headers\":{}}"
       },
       {
-        "name": "end-bos-govde",
+        "name": "end-empty-body",
         "text": "{\"t\":\"end\",\"id\":17,\"frames\":0,\"len\":0}",
         "canonical": "{\"t\":\"end\",\"id\":17,\"frames\":0,\"len\":0}"
       },
       {
-        "name": "end-tek-cerceve",
+        "name": "end-single-frame",
         "text": "{\"t\":\"end\",\"id\":1,\"frames\":1,\"len\":5}",
         "canonical": "{\"t\":\"end\",\"id\":1,\"frames\":1,\"len\":5}"
       },
       {
-        "name": "end-coklu-cerceve",
+        "name": "end-several-frames",
         "text": "{\"t\":\"end\",\"id\":2,\"frames\":6,\"len\":90000}",
         "canonical": "{\"t\":\"end\",\"id\":2,\"frames\":6,\"len\":90000}"
       },
@@ -232,69 +232,69 @@
         "canonical": "{\"t\":\"pong\"}"
       },
       {
-        "name": "hello-tek-hedef",
+        "name": "hello-single-target",
         "text": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\"],\"auth\":\"none\"}",
         "canonical": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\"],\"auth\":\"none\"}"
       },
       {
-        "name": "hello-coklu-hedef-auth",
+        "name": "hello-several-targets-auth",
         "text": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\",\"admin\"],\"auth\":\"required\"}",
         "canonical": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\",\"admin\"],\"auth\":\"required\"}"
       },
       {
-        "name": "ws-open-protosuz",
+        "name": "ws-open-no-proto",
         "text": "{\"t\":\"ws-open\",\"id\":5,\"path\":\"/socket\",\"protos\":[]}",
         "canonical": "{\"t\":\"ws-open\",\"id\":5,\"path\":\"/socket\",\"protos\":[]}"
       },
       {
-        "name": "ws-open-protolu-sorgulu",
+        "name": "ws-open-with-proto-and-query",
         "text": "{\"t\":\"ws-open\",\"id\":4294967295,\"path\":\"/?token=abc\",\"protos\":[\"vite-hmr\",\"json\"]}",
         "canonical": "{\"t\":\"ws-open\",\"id\":4294967295,\"path\":\"/?token=abc\",\"protos\":[\"vite-hmr\",\"json\"]}"
       },
       {
-        "name": "ws-ok-protosuz",
+        "name": "ws-ok-no-proto",
         "text": "{\"t\":\"ws-ok\",\"id\":5,\"proto\":\"\"}",
         "canonical": "{\"t\":\"ws-ok\",\"id\":5,\"proto\":\"\"}"
       },
       {
-        "name": "ws-ok-protolu",
+        "name": "ws-ok-with-proto",
         "text": "{\"t\":\"ws-ok\",\"id\":6,\"proto\":\"vite-hmr\"}",
         "canonical": "{\"t\":\"ws-ok\",\"id\":6,\"proto\":\"vite-hmr\"}"
       },
       {
-        "name": "ws-close-normal-sebepsiz",
+        "name": "ws-close-normal-no-reason",
         "text": "{\"t\":\"ws-close\",\"id\":5,\"code\":1000,\"reason\":\"\"}",
         "canonical": "{\"t\":\"ws-close\",\"id\":5,\"code\":1000,\"reason\":\"\"}"
       },
       {
-        "name": "ws-close-sebepli",
-        "text": "{\"t\":\"ws-close\",\"id\":7,\"code\":1009,\"reason\":\"mesaj cok buyuk\"}",
-        "canonical": "{\"t\":\"ws-close\",\"id\":7,\"code\":1009,\"reason\":\"mesaj cok buyuk\"}"
+        "name": "ws-close-with-reason",
+        "text": "{\"t\":\"ws-close\",\"id\":7,\"code\":1009,\"reason\":\"the message is too large\"}",
+        "canonical": "{\"t\":\"ws-close\",\"id\":7,\"code\":1009,\"reason\":\"the message is too large\"}"
       },
       {
-        "name": "ws-close-uygulama-kodu",
+        "name": "ws-close-application-code",
         "text": "{\"t\":\"ws-close\",\"id\":8,\"code\":4999,\"reason\":\"uygulamaya ait\"}",
         "canonical": "{\"t\":\"ws-close\",\"id\":8,\"code\":4999,\"reason\":\"uygulamaya ait\"}"
       }
     ],
     "invalid": [
       {
-        "name": "bos-metin",
+        "name": "empty-text",
         "text": "",
         "error": "bad-json"
       },
       {
-        "name": "bozuk-json",
+        "name": "malformed-json",
         "text": "{\"t\":\"ping\"",
         "error": "bad-json"
       },
       {
-        "name": "json-dizi",
+        "name": "json-array",
         "text": "[\"ping\"]",
         "error": "bad-json"
       },
       {
-        "name": "json-sayi",
+        "name": "json-number",
         "text": "42",
         "error": "bad-json"
       },
@@ -304,102 +304,102 @@
         "error": "bad-json"
       },
       {
-        "name": "t-yok",
+        "name": "t-missing",
         "text": "{\"id\":1}",
         "error": "missing-field"
       },
       {
-        "name": "t-bos",
+        "name": "t-empty",
         "text": "{\"t\":\"\"}",
         "error": "unknown-type"
       },
       {
-        "name": "t-bilinmeyen",
+        "name": "t-unknown",
         "text": "{\"t\":\"zipzip\",\"id\":1}",
         "error": "unknown-type"
       },
       {
-        "name": "t-sayi",
+        "name": "t-number",
         "text": "{\"t\":7}",
         "error": "bad-field"
       },
       {
-        "name": "req-id-yok",
+        "name": "req-id-missing",
         "text": "{\"t\":\"req\",\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
         "error": "missing-field"
       },
       {
-        "name": "req-id-negatif",
+        "name": "req-id-negative",
         "text": "{\"t\":\"req\",\"id\":-1,\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
         "error": "bad-field"
       },
       {
-        "name": "req-id-uint32-ustu",
+        "name": "req-id-above-uint32",
         "text": "{\"t\":\"req\",\"id\":4294967296,\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
         "error": "bad-field"
       },
       {
-        "name": "req-id-ondalik",
+        "name": "req-id-fractional",
         "text": "{\"t\":\"req\",\"id\":1.5,\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
         "error": "bad-field"
       },
       {
-        "name": "req-method-yok",
+        "name": "req-method-missing",
         "text": "{\"t\":\"req\",\"id\":1,\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
         "error": "missing-field"
       },
       {
-        "name": "req-method-bos",
+        "name": "req-method-empty",
         "text": "{\"t\":\"req\",\"id\":1,\"method\":\"\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
         "error": "bad-field"
       },
       {
-        "name": "req-method-kucuk-harf",
+        "name": "req-method-lowercase",
         "text": "{\"t\":\"req\",\"id\":1,\"method\":\"get\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
         "error": "bad-field"
       },
       {
-        "name": "req-method-bosluklu",
+        "name": "req-method-with-space",
         "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET POST\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
         "error": "bad-field"
       },
       {
-        "name": "req-path-yok",
+        "name": "req-path-missing",
         "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"headers\":{},\"hasBody\":false}",
         "error": "missing-field"
       },
       {
-        "name": "req-path-goreli",
+        "name": "req-path-relative",
         "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"path\":\"api/items\",\"headers\":{},\"hasBody\":false}",
         "error": "bad-field"
       },
       {
-        "name": "req-path-mutlak-url",
+        "name": "req-path-absolute-url",
         "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"path\":\"http://evil.example/\",\"headers\":{},\"hasBody\":false}",
         "error": "bad-field"
       },
       {
-        "name": "req-path-protokol-goreli",
+        "name": "req-path-protocol-relative",
         "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"path\":\"//evil.example/x\",\"headers\":{},\"hasBody\":false}",
         "error": "bad-field"
       },
       {
-        "name": "req-header-degeri-sayi",
+        "name": "req-header-value-number",
         "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"path\":\"/\",\"headers\":{\"a\":1},\"hasBody\":false}",
         "error": "bad-field"
       },
       {
-        "name": "req-headers-dizi",
+        "name": "req-headers-array",
         "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"path\":\"/\",\"headers\":[],\"hasBody\":false}",
         "error": "bad-field"
       },
       {
-        "name": "req-hasbody-metin",
+        "name": "req-hasbody-text",
         "text": "{\"t\":\"req\",\"id\":1,\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":\"evet\"}",
         "error": "bad-field"
       },
       {
-        "name": "res-status-yok",
+        "name": "res-status-missing",
         "text": "{\"t\":\"res\",\"id\":1,\"headers\":{}}",
         "error": "missing-field"
       },
@@ -414,187 +414,187 @@
         "error": "bad-field"
       },
       {
-        "name": "res-status-metin",
+        "name": "res-status-text",
         "text": "{\"t\":\"res\",\"id\":1,\"status\":\"200\",\"headers\":{}}",
         "error": "bad-field"
       },
       {
-        "name": "end-id-yok",
+        "name": "end-id-missing",
         "text": "{\"t\":\"end\",\"frames\":0,\"len\":0}",
         "error": "missing-field"
       },
       {
-        "name": "end-frames-yok",
+        "name": "end-frames-missing",
         "text": "{\"t\":\"end\",\"id\":1,\"len\":0}",
         "error": "missing-field"
       },
       {
-        "name": "end-len-yok",
+        "name": "end-len-missing",
         "text": "{\"t\":\"end\",\"id\":1,\"frames\":0}",
         "error": "missing-field"
       },
       {
-        "name": "end-frames-negatif",
+        "name": "end-frames-negative",
         "text": "{\"t\":\"end\",\"id\":1,\"frames\":-1,\"len\":0}",
         "error": "bad-field"
       },
       {
-        "name": "end-len-negatif",
+        "name": "end-len-negative",
         "text": "{\"t\":\"end\",\"id\":1,\"frames\":1,\"len\":-5}",
         "error": "bad-field"
       },
       {
-        "name": "end-len-metin",
+        "name": "end-len-text",
         "text": "{\"t\":\"end\",\"id\":1,\"frames\":1,\"len\":\"5\"}",
         "error": "bad-field"
       },
       {
-        "name": "end-frames-ondalik",
+        "name": "end-frames-fractional",
         "text": "{\"t\":\"end\",\"id\":1,\"frames\":1.5,\"len\":5}",
         "error": "bad-field"
       },
       {
-        "name": "end-cerceve-var-ama-len-sifir",
+        "name": "end-frames-set-but-len-zero",
         "text": "{\"t\":\"end\",\"id\":1,\"frames\":2,\"len\":0}",
         "error": "bad-field"
       },
       {
-        "name": "end-len-var-ama-cerceve-sifir",
+        "name": "end-len-set-but-frames-zero",
         "text": "{\"t\":\"end\",\"id\":1,\"frames\":0,\"len\":10}",
         "error": "bad-field"
       },
       {
-        "name": "abort-reason-yok",
+        "name": "abort-reason-missing",
         "text": "{\"t\":\"abort\",\"id\":1}",
         "error": "missing-field"
       },
       {
-        "name": "abort-reason-bos",
+        "name": "abort-reason-empty",
         "text": "{\"t\":\"abort\",\"id\":1,\"reason\":\"\"}",
         "error": "bad-field"
       },
       {
-        "name": "hello-v-yok",
+        "name": "hello-v-missing",
         "text": "{\"t\":\"hello\",\"targets\":[\"default\"],\"auth\":\"none\"}",
         "error": "missing-field"
       },
       {
-        "name": "hello-v-yanlis",
+        "name": "hello-v-wrong",
         "text": "{\"t\":\"hello\",\"v\":2,\"targets\":[\"default\"],\"auth\":\"none\"}",
         "error": "bad-field"
       },
       {
-        "name": "hello-targets-yok",
+        "name": "hello-targets-missing",
         "text": "{\"t\":\"hello\",\"v\":1,\"auth\":\"none\"}",
         "error": "missing-field"
       },
       {
-        "name": "hello-targets-bos",
+        "name": "hello-targets-empty",
         "text": "{\"t\":\"hello\",\"v\":1,\"targets\":[],\"auth\":\"none\"}",
         "error": "bad-field"
       },
       {
-        "name": "hello-targets-sayi",
+        "name": "hello-targets-number",
         "text": "{\"t\":\"hello\",\"v\":1,\"targets\":[1],\"auth\":\"none\"}",
         "error": "bad-field"
       },
       {
-        "name": "hello-auth-yok",
+        "name": "hello-auth-missing",
         "text": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\"]}",
         "error": "missing-field"
       },
       {
-        "name": "hello-auth-gecersiz",
+        "name": "hello-auth-invalid",
         "text": "{\"t\":\"hello\",\"v\":1,\"targets\":[\"default\"],\"auth\":\"belki\"}",
         "error": "bad-field"
       },
       {
-        "name": "req-id-metin",
+        "name": "req-id-text",
         "text": "{\"t\":\"req\",\"id\":\"1\",\"method\":\"GET\",\"path\":\"/\",\"headers\":{},\"hasBody\":false}",
         "error": "bad-field"
       },
       {
-        "name": "hello-v-metin",
+        "name": "hello-v-text",
         "text": "{\"t\":\"hello\",\"v\":\"1\",\"targets\":[\"default\"],\"auth\":\"none\"}",
         "error": "bad-field"
       },
       {
-        "name": "ws-open-protos-yok",
+        "name": "ws-open-protos-missing",
         "text": "{\"t\":\"ws-open\",\"id\":1,\"path\":\"/\"}",
         "error": "missing-field"
       },
       {
-        "name": "ws-open-path-yok",
+        "name": "ws-open-path-missing",
         "text": "{\"t\":\"ws-open\",\"id\":1,\"protos\":[]}",
         "error": "missing-field"
       },
       {
-        "name": "ws-open-protos-dizi-degil",
+        "name": "ws-open-protos-not-an-array",
         "text": "{\"t\":\"ws-open\",\"id\":1,\"path\":\"/\",\"protos\":\"json\"}",
         "error": "bad-field"
       },
       {
-        "name": "ws-open-protos-bos-eleman",
+        "name": "ws-open-protos-empty-item",
         "text": "{\"t\":\"ws-open\",\"id\":1,\"path\":\"/\",\"protos\":[\"\"]}",
         "error": "bad-field"
       },
       {
-        "name": "ws-open-protos-bosluklu",
+        "name": "ws-open-protos-with-space",
         "text": "{\"t\":\"ws-open\",\"id\":1,\"path\":\"/\",\"protos\":[\"a b\"]}",
         "error": "bad-field"
       },
       {
-        "name": "ws-open-path-goreli",
+        "name": "ws-open-path-relative",
         "text": "{\"t\":\"ws-open\",\"id\":1,\"path\":\"socket\",\"protos\":[]}",
         "error": "bad-field"
       },
       {
-        "name": "ws-open-path-protokol-goreli",
+        "name": "ws-open-path-protocol-relative",
         "text": "{\"t\":\"ws-open\",\"id\":1,\"path\":\"//evil.example\",\"protos\":[]}",
         "error": "bad-field"
       },
       {
-        "name": "ws-ok-proto-yok",
+        "name": "ws-ok-proto-missing",
         "text": "{\"t\":\"ws-ok\",\"id\":1}",
         "error": "missing-field"
       },
       {
-        "name": "ws-ok-proto-gecersiz-token",
+        "name": "ws-ok-proto-invalid-token",
         "text": "{\"t\":\"ws-ok\",\"id\":1,\"proto\":\"a b\"}",
         "error": "bad-field"
       },
       {
-        "name": "ws-close-code-yok",
+        "name": "ws-close-code-missing",
         "text": "{\"t\":\"ws-close\",\"id\":1,\"reason\":\"\"}",
         "error": "missing-field"
       },
       {
-        "name": "ws-close-reason-yok",
+        "name": "ws-close-reason-missing",
         "text": "{\"t\":\"ws-close\",\"id\":1,\"code\":1000}",
         "error": "missing-field"
       },
       {
-        "name": "ws-close-code-kucuk",
+        "name": "ws-close-code-too-small",
         "text": "{\"t\":\"ws-close\",\"id\":1,\"code\":999,\"reason\":\"\"}",
         "error": "bad-field"
       },
       {
-        "name": "ws-close-code-buyuk",
+        "name": "ws-close-code-too-large",
         "text": "{\"t\":\"ws-close\",\"id\":1,\"code\":5000,\"reason\":\"\"}",
         "error": "bad-field"
       },
       {
-        "name": "ws-close-code-metin",
+        "name": "ws-close-code-text",
         "text": "{\"t\":\"ws-close\",\"id\":1,\"code\":\"1000\",\"reason\":\"\"}",
         "error": "bad-field"
       },
       {
-        "name": "ws-close-reason-uzun",
+        "name": "ws-close-reason-long",
         "text": "{\"t\":\"ws-close\",\"id\":1,\"code\":1000,\"reason\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
         "error": "bad-field"
       },
       {
-        "name": "ws-bilinmeyen-tip",
+        "name": "ws-unknown-type",
         "text": "{\"t\":\"ws-frame\",\"id\":1}",
         "error": "unknown-type"
       }
@@ -607,42 +607,42 @@
     },
     "valid": [
       {
-        "name": "metin-tek-parca",
+        "name": "text-single-chunk",
         "binary": false,
         "fin": true,
         "payloadHex": "68656c6c6f",
         "outHex": "0268656c6c6f"
       },
       {
-        "name": "metin-ara-parca",
+        "name": "text-middle-chunk",
         "binary": false,
         "fin": false,
         "payloadHex": "6162",
         "outHex": "006162"
       },
       {
-        "name": "ikili-tek-parca",
+        "name": "binary-single-chunk",
         "binary": true,
         "fin": true,
         "payloadHex": "00ff10",
         "outHex": "0300ff10"
       },
       {
-        "name": "ikili-ara-parca",
+        "name": "binary-middle-chunk",
         "binary": true,
         "fin": false,
         "payloadHex": "deadbeef",
         "outHex": "01deadbeef"
       },
       {
-        "name": "bos-metin-mesaji",
+        "name": "empty-text-message",
         "binary": false,
         "fin": true,
         "payloadHex": "",
         "outHex": "02"
       },
       {
-        "name": "bos-ikili-mesaji",
+        "name": "empty-binary-message",
         "binary": true,
         "fin": true,
         "payloadHex": "",
@@ -651,22 +651,22 @@
     ],
     "decodeInvalid": [
       {
-        "name": "bos-payload",
+        "name": "empty-payload",
         "hex": "",
         "error": "ws-empty-frame"
       },
       {
-        "name": "tanimsiz-bit-0x04",
+        "name": "undefined-bit-0x04",
         "hex": "04",
         "error": "ws-bad-flags"
       },
       {
-        "name": "tanimsiz-bit-0x80",
+        "name": "undefined-bit-0x80",
         "hex": "8268",
         "error": "ws-bad-flags"
       },
       {
-        "name": "tum-bitler",
+        "name": "all-bits",
         "hex": "ff",
         "error": "ws-bad-flags"
       }

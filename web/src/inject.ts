@@ -1,31 +1,33 @@
 /**
- * HTML akisina `<script>` sokan donustürücu (Faz 6).
+ * The transform that injects a `<script>` into an HTML stream (phase 6).
  *
- * Ajan `--inject-ws-shim` ile calisirken HTML cevaplarina
- * `x-peerpages-ws-shim: 1` basligini ekler; govdeye DOKUNMAZ. Enjeksiyonu
- * Service Worker yapar, cunku scope onekini (`/PeerPages/`) bilen taraf o ve
- * boylece `internal/proxy` bayt bayt gecirgen kalir (BRIEF §8).
+ * With `--inject-ws-shim` the agent adds an `x-peerpages-ws-shim: 1`
+ * header to HTML responses; it does NOT touch the body. The Service Worker
+ * does the injection, because it is the side that knows the scope prefix
+ * (`/PeerPages/`), which keeps `internal/proxy` byte-for-byte transparent
+ * (BRIEF section 8).
  *
- * Cozmesi gereken uc sey:
- *  1. `<head>` etiketi iki cerceveye bolunmus olabilir → sinirli tampon,
- *  2. `<head>` olmayabilir → `<body>`'den once, o da yoksa en basa,
- *  3. kodlama bilinmiyor → yalnizca ASCII bayt yaziyoruz, bu her
- *     ASCII-ustu kodlamada (UTF-8, latin-1, windows-1254) gecerli.
+ * Three things it has to handle:
+ *  1. the `<head>` tag may be split across two frames -> a bounded buffer,
+ *  2. there may be no `<head>` -> before `<body>`, or at the very start,
+ *  3. the encoding is unknown -> we only write ASCII bytes, which holds in
+ *     every ASCII-superset encoding (UTF-8, latin-1, windows-1254).
  */
 
 /**
- * Enjeksiyon noktasi aranirken tamponlanacak en fazla bayt.
+ * Most bytes to buffer while looking for the injection point.
  *
- * Ust sinir ZORUNLU: `<head>` hic gelmezse akis bu tamponda beklerdi ve
- * sayfa yuklenmiyor gibi gorunurdu. Sinir dolunca script en basa yazilir.
+ * The cap is MANDATORY: if `<head>` never arrives the stream would sit in
+ * this buffer and the page would look like it never loads. Once the cap is
+ * reached the script is written at the very start.
  */
 export const INJECT_SCAN_LIMIT = 8 * 1024;
 
-/** Enjeksiyon noktasini arayan durum makinesi. */
+/** The state machine that looks for the injection point. */
 export interface InjectPlan {
-  /** Script'in girecegi bayt indeksi. */
+  /** Byte index the script goes at. */
   readonly offset: number;
-  /** Karar kesinlesti mi (daha fazla bayt beklemeye gerek yok). */
+  /** Whether the decision is final (no need to wait for more bytes). */
   readonly decided: boolean;
 }
 
@@ -33,15 +35,14 @@ const HEAD_OPEN = "<head";
 const BODY_OPEN = "<body";
 
 /**
- * Tamponun basindan enjeksiyon noktasini bulur.
+ * Finds the injection point from the start of the buffer.
  *
- * `<head ...>` bulunursa onun KAPANIS acisindan hemen sonrasi; yoksa
- * `<body`'nin basi; ikisi de yoksa karar verilemez (daha fazla bayt gerekir)
- * ya da sinir dolduysa 0.
+ * If `<head ...>` is found, right after its CLOSING angle bracket;
+ * otherwise the start of `<body`; with neither, undecided (more bytes
+ * needed), or 0 once the cap is reached.
  *
- * ASCII kucuk/buyuk harf duyarsiz; etiket adi disinda hicbir ayristirma
- * yapilmiyor (HTML ayristiricisi yazmak bu isin gerektirdiginden cok daha
- * fazlasi olurdu).
+ * ASCII case-insensitive; nothing beyond the tag name is parsed (writing
+ * an HTML parser would be far more than this job needs).
  */
 export function planInjection(text: string, atEnd: boolean): InjectPlan {
   const lower = text.toLowerCase();
@@ -50,35 +51,37 @@ export function planInjection(text: string, atEnd: boolean): InjectPlan {
   if (head >= 0) {
     const close = lower.indexOf(">", head);
     if (close >= 0) return { offset: close + 1, decided: true };
-    // `<head` var ama `>` henuz gelmemis: bekle.
+    // `<head` is there but `>` has not arrived yet: wait.
     return { offset: 0, decided: false };
   }
 
   const body = lower.indexOf(BODY_OPEN);
   if (body >= 0) {
-    // `<head` yok ama `<body` var: script'i body'den once koy.
+    // No `<head` but there is a `<body`: put the script before body.
     return { offset: body, decided: true };
   }
 
   if (atEnd || text.length >= INJECT_SCAN_LIMIT) {
-    // Ne head ne body: en basa koy. Bozuk ya da parcali HTML'de de calisir.
+    // Neither head nor body: put it at the start. Works on broken or
+    // partial HTML too.
     return { offset: 0, decided: true };
   }
   return { offset: 0, decided: false };
 }
 
 /**
- * HTML akisina verilen script etiketini sokan `TransformStream` uretir.
+ * Builds a `TransformStream` that injects the given script tag into an
+ * HTML stream.
  *
- * `src` zaten mutlak ya da scope'a goreli bir yol olmali; burada
- * degistirilmez.
+ * `src` must already be absolute or relative to the scope; it is not
+ * rewritten here.
  */
 export function injectScriptStream(
   src: string,
 ): TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>> {
   const tag: Uint8Array<ArrayBuffer> = new TextEncoder().encode(
-    // `<head>`'den hemen sonra ve ERTELENMEDEN: sayfanin kendi
-    // script'lerinden once kosmali, yoksa WebSocket'i onlar once alir.
+    // Right after `<head>` and NOT deferred: it has to run before the
+    // page's own scripts, or they grab WebSocket first.
     `<script src="${src}"></script>`,
   );
 
@@ -92,15 +95,15 @@ export function injectScriptStream(
   ): void => {
     if (injected) return;
 
-    // Yalnizca ASCII etiket adlari ariyoruz; bozuk cok baytli dizi sonuc
-    // degistirmez.
+    // We only look for ASCII tag names; a broken multi-byte sequence
+    // does not change the outcome.
     const text = decoder.decode(buffer, { stream: !atEnd });
     const plan = planInjection(text, atEnd);
     if (!plan.decided) return;
 
-    // ASCII arama yaptigimiz icin metin indeksi = bayt indeksi DEGIL:
-    // cok baytli karakterler kaydirir. Bu yuzden ayni arama bayt
-    // duzeyinde tekrarlanir.
+    // Because the search is ASCII, the text index is NOT the byte index:
+    // multi-byte characters shift it. So the same position is recomputed
+    // at the byte level.
     const offset = byteOffsetOf(buffer, plan.offset, text);
     controller.enqueue(buffer.subarray(0, offset));
     controller.enqueue(tag);
@@ -122,7 +125,8 @@ export function injectScriptStream(
       if (injected) return;
       flush(controller, true);
       if (!injected && buffer.byteLength > 0) {
-        // Karar verilemedi (bos ya da cok kisa govde): dokunmadan gecir.
+        // Undecided (empty or very short body): pass it through
+        // untouched.
         controller.enqueue(buffer);
       }
     },
@@ -130,10 +134,10 @@ export function injectScriptStream(
 }
 
 /**
- * Metin indeksini bayt indeksine cevirir.
+ * Converts a text index to a byte index.
  *
- * ASCII govdelerde ikisi aynidir; cok baytli karakter varsa metnin o
- * noktaya kadarki UTF-8 uzunlugu kullanilir.
+ * In ASCII bodies the two are the same; with multi-byte characters the
+ * UTF-8 length of the text up to that point is used.
  */
 function byteOffsetOf(buffer: Uint8Array, textIndex: number, text: string): number {
   if (textIndex === 0) return 0;

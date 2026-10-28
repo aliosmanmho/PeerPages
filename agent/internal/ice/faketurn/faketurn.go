@@ -1,15 +1,16 @@
-// Package faketurn testler icin surec ici TURN sunucusu saglar.
+// Package faketurn provides an in-process TURN server for tests.
 //
-// Neden gerekli: Faz 5'in kabul kriteri "simetrik NAT'ta TURN ile
-// baglaniyor". Simetrik NAT'i tek makinede taklit edemiyoruz, ama AYNI
-// SONUCU ureten bir durum kurabiliyoruz: ajani yalnizca relay adayi
-// toplamaya zorlayip (ice.Config.RelayOnly) buraya baglamak. O zaman
-// dogrudan yol IMKANSIZ olur, yani tunelin acilmasi trafigin TURN'den
-// gectiginin kanitidir — mobil hotspot denemesinden guclu, cunku orada
-// dogrudan yol da calismis olabilir.
+// Why it is needed: the phase 5 acceptance criterion is "it connects over
+// TURN on symmetric NAT". We cannot imitate symmetric NAT on a single
+// machine, but we can build a situation that produces the SAME RESULT:
+// force the agent to gather relay candidates only
+// (ice.Config.RelayOnly) and point it here. Then the direct path is
+// IMPOSSIBLE, so the tunnel opening is proof that the traffic went over
+// TURN — stronger than a mobile hotspot attempt, where the direct path
+// may have worked as well.
 //
-// internal/nostr/fakerelay ile ayni desen: gercek internete bagimli bir
-// test kirilgan olur.
+// Same pattern as internal/nostr/fakerelay: a test that depends on the
+// real internet is fragile.
 package faketurn
 
 import (
@@ -23,16 +24,16 @@ import (
 	"github.com/pion/turn/v5"
 )
 
-// Realm TURN long-term credential realm'i.
+// Realm is the TURN long-term credential realm.
 const Realm = "peerpages.test"
 
-// Options sahte sunucu ayarlari.
+// Options are the fake server's settings.
 type Options struct {
-	// User, Pass kabul edilen tek kimlik bilgisi.
+	// User and Pass are the only accepted credentials.
 	User, Pass string
 }
 
-// Server surec ici TURN sunucusu.
+// Server is the in-process TURN server.
 type Server struct {
 	srv  *turn.Server
 	conn net.PacketConn
@@ -41,25 +42,26 @@ type Server struct {
 	allocations atomic.Int64
 }
 
-// Start bos bir portta baslatir.
+// Start starts it on a free port.
 func Start(opts Options) (*Server, error) { return StartOn(0, opts) }
 
-// StartOn verilen portta baslatir (0 = bos port sec).
+// StartOn starts it on the given port (0 = pick a free one).
 //
-// Yalnizca 127.0.0.1 dinlenir: bu bir TEST sunucusu, aga acilmamali.
+// Only 127.0.0.1 is listened on: this is a TEST server and must not be
+// exposed to the network.
 func StartOn(port int, opts Options) (*Server, error) {
 	if opts.User == "" || opts.Pass == "" {
-		return nil, errors.New("faketurn: kullanici ve sifre gerekli")
+		return nil, errors.New("faketurn: a user and a password are required")
 	}
 
 	conn, err := net.ListenPacket("udp4", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
-		return nil, fmt.Errorf("faketurn: dinlenemedi: %w", err)
+		return nil, fmt.Errorf("faketurn: could not listen: %w", err)
 	}
 	addr, ok := conn.LocalAddr().(*net.UDPAddr)
 	if !ok {
 		_ = conn.Close()
-		return nil, errors.New("faketurn: dinlenen adres okunamadi")
+		return nil, errors.New("faketurn: the listening address could not be read")
 	}
 
 	s := &Server{conn: conn, addr: addr}
@@ -77,17 +79,18 @@ func StartOn(port int, opts Options) (*Server, error) {
 		PacketConnConfigs: []turn.PacketConnConfig{{
 			PacketConn: conn,
 			RelayAddressGenerator: &turn.RelayAddressGeneratorStatic{
-				// Duyurulan relay adresi makinenin LAN adresi, soket ise
-				// tum arayuzlere bagli.
+				// The advertised relay address is the machine's LAN
+				// address, while the socket is bound to every interface.
 				//
-				// Neden 127.0.0.1 DEGIL: karsi taraf (pion ya da tarayici)
-				// genelde loopback adayi uretmez, LAN adresini kullanir ve
-				// 127.0.0.1'e bagli bir soket oraya paket gonderemez.
-				// Ayrica duyurulan adres, relay'in paket gonderirken
-				// kullandigi kaynak adresle AYNI olmali: aksi halde karsi
-				// taraf gelen kontrolu "peer-reflexive" sayar ve secilen
-				// aday cifti relay GORUNMEZ (gercek bir TURN sunucusunda
-				// bu tutarlilik zaten var).
+				// Why NOT 127.0.0.1: the other side (pion or the browser)
+				// usually does not produce a loopback candidate, it uses
+				// the LAN address, and a socket bound to 127.0.0.1 cannot
+				// send packets there. The advertised address also has to
+				// be the SAME as the source address the relay uses when
+				// it sends packets: otherwise the other side counts the
+				// incoming check as "peer-reflexive" and the selected
+				// candidate pair does NOT LOOK like a relay (on a real
+				// TURN server that consistency is there already).
 				RelayAddress: relayIP,
 				Address:      "0.0.0.0",
 			},
@@ -99,32 +102,32 @@ func StartOn(port int, opts Options) (*Server, error) {
 				s.allocations.Add(1)
 			},
 		},
-		// Testler hizli kosar; sunucu loglari gurultu.
+		// The tests run fast; the server logs are noise.
 		LoggerFactory: &logging.DefaultLoggerFactory{Writer: io.Discard},
 	})
 	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("faketurn: sunucu kurulamadi: %w", err)
+		return nil, fmt.Errorf("faketurn: the server could not be built: %w", err)
 	}
 	s.srv = srv
 	return s, nil
 }
 
-// URL ajana verilecek TURN adresi.
+// URL is the TURN address to hand to the agent.
 func (s *Server) URL() string {
 	return fmt.Sprintf("turn:127.0.0.1:%d", s.addr.Port)
 }
 
-// Port dinlenen port (ayni adreste yeniden baslatmak icin).
+// Port is the port being listened on (to restart on the same address).
 func (s *Server) Port() int { return s.addr.Port }
 
-// Allocations kac allocation verildi.
+// Allocations is how many allocations were granted.
 //
-// Testin asil iddiasi bu: tunel acildi VE bu sayac arttiysa trafik
-// gercekten TURN'den gecti.
+// This is the test's real claim: if the tunnel opened AND this counter
+// went up, the traffic really did go over TURN.
 func (s *Server) Allocations() int64 { return s.allocations.Load() }
 
-// Close sunucuyu kapatir.
+// Close shuts the server down.
 func (s *Server) Close() error {
 	if s.srv == nil {
 		return s.conn.Close()
@@ -132,11 +135,13 @@ func (s *Server) Close() error {
 	return s.srv.Close()
 }
 
-// localIPv4 makinenin varsayilan cikis arayuzundeki IPv4 adresini bulur.
+// localIPv4 finds the IPv4 address on the machine's default outbound
+// interface.
 //
-// Hicbir paket gonderilmiyor: UDP "baglantisi" yalnizca isletim sisteminin
-// hangi arayuzu sececegini sormak icin. Bulunamazsa loopback'e duser
-// (yalnizca loopback adayi uretilen ortamlarda bu da yeterli).
+// No packet is sent: the UDP "connection" is only a way to ask the
+// operating system which interface it would pick. With none found it
+// falls back to loopback (which is enough in environments that only
+// produce loopback candidates).
 func localIPv4() net.IP {
 	c, err := net.Dial("udp4", "203.0.113.1:9")
 	if err != nil {

@@ -1,8 +1,8 @@
-// Package logging ajanin yapilandirilmis loglamasini kurar.
+// Package logging sets up the agent's structured logging.
 //
-// BRIEF guvenlik ilkesi 6: "Varsayilan loglarda URL path'leri maskelenir
-// (--verbose ile acilir)." Bu paket maskelemeyi tek yerde tutar; proxy ve CLI
-// katmanlari dogrudan ham path loglamaz.
+// BRIEF security principle 6: "by default URL paths are masked in the
+// logs (--verbose discloses them)." This package keeps the masking in one
+// place; the proxy and CLI layers never log a raw path directly.
 package logging
 
 import (
@@ -12,8 +12,8 @@ import (
 	"strings"
 )
 
-// New verbose bayragina gore bir logger uretir.
-// verbose: debug seviyesi acilir ve path'ler maskelenmez.
+// New builds a logger according to the verbose flag.
+// verbose: the debug level is enabled and paths are not masked.
 func New(w io.Writer, verbose bool) *slog.Logger {
 	level := slog.LevelInfo
 	if verbose {
@@ -22,15 +22,16 @@ func New(w io.Writer, verbose bool) *slog.Logger {
 	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: level}))
 }
 
-// MaskPath bir istek yolunu loglanabilir hale getirir.
+// MaskPath makes a request path safe to log.
 //
-// verbose true ise yol oldugu gibi doner. Degilse her segment uzunluguna
-// indirgenir ve query tamamen gizlenir:
+// With verbose true the path comes back as it is. Otherwise every segment
+// is reduced to its length and the query is hidden entirely:
 //
 //	/api/items?x=1  ->  /*3/*5?*3
 //	/               ->  /
 //
-// Boylece log yapiyi (kac segment, ne kadar uzun) korur ama icerigi sizdirmaz.
+// That way the log keeps the shape (how many segments, how long) without
+// leaking the content.
 func MaskPath(p string, verbose bool) string {
 	if verbose {
 		return p
@@ -59,7 +60,7 @@ func MaskPath(p string, verbose bool) string {
 	return b.String()
 }
 
-// PathAttr maskeleme kuralini uygulayan bir slog niteligi uretir.
+// PathAttr builds a slog attribute that applies the masking rule.
 func PathAttr(p string, verbose bool) slog.Attr {
 	return slog.String("path", MaskPath(p, verbose))
 }

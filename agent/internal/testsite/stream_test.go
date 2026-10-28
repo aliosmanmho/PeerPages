@@ -15,8 +15,9 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/testsite"
 )
 
-// Test sitesinin akis uclari (Faz 6). Bunlar e2e'nin dayanagi: ucun kendisi
-// bozuksa kopru testleri yanlis yerde arar.
+// The test site's streaming endpoints (phase 6). They are what the e2e
+// tests rest on: if an endpoint itself is broken, the bridge tests look
+// in the wrong place.
 
 func newSite(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -25,8 +26,8 @@ func newSite(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// Varsayilan davranis Faz 1'den beri AYNI olmali: uc olay, beklemesiz.
-// Mevcut e2e bunun uzerine kurulu.
+// The default behaviour has to be the SAME as in phase 1: three events,
+// no delay. The existing e2e rests on that.
 func TestSSEDefaultUnchanged(t *testing.T) {
 	srv := newSite(t)
 
@@ -39,21 +40,22 @@ func TestSSEDefaultUnchanged(t *testing.T) {
 	if ct := res.Header.Get("content-type"); ct != "text/event-stream" {
 		t.Errorf("content-type: %q", ct)
 	}
-	// io.ReadAll sart: tek Read yalnizca ilk flush'i verir.
+	// io.ReadAll is required: a single Read gives only the first flush.
 	raw, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := string(raw)
-	for _, want := range []string{"data: olay-0", "data: olay-1", "data: olay-2"} {
+	for _, want := range []string{"data: event-0", "data: event-1", "data: event-2"} {
 		if !strings.Contains(body, want) {
-			t.Errorf("%q yok, govde: %q", want, body)
+			t.Errorf("%q is missing, body: %q", want, body)
 		}
 	}
 }
 
-// Gecikmeli akis: ilk olay, akis KAPANMADAN once gelmeli. Artimli teslimi
-// kanitlayan sey bu (?delay= olmadan uc olay tek cerceveye sigabilir).
+// A delayed stream: the first event has to arrive BEFORE the stream
+// closes. That is what proves incremental delivery (without ?delay= three
+// events can fit into a single frame).
 func TestSSEDelayedIsIncremental(t *testing.T) {
 	srv := newSite(t)
 
@@ -71,19 +73,20 @@ func TestSSEDelayedIsIncremental(t *testing.T) {
 	}
 	firstAt := time.Since(started)
 
-	if !strings.Contains(line, "data: olay-0") {
-		t.Errorf("ilk satir: %q", line)
+	if !strings.Contains(line, "data: event-0") {
+		t.Errorf("the first line: %q", line)
 	}
-	// Ilk olay beklemeden gelmeli; tum akis en az 2 gecikme surer.
+	// The first event has to arrive with no wait; the whole stream takes
+	// at least 2 delays.
 	if firstAt > 250*time.Millisecond {
-		t.Errorf("ilk olay %s sonra geldi: akis tamponlaniyor olabilir", firstAt)
+		t.Errorf("the first event arrived after %s: the stream may be being buffered", firstAt)
 	}
 
 	if _, err := io.ReadAll(r); err != nil {
 		t.Fatal(err)
 	}
 	if total := time.Since(started); total < 250*time.Millisecond {
-		t.Errorf("akis %s surdu: gecikme uygulanmiyor", total)
+		t.Errorf("the stream took %s: no delay is being applied", total)
 	}
 }
 
@@ -96,7 +99,7 @@ func TestSSEBadParams(t *testing.T) {
 		}
 		_ = res.Body.Close()
 		if res.StatusCode != http.StatusBadRequest {
-			t.Errorf("%s: durum %d, beklenen 400", q, res.StatusCode)
+			t.Errorf("%s: status %d, expected 400", q, res.StatusCode)
 		}
 	}
 }
@@ -116,7 +119,7 @@ func TestWSEchoEndpoint(t *testing.T) {
 	defer func() { _ = c.CloseNow() }()
 
 	if c.Subprotocol() != "json" {
-		t.Errorf("alt protokol: %q", c.Subprotocol())
+		t.Errorf("subprotocol: %q", c.Subprotocol())
 	}
 
 	if err := c.Write(ctx, websocket.MessageText, []byte("selam")); err != nil {
@@ -127,7 +130,7 @@ func TestWSEchoEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	if typ != websocket.MessageText || string(data) != "selam" {
-		t.Errorf("yanki: %v %q", typ, data)
+		t.Errorf("the echo: %v %q", typ, data)
 	}
 
 	if err := c.Write(ctx, websocket.MessageBinary, []byte{9, 8, 7}); err != nil {
@@ -138,12 +141,12 @@ func TestWSEchoEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	if typ != websocket.MessageBinary || len(data) != 3 {
-		t.Errorf("ikili yanki: %v %v", typ, data)
+		t.Errorf("the binary echo: %v %v", typ, data)
 	}
 }
 
-// ?close= ile sunucu kapanisi: kopru testleri kapanis kodunun gectigini
-// boyle dogruluyor.
+// A server close with ?close=: that is how the bridge tests check the
+// close code passes through.
 func TestWSServerInitiatedClose(t *testing.T) {
 	srv := newSite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -158,9 +161,9 @@ func TestWSServerInitiatedClose(t *testing.T) {
 
 	_, _, err = c.Read(ctx)
 	if err == nil {
-		t.Fatal("kapanis beklenirdi")
+		t.Fatal("a close was expected")
 	}
 	if status := websocket.CloseStatus(err); status != 4002 {
-		t.Errorf("kapanis kodu %d, beklenen 4002 (%v)", status, err)
+		t.Errorf("close code %d, expected 4002 (%v)", status, err)
 	}
 }

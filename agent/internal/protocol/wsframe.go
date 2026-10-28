@@ -2,46 +2,47 @@ package protocol
 
 import "fmt"
 
-// WebSocket koprusunun cerceve alt bicimi (Faz 6).
+// The frame sub-format of the WebSocket bridge (phase 6).
 //
-// Dis cerceve ([4B id][4B seq][payload]) AYNEN korunur: ws yuku ayri bir
-// kanal ya da ayri bir framing kullanmaz. Bir ws id'sine ait cercevenin
-// PAYLOAD'i su bicimdedir:
+// The outer frame ([4B id][4B seq][payload]) is kept EXACTLY as is: the ws
+// payload uses neither a separate channel nor a separate framing. The
+// PAYLOAD of a frame belonging to a ws id looks like this:
 //
-//	[1B bayrak][parca]
+//	[1B flags][chunk]
 //
-// Boylece backpressure (internal/tunnel/flow.go), seq denetimi ve 16 KiB
-// parcalama bedavaya gelir; ikili veri base64 sismesi yemez ve toplu ws
-// trafigi ctrl kanalini (ping, abort) tikamaz.
+// That way backpressure (internal/tunnel/flow.go), the seq check and
+// 16 KiB chunking come for free; binary data takes no base64 inflation,
+// and bulk ws traffic does not clog the ctrl channel (ping, abort).
 //
-// Normatif tanim: protocol/README.md.
+// Normative definition: protocol/README.md.
 const (
-	// WSFlagBinary 1 ise ikili, 0 ise metin mesaji.
+	// WSFlagBinary set to 1 means a binary message, 0 a text one.
 	WSFlagBinary byte = 0x01
-	// WSFlagFin 1 ise bu, ws mesajinin SON parcasi.
+	// WSFlagFin set to 1 means this is the LAST chunk of the ws message.
 	WSFlagFin byte = 0x02
-	// WSFlagKnown tanimli bitler; disindaki bitler protokol hatasi.
+	// WSFlagKnown is the set of defined bits; any bit outside it is a
+	// protocol error.
 	WSFlagKnown byte = WSFlagBinary | WSFlagFin
 
-	// WSHeaderBytes ws alt basligi: yalnizca bayrak bayti.
+	// WSHeaderBytes is the ws sub-header: just the flag byte.
 	WSHeaderBytes = 1
-	// MaxWSPayload bir ws parcasinin en buyuk boyu.
+	// MaxWSPayload is the largest size of a single ws chunk.
 	MaxWSPayload = MaxPayload - WSHeaderBytes
 )
 
-// WSFrameErrorCode iki dilde ayni olan ws cerceve hata kodlari.
+// WSFrameErrorCode is a ws frame error code, the same in both languages.
 type WSFrameErrorCode string
 
 const (
-	// CodeWSEmptyFrame ws cercevesinin payload'i bos (bayrak bayti yok).
+	// CodeWSEmptyFrame means the ws frame payload is empty (no flag byte).
 	CodeWSEmptyFrame WSFrameErrorCode = "ws-empty-frame"
-	// CodeWSBadFlags bayrak baytinda tanimsiz bit var.
+	// CodeWSBadFlags means the flag byte carries an undefined bit.
 	CodeWSBadFlags WSFrameErrorCode = "ws-bad-flags"
-	// CodeWSPayloadTooLarge parca MaxWSPayload sinirini asiyor.
+	// CodeWSPayloadTooLarge means the chunk exceeds the MaxWSPayload limit.
 	CodeWSPayloadTooLarge WSFrameErrorCode = "ws-payload-too-large"
 )
 
-// WSFrameError ws cerceve hatasi. Code degeri testvectors.json ile eslesir.
+// WSFrameError is a ws frame error. Code matches testvectors.json.
 type WSFrameError struct {
 	Code   WSFrameErrorCode
 	Detail string
@@ -51,23 +52,24 @@ func (e *WSFrameError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Code, e.Detail)
 }
 
-// WSChunk cozulmus bir ws parcasi.
+// WSChunk is a decoded ws chunk.
 type WSChunk struct {
-	// Binary mesajin ikili olup olmadigi. Bir mesajin TUM parcalarinda ayni
-	// olmak zorunda.
+	// Binary says whether the message is binary. It must be the same on
+	// ALL chunks of a message.
 	Binary bool
-	// Fin bu parca mesajin sonu mu.
+	// Fin says whether this chunk ends the message.
 	Fin bool
-	// Payload parcanin kendisi (bos olabilir: bos ws mesaji tek bayraktir).
+	// Payload is the chunk itself (may be empty: an empty ws message is
+	// just flags).
 	Payload []byte
 }
 
-// EncodeWSPayload ws parcasini dis cercevenin payload'ina cevirir.
+// EncodeWSPayload turns a ws chunk into the outer frame's payload.
 func EncodeWSPayload(c WSChunk) ([]byte, error) {
 	if len(c.Payload) > MaxWSPayload {
 		return nil, &WSFrameError{
 			Code:   CodeWSPayloadTooLarge,
-			Detail: fmt.Sprintf("%d bayt, sinir %d", len(c.Payload), MaxWSPayload),
+			Detail: fmt.Sprintf("%d bytes, limit %d", len(c.Payload), MaxWSPayload),
 		}
 	}
 	out := make([]byte, WSHeaderBytes+len(c.Payload))
@@ -76,13 +78,13 @@ func EncodeWSPayload(c WSChunk) ([]byte, error) {
 	return out, nil
 }
 
-// AppendWSPayload ws parcasini dst'ye ekler; sicak yolda tahsisi azaltmak icin
-// (AppendFrame ile ayni gerekce).
+// AppendWSPayload appends the ws chunk to dst, to cut allocations on the
+// hot path (same reasoning as AppendFrame).
 func AppendWSPayload(dst []byte, c WSChunk) ([]byte, error) {
 	if len(c.Payload) > MaxWSPayload {
 		return dst, &WSFrameError{
 			Code:   CodeWSPayloadTooLarge,
-			Detail: fmt.Sprintf("%d bayt, sinir %d", len(c.Payload), MaxWSPayload),
+			Detail: fmt.Sprintf("%d bytes, limit %d", len(c.Payload), MaxWSPayload),
 		}
 	}
 	dst = append(dst, wsFlags(c))
@@ -100,23 +102,23 @@ func wsFlags(c WSChunk) byte {
 	return f
 }
 
-// DecodeWSPayload dis cercevenin payload'ini ws parcasina cozer.
+// DecodeWSPayload decodes the outer frame's payload into a ws chunk.
 //
-// Donen Payload, verilen dilimin KOPYASI DEGILDIR: DecodeFrame zaten kopya
-// uretiyor, ikinci kopya gereksiz olurdu. Cagiran taraf dilimi saklayacaksa
-// kendisi kopyalar.
+// The returned Payload is NOT a copy of the given slice: DecodeFrame
+// already made a copy, a second one would be pointless. A caller that
+// keeps the slice copies it itself.
 func DecodeWSPayload(payload []byte) (WSChunk, error) {
 	if len(payload) < WSHeaderBytes {
 		return WSChunk{}, &WSFrameError{
 			Code:   CodeWSEmptyFrame,
-			Detail: "ws cercevesinin payload'i en az 1 bayt olmali (bayrak)",
+			Detail: "the payload of a ws frame must be at least 1 byte (the flags)",
 		}
 	}
 	flags := payload[0]
 	if flags&^WSFlagKnown != 0 {
 		return WSChunk{}, &WSFrameError{
 			Code:   CodeWSBadFlags,
-			Detail: fmt.Sprintf("tanimsiz bit: 0x%02x", flags),
+			Detail: fmt.Sprintf("undefined bit: 0x%02x", flags),
 		}
 	}
 	return WSChunk{

@@ -1,20 +1,23 @@
 /**
- * Ziyaretci tarafindaki ICE yapilandirmasi.
+ * ICE configuration on the visitor side.
  *
- * Faz 5'e kadar bu sayfa HIC ICE sunucusu vermiyordu
- * (`new RTCPeerConnection(undefined)`), yani yalnizca **host adayi**
- * topluyordu: aglar arasi baglanti, ajanin srflx adayina gelen paketten
- * ziyaretciyi peer-reflexive ogrenmesine bel baglamis durumdaydi. Varsayilan
- * STUN listesiyle ziyaretci de kendi srflx adayini topluyor ve dogrudan yol
- * daha cok NAT'ta kuruluyor.
+ * Until phase 5 this page passed NO ICE servers at all
+ * (`new RTCPeerConnection(undefined)`), so it only gathered **host
+ * candidates**: cross-network connections leaned entirely on the agent
+ * learning the visitor peer-reflexively from a packet arriving at its srflx
+ * candidate. With a default STUN list the visitor gathers its own srflx
+ * candidate too, and the direct path works on more NATs.
  *
- * **TURN kimlik bilgisi buraya HIC gelmiyor.** TURN yalnizca ajan tarafinda
- * kullaniliyor: ziyaretci offer'i ajandan tek kelime duymadan once uretiyor,
- * yani kimlik bilgisini signaling ile gondermek cok gec kalirdi. Tek tarafli
- * TURN yeterli — ajan relay adayi toplar, ziyaretci o genel adrese paket
- * yollar. Kota ve sir sahibinde kalir (BRIEF §6 ilke 4: ziyaretci
- * guvenilmez). Ayrinti: BRIEF §8.
+ * **TURN credentials NEVER reach this file.** TURN is used on the agent side
+ * only: the visitor creates the offer before hearing a single word from the
+ * agent, so shipping credentials over signaling would arrive too late.
+ * One-sided TURN is enough — the agent gathers a relay candidate and the
+ * visitor sends to that public address. Quota and secret stay with the owner
+ * (BRIEF section 6, principle 4: the visitor is untrusted). Details in
+ * BRIEF section 8.
  */
+
+import { t } from "./i18n";
 
 export class IceConfigError extends Error {
   constructor(message: string) {
@@ -24,40 +27,40 @@ export class IceConfigError extends Error {
 }
 
 /**
- * Varsayilan STUN listesi.
+ * Default STUN list.
  *
- * Go tarafindaki `ice.DefaultSTUN` ile AYNI olmali.
+ * Must be IDENTICAL to `ice.DefaultSTUN` on the Go side.
  */
 export const DEFAULT_STUN = [
   "stun:stun.l.google.com:19302",
   "stun:stun1.l.google.com:19302",
 ] as const;
 
-/** Tek bir STUN adresini dogrular ve normalize eder. */
+/** Validates and normalizes a single STUN address. */
 export function normalizeStunURL(raw: string): string {
   const s = raw.trim();
   if (s === "") {
-    throw new IceConfigError("STUN adresi bos");
+    throw new IceConfigError("empty STUN address");
   }
-  // STUN URI'leri opaque: "stun:host:port" — `//` yok, bu yuzden URL()
-  // host'u ayristirmiyor ve semayi elle kontrol ediyoruz.
+  // STUN URIs are opaque: "stun:host:port" with no `//`, so URL() will not
+  // parse the host and we check the scheme by hand.
   const sep = s.indexOf(":");
   if (sep < 0) {
-    throw new IceConfigError(`STUN adresi stun: ya da stuns: ile baslamali: ${s}`);
+    throw new IceConfigError(`STUN address must start with stun: or stuns: ${s}`);
   }
   const scheme = s.slice(0, sep);
   if (scheme !== "stun" && scheme !== "stuns") {
-    throw new IceConfigError(`STUN adresi stun: ya da stuns: ile baslamali: ${s}`);
+    throw new IceConfigError(`STUN address must start with stun: or stuns: ${s}`);
   }
 
   let host = s.slice(sep + 1);
   if (host === "") {
-    throw new IceConfigError(`STUN adresinde host yok: ${s}`);
+    throw new IceConfigError(`STUN address has no host: ${s}`);
   }
   if (host.includes("?") || host.includes("/")) {
-    throw new IceConfigError(`STUN adresinde yol ya da query olamaz: ${s}`);
+    throw new IceConfigError(`STUN address cannot carry a path or query: ${s}`);
   }
-  // Port verilmemisse varsayilani ekle (IPv6 koseli parantez icinde gelir).
+  // Add the default port when none was given (IPv6 arrives in brackets).
   const lastColon = host.lastIndexOf(":");
   const closing = host.lastIndexOf("]");
   if (lastColon <= closing) {
@@ -67,16 +70,16 @@ export function normalizeStunURL(raw: string): string {
 }
 
 /**
- * URL sorgu dizesinden STUN listesini okur.
+ * Reads the STUN list from the URL query string.
  *
- * `stun` parametresi tekrarlanabilir; virgulle ayrilmis liste de kabul
- * edilir. Parametre yoksa `null` doner (varsayilan liste kullanilir).
- * Bos deger (`?stun=`) ICE sunucusunu tamamen kapatir: testlerde yalnizca
- * host adayi toplamanin tek yolu bu.
+ * The `stun` parameter may repeat, and a comma-separated list is accepted.
+ * Absent, it returns `null` (the default list is used). An empty value
+ * (`?stun=`) disables ICE servers entirely: in tests that is the only way to
+ * gather host candidates alone.
  *
- * @throws {IceConfigError} verilen adreslerden biri gecersizse — sessizce
- * varsayilana donmek, kullanicinin verdigi listenin yok sayildigini
- * gizlerdi (`relaysFromSearch` ile ayni karar).
+ * @throws {IceConfigError} when one of the addresses is invalid — silently
+ * falling back to the default would hide that the user's list was ignored
+ * (the same decision as `relaysFromSearch`).
  */
 export function stunFromSearch(search: string): string[] | null {
   const params = new URLSearchParams(search);
@@ -93,46 +96,46 @@ export function stunFromSearch(search: string): string[] | null {
     seen.add(url);
     out.push(url);
   }
-  // `?stun=` (bos) bilincli bir secim: ICE sunucusu yok.
+  // An empty `?stun=` is a deliberate choice: no ICE servers.
   return out;
 }
 
-/** Verilen listeden (ya da varsayilandan) RTCIceServer dizisi uretir. */
+/** Builds an RTCIceServer array from the given list, or the default. */
 export function iceServers(stun: readonly string[] | null): RTCIceServer[] {
   const list = stun ?? DEFAULT_STUN;
   if (list.length === 0) return [];
   return [{ urls: [...list] }];
 }
 
-/** Baglantinin hangi yoldan kuruldugu. */
-export type IceRoute = "host" | "srflx" | "prflx" | "relay" | "bilinmiyor";
+/** Which path the connection took. */
+export type IceRoute = "host" | "srflx" | "prflx" | "relay" | "unknown";
 
-/** Ekranda gosterilecek metin. */
+/** Display text for a route. */
 export function routeLabel(route: IceRoute): string {
   switch (route) {
     case "host":
-      return "dogrudan (yerel ag)";
+      return t("route.host");
     case "srflx":
-      return "dogrudan (NAT uzerinden)";
+      return t("route.srflx");
     case "prflx":
-      return "dogrudan (peer-reflexive)";
+      return t("route.prflx");
     case "relay":
-      return "TURN uzerinden (relay)";
+      return t("route.relay");
     default:
-      return "olculuyor…";
+      return t("route.unknown");
   }
 }
 
 /**
- * Secilen aday ciftinden baglanti yolunu cikarir.
+ * Derives the connection path from the selected candidate pair.
  *
- * Neden gerekli: "trafik bir sunucudan geciyor mu" sorusunun bugune kadar
- * cevabi yoktu. TURN kullanildiginda ucten uca sifreleme surer (TURN
- * sunucusu icerigi goremez, yalnizca baytlari tasir) ama YOL degisir ve
- * ziyaretcinin bunu gormesi dogru olan.
+ * Why it is needed: until phase 5 the question "is the traffic going
+ * through a server" had no answer on screen. With TURN the encryption still
+ * holds end to end (the TURN server carries bytes, it cannot see them) but
+ * the PATH changes, and the visitor deserves to know.
  *
- * Iki tarafin aday tipi farkli olabilir; "relay" taraflardan birinde varsa
- * trafik relay'den geciyor demektir.
+ * The two sides can report different candidate types; if either says
+ * "relay", the traffic is going through the relay.
  */
 export function routeFromStats(report: RTCStatsReport): IceRoute {
   let localId: string | undefined;
@@ -149,8 +152,8 @@ export function routeFromStats(report: RTCStatsReport): IceRoute {
       remoteCandidateId?: string;
     };
     if (stat.type !== "candidate-pair") return;
-    // Chromium `selected` yerine state=succeeded + nominated kullaniyor;
-    // Firefox `selected` veriyor. Ikisini de kabul ediyoruz.
+    // Chromium uses state=succeeded + nominated instead of `selected`;
+    // Firefox provides `selected`. Accept both.
     const chosen =
       stat.selected === true || (stat.state === "succeeded" && stat.nominated === true);
     if (!chosen) return;
@@ -159,7 +162,7 @@ export function routeFromStats(report: RTCStatsReport): IceRoute {
     remoteId = stat.remoteCandidateId;
   });
 
-  if (!found) return "bilinmiyor";
+  if (!found) return "unknown";
 
   const typeOf = (id?: string): IceRoute | null => {
     if (!id) return null;
@@ -178,7 +181,7 @@ export function routeFromStats(report: RTCStatsReport): IceRoute {
   const local = typeOf(localId);
   const remote = typeOf(remoteId);
 
-  // Taraflardan biri relay ise trafik relay'den geciyor.
+  // If either side is a relay, the traffic goes through the relay.
   if (local === "relay" || remote === "relay") return "relay";
-  return local ?? remote ?? "bilinmiyor";
+  return local ?? remote ?? "unknown";
 }

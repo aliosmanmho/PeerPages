@@ -13,43 +13,45 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/protocol"
 )
 
-// WebSocket koprusu (Faz 6).
+// The WebSocket bridge (phase 6).
 //
-// HTTP'den ayri bir yol: internal/proxy basliklari temizlerken `upgrade` ve
-// `connection`'i iki yonde de siliyor, yani el sikisma oradan GECEMEZ. Bu
-// yuzden ws oturumu kendi dagitimina sahip; Proxy arayuzune metot eklenmedi
-// (o arayuz testlerde birkac yerde gercekleniyor).
+// A path of its own, separate from HTTP: while internal/proxy strips
+// headers it removes `upgrade` and `connection` in both directions, so the
+// handshake CANNOT go through there. That is why a ws session has its own
+// dispatch; no method was added to the Proxy interface (that interface is
+// implemented in several places in the tests).
 //
-// Yuk `data` kanalindan, cerceve govdesinde bir bayrak baytiyla gider
-// (protocol/wsframe.go). ws id'leri HTTP istekleriyle AYNI id uzayini
-// paylasir; bir id'nin ws mi oldugunu `ws-open` belirler.
+// The payload travels on the `data` channel, with a flag byte in the frame
+// body (protocol/wsframe.go). ws ids share the SAME id space as HTTP
+// requests; `ws-open` is what makes an id a ws one.
 
-// WSConn kurulmus bir WebSocket baglantisi (yerel hedefe).
+// WSConn is an established WebSocket connection (to the local target).
 //
-// Mesaj bazli: WebSocket parcalanmasi (fragmentation) bu arayuzun altinda
-// kalir, tunel yalnizca tam mesajlari tasir.
+// Message based: WebSocket fragmentation stays below this interface, and
+// the tunnel only carries whole messages.
 type WSConn interface {
-	// Read bir mesaj okur. binary false ise metin mesaji.
+	// Read reads one message. binary false means a text message.
 	Read(ctx context.Context) (binary bool, data []byte, err error)
-	// Write bir mesaj yollar.
+	// Write sends one message.
 	Write(ctx context.Context, binary bool, data []byte) error
-	// Close kapanis kodu ve sebebiyle kapatir.
+	// Close closes with a close code and reason.
 	Close(code int, reason string) error
 }
 
-// WSDialer ws-open istegini yerel hedefe cevirir.
+// WSDialer turns a ws-open request into a local target.
 //
-// Gerceklemesi internal/wsbridge; hedef URL'si YALNIZCA allowlist'ten gelir
-// (BRIEF ilke 1).
+// It is implemented by internal/wsbridge; the target URL comes ONLY from
+// the allowlist (BRIEF principle 1).
 type WSDialer interface {
-	// Dial baglantiyi kurar ve sunucunun sectigi alt protokolu doner.
+	// Dial establishes the connection and returns the subprotocol the
+	// server chose.
 	Dial(ctx context.Context, open protocol.WSOpen) (WSConn, string, error)
 }
 
-// WSDialError kapanis kodunu tasiyan cevrim hatasi.
+// WSDialError is a dial error that carries a close code.
 //
-// Kodu burada tanimliyoruz ki tunnel paketi wsbridge'i import etmek zorunda
-// kalmasin (wsbridge bu paketi import ediyor).
+// It is defined here so the tunnel package does not have to import
+// wsbridge (wsbridge imports this package).
 type WSDialError struct {
 	Code   int
 	Reason string
@@ -58,51 +60,54 @@ type WSDialError struct {
 
 func (e *WSDialError) Error() string {
 	if e.Err == nil {
-		return fmt.Sprintf("ws baglantisi kurulamadi (%d): %s", e.Code, e.Reason)
+		return fmt.Sprintf("the ws connection could not be established (%d): %s", e.Code, e.Reason)
 	}
-	return fmt.Sprintf("ws baglantisi kurulamadi (%d): %s: %v", e.Code, e.Reason, e.Err)
+	return fmt.Sprintf("the ws connection could not be established (%d): %s: %v", e.Code, e.Reason, e.Err)
 }
 
 func (e *WSDialError) Unwrap() error { return e.Err }
 
-// WSCloseError yerel sunucunun kendi kapanis kodunu tasir.
+// WSCloseError carries the local server's own close code.
 //
-// Gerekli cunku kapanis kodu ziyaretcinin `onclose`'una AYNEN gecmeli:
-// uygulamaya ait kodlar (4000-4999) Socket.IO gibi kutuphanelerde anlam
-// tasiyor, bizim 1001'e cevirmemiz bilgiyi yok ederdi.
+// Needed because the close code must reach the visitor's `onclose`
+// EXACTLY as it was: application codes (4000-4999) carry meaning in
+// libraries such as Socket.IO, and turning them into 1001 would destroy
+// that information.
 type WSCloseError struct {
 	Code   int
 	Reason string
 }
 
 func (e *WSCloseError) Error() string {
-	return fmt.Sprintf("ws kapandi (%d): %s", e.Code, e.Reason)
+	return fmt.Sprintf("ws closed (%d): %s", e.Code, e.Reason)
 }
 
-// ws oturumu sinirlari.
+// ws session limits.
 const (
-	// DefaultMaxWSMessage bir ws mesajinin en buyuk boyu (iki yonde de).
+	// DefaultMaxWSMessage is the largest size of a ws message (in both
+	// directions).
 	//
-	// Ziyaretci guvenilmez (BRIEF ilke 4): sinirsiz mesaj, ajanin bellegini
-	// tek istekle sisirebilirdi.
+	// The visitor is untrusted (BRIEF principle 4): an unbounded message
+	// could blow up the agent's memory in a single request.
 	DefaultMaxWSMessage = 1 << 20 // 1 MiB
-	// DefaultMaxStreams ayni anda acik uzun yasayan akis sayisi (ws oturumu
-	// ya da SSE cevabi).
+	// DefaultMaxStreams is how many long-lived streams (a ws session or an
+	// SSE response) may be open at once.
 	//
-	// Neden MaxConcurrent'tan ayri: uzun yasayan bir akis slotunu omru
-	// boyunca tutar, yani 64 akis normal istekleri ac birakirdi.
+	// Why it is separate from MaxConcurrent: a long-lived stream holds its
+	// slot for its whole life, so 64 streams would starve ordinary
+	// requests.
 	DefaultMaxStreams = 8
-	// wsQueueSlack ws oturumu basina olay kuyrugunun temel kapasitesi.
+	// wsQueueSlack is the base capacity of the per-ws-session event queue.
 	wsQueueSlack = 64
 )
 
-// wsEvent bir ws oturumunun kuyrugundaki olay. Tam olarak bir alani dolu.
+// wsEvent is an event in a ws session's queue. Exactly one field is set.
 type wsEvent struct {
 	frame *protocol.Frame
 	close *protocol.WSClose
 }
 
-// wsSession tunel uzerindeki tek bir WebSocket oturumu.
+// wsSession is a single WebSocket session over the tunnel.
 type wsSession struct {
 	id     uint32
 	cancel context.CancelFunc
@@ -113,16 +118,18 @@ type wsSession struct {
 
 	sink *wsSink
 
-	// closeMu kapanis muhasebesini korur: iki pompa ayni anda bitebilir.
+	// closeMu guards the close bookkeeping: both pumps can finish at
+	// once.
 	closeMu sync.Mutex
-	// closeSent ziyaretciye ws-close yollandi (ya da ondan geldi).
+	// closeSent means a ws-close went to the visitor (or came from it).
 	closeSent bool
-	// upCode/upReason yerel sunucuya yollanacak kapanis kodu.
+	// upCode/upReason is the close code to send to the local server.
 	upCode   int
 	upReason string
 }
 
-// push olayi kuyruga koyar; kuyruk doluysa bekler (alis yonu backpressure).
+// push puts an event on the queue; if the queue is full it waits
+// (receive-direction backpressure).
 func (w *wsSession) push(ev wsEvent) bool {
 	select {
 	case w.q <- ev:
@@ -136,7 +143,7 @@ func (w *wsSession) halt() {
 	w.stopOnce.Do(func() { close(w.stop) })
 }
 
-// sendClose ziyaretciye ws-close yollar; oturum basina en fazla bir kez.
+// sendClose sends a ws-close to the visitor, at most once per session.
 func (w *wsSession) sendClose(s *Session, code int, reason string) {
 	w.closeMu.Lock()
 	already := w.closeSent
@@ -152,12 +159,13 @@ func (w *wsSession) sendClose(s *Session, code int, reason string) {
 	if err := s.sendCtrl(protocol.WSClose{
 		ID: w.id, Code: code, Reason: truncateReason(reason),
 	}); err != nil {
-		s.log.Debug("ws-close yollanamadi",
+		s.log.Debug("ws-close could not be sent",
 			slog.Uint64("id", uint64(w.id)), slog.String("err", err.Error()))
 	}
 }
 
-// markClosedByVisitor ziyaretci ws-close yolladi: geri yollamiyoruz.
+// markClosedByVisitor: the visitor sent a ws-close, so we do not send one
+// back.
 func (w *wsSession) markClosedByVisitor(code int, reason string) {
 	w.closeMu.Lock()
 	w.closeSent = true
@@ -174,8 +182,8 @@ func (w *wsSession) upstreamClose() (int, string) {
 	return w.upCode, w.upReason
 }
 
-// truncateReason kapanis sebebini WebSocket sinirina kirpar; aksi halde
-// karsi taraf mesaji bad-field olarak reddeder.
+// truncateReason trims the close reason to the WebSocket limit;
+// otherwise the other side rejects the message as bad-field.
 func truncateReason(reason string) string {
 	if len(reason) <= protocol.WSCloseReasonMax {
 		return reason
@@ -183,7 +191,7 @@ func truncateReason(reason string) string {
 	return reason[:protocol.WSCloseReasonMax]
 }
 
-// maxWSMessage yapilandirilmis mesaj siniri.
+// maxWSMessage is the configured message limit.
 func (s *Session) maxWSMessage() int64 {
 	if s.cfg.MaxWSMessage > 0 {
 		return s.cfg.MaxWSMessage
@@ -191,20 +199,21 @@ func (s *Session) maxWSMessage() int64 {
 	return DefaultMaxWSMessage
 }
 
-// onWSOpen ziyaretcinin ws acma istegini isler.
+// onWSOpen handles the visitor's ws open request.
 func (s *Session) onWSOpen(open protocol.WSOpen) {
 	if s.cfg.WSDialer == nil {
-		s.log.Debug("ws-open geldi ama kopru kapali", slog.Uint64("id", uint64(open.ID)))
-		s.closeWSEarly(open.ID, protocol.WSClosePolicy, "ws koprusu kapali")
+		s.log.Debug("a ws-open arrived but the bridge is off", slog.Uint64("id", uint64(open.ID)))
+		s.closeWSEarly(open.ID, protocol.WSClosePolicy, "the ws bridge is off")
 		return
 	}
 
-	// Akis butcesi: uzun yasayan akislar normal istekleri ac birakmasin.
+	// The stream budget: long-lived streams must not starve ordinary
+	// requests.
 	select {
 	case s.streams <- struct{}{}:
 	default:
-		s.log.Warn("akis butcesi dolu, ws reddedildi", slog.Uint64("id", uint64(open.ID)))
-		s.closeWSEarly(open.ID, protocol.WSCloseTryAgainLater, "akis butcesi dolu")
+		s.log.Warn("the stream budget is full, ws refused", slog.Uint64("id", uint64(open.ID)))
+		s.closeWSEarly(open.ID, protocol.WSCloseTryAgainLater, "the stream budget is full")
 		return
 	}
 
@@ -219,19 +228,20 @@ func (s *Session) onWSOpen(open protocol.WSOpen) {
 		s.reqMu.Unlock()
 		cancel()
 		<-s.streams
-		s.log.Warn("ayni id ile ikinci oturum", slog.Uint64("id", uint64(open.ID)))
+		s.log.Warn("second session with the same id", slog.Uint64("id", uint64(open.ID)))
 		s.closeWSEarly(open.ID, protocol.WSCloseProtocol, "duplicate-id")
 		return
 	}
 
-	// `ws-open`'dan once gelmis cerceveler (kanallar arasinda siralama yok).
+	// Frames that arrived before `ws-open` (there is no ordering between
+	// the channels).
 	early := s.early[open.ID]
 	delete(s.early, open.ID)
 	if early != nil && early.abortReason != "" {
 		s.reqMu.Unlock()
 		cancel()
 		<-s.streams
-		s.log.Warn("erken cerceve ihlali nedeniyle ws reddedildi",
+		s.log.Warn("ws refused because of an early frame violation",
 			slog.Uint64("id", uint64(open.ID)), slog.String("reason", early.abortReason))
 		s.closeWSEarly(open.ID, protocol.WSCloseTooBig, early.abortReason)
 		return
@@ -242,8 +252,9 @@ func (s *Session) onWSOpen(open protocol.WSOpen) {
 		capacity += len(early.frames)
 	}
 	w.q = make(chan wsEvent, capacity)
-	// Erken cerceveleri kuyruga ONCE koy: sonraki cerceveler arkasina dizilir
-	// ve seq sirasi korunur. Kapasite yeterli oldugu icin bloklanmaz.
+	// Put the early frames on the queue FIRST: later frames line up behind
+	// them and the seq order holds. Capacity is sufficient, so it does not
+	// block.
 	if early != nil {
 		for i := range early.frames {
 			f := early.frames[i]
@@ -254,7 +265,7 @@ func (s *Session) onWSOpen(open protocol.WSOpen) {
 	s.socks[open.ID] = w
 	s.reqMu.Unlock()
 
-	s.log.Debug("ws acma istegi",
+	s.log.Debug("ws open request",
 		slog.Uint64("id", uint64(open.ID)),
 		logging.PathAttr(open.Path, s.cfg.Verbose),
 		slog.Int("proto", len(open.Protos)),
@@ -263,17 +274,18 @@ func (s *Session) onWSOpen(open protocol.WSOpen) {
 	go s.runWS(ctx, w, open)
 }
 
-// closeWSEarly oturum hic kurulmadan ws-close yollar.
+// closeWSEarly sends a ws-close without the session ever being
+// established.
 func (s *Session) closeWSEarly(id uint32, code int, reason string) {
 	if err := s.sendCtrl(protocol.WSClose{
 		ID: id, Code: code, Reason: truncateReason(reason),
 	}); err != nil {
-		s.log.Debug("ws-close yollanamadi",
+		s.log.Debug("ws-close could not be sent",
 			slog.Uint64("id", uint64(id)), slog.String("err", err.Error()))
 	}
 }
 
-// runWS oturumun tum omrunu yurutur: cevrim, iki pompa, temizlik.
+// runWS runs the session's whole life: the dial, both pumps, cleanup.
 func (s *Session) runWS(ctx context.Context, w *wsSession, open protocol.WSOpen) {
 	defer func() {
 		w.cancel()
@@ -282,19 +294,19 @@ func (s *Session) runWS(ctx context.Context, w *wsSession, open protocol.WSOpen)
 
 	conn, proto, err := s.cfg.WSDialer.Dial(ctx, open)
 	if err != nil {
-		code, reason := protocol.WSCloseInternal, "yerel hedefe baglanilamadi"
+		code, reason := protocol.WSCloseInternal, "the local target was unreachable"
 		var de *WSDialError
 		if errors.As(err, &de) {
 			code, reason = de.Code, de.Reason
 		}
-		s.log.Warn("ws baglantisi kurulamadi",
+		s.log.Warn("the ws connection could not be established",
 			slog.Uint64("id", uint64(open.ID)), slog.String("err", err.Error()))
 		w.sendClose(s, code, reason)
 		return
 	}
 
 	if err := s.sendCtrl(protocol.WSOk{ID: open.ID, Proto: proto}); err != nil {
-		s.log.Warn("ws-ok yollanamadi",
+		s.log.Warn("ws-ok could not be sent",
 			slog.Uint64("id", uint64(open.ID)), slog.String("err", err.Error()))
 		_ = conn.Close(protocol.WSCloseInternal, "")
 		return
@@ -307,21 +319,22 @@ func (s *Session) runWS(ctx context.Context, w *wsSession, open protocol.WSOpen)
 		s.pumpFromUpstream(ctx, w, conn)
 	}()
 
-	// Ziyaretci -> yerel sunucu yonu bu goroutine'de kosar.
+	// The visitor -> local server direction runs on this goroutine.
 	s.pumpToUpstream(ctx, w, conn)
 
-	// Okuma pompasini durdur ve yerel baglantiyi kapat.
+	// Stop the read pump and close the local connection.
 	w.cancel()
 	code, reason := w.upstreamClose()
 	_ = conn.Close(code, truncateReason(reason))
 	wg.Wait()
 }
 
-// pumpToUpstream ziyaretciden gelen cerceveleri yerel sunucuya yazar.
+// pumpToUpstream writes the frames coming from the visitor to the local
+// server.
 //
-// Tek goroutine olmasi onemli: cerceveler ve ws-close ayni kuyruktan gectigi
-// icin kanallar arasi siralama eksikligi burada normalize edilir (istek
-// govdelerindeki runBodyWriter ile ayni gerekce).
+// Being a single goroutine matters: because frames and ws-close go through
+// the same queue, the missing ordering between the channels is normalized
+// here (same reasoning as runBodyWriter for request bodies).
 func (s *Session) pumpToUpstream(ctx context.Context, w *wsSession, conn WSConn) {
 	var (
 		nextSeq  uint32
@@ -344,12 +357,13 @@ func (s *Session) pumpToUpstream(ctx context.Context, w *wsSession, conn WSConn)
 			}
 			f := ev.frame
 
-			// Kanal ordered: beklenmeyen seq protokol hatasi.
+			// The channel is ordered: an unexpected seq is a protocol
+			// error.
 			if f.Seq != nextSeq {
-				s.log.Warn("ws cerceve sirasi bozuk",
+				s.log.Warn("the ws frame order is broken",
 					slog.Uint64("id", uint64(w.id)),
 					slog.Uint64("seq", uint64(f.Seq)),
-					slog.Uint64("beklenen", uint64(nextSeq)))
+					slog.Uint64("expected", uint64(nextSeq)))
 				w.sendClose(s, protocol.WSCloseProtocol, "bad-seq")
 				return
 			}
@@ -357,13 +371,13 @@ func (s *Session) pumpToUpstream(ctx context.Context, w *wsSession, conn WSConn)
 
 			chunk, err := protocol.DecodeWSPayload(f.Payload)
 			if err != nil {
-				s.log.Warn("gecersiz ws cercevesi",
+				s.log.Warn("invalid ws frame",
 					slog.Uint64("id", uint64(w.id)), slog.String("err", err.Error()))
 				w.sendClose(s, protocol.WSCloseProtocol, "ws-bad-frame")
 				return
 			}
 			if havePart && chunk.Binary != binary {
-				s.log.Warn("ws mesajinin parcalari farkli tipte",
+				s.log.Warn("the chunks of the ws message have different types",
 					slog.Uint64("id", uint64(w.id)))
 				w.sendClose(s, protocol.WSCloseProtocol, "ws-mixed-type")
 				return
@@ -372,9 +386,9 @@ func (s *Session) pumpToUpstream(ctx context.Context, w *wsSession, conn WSConn)
 			havePart = true
 
 			if int64(len(partial))+int64(len(chunk.Payload)) > maxMsg {
-				s.log.Warn("ws mesaji tavani asti",
-					slog.Uint64("id", uint64(w.id)), slog.Int64("tavan", maxMsg))
-				w.sendClose(s, protocol.WSCloseTooBig, "mesaj cok buyuk")
+				s.log.Warn("the ws message exceeded the limit",
+					slog.Uint64("id", uint64(w.id)), slog.Int64("limit", maxMsg))
+				w.sendClose(s, protocol.WSCloseTooBig, "the message is too large")
 				return
 			}
 			partial = append(partial, chunk.Payload...)
@@ -382,12 +396,13 @@ func (s *Session) pumpToUpstream(ctx context.Context, w *wsSession, conn WSConn)
 			if !chunk.Fin {
 				continue
 			}
-			// Yerel sunucu yavassa burada beklenir: alis yonu backpressure.
+			// If the local server is slow we wait here: receive-direction
+			// backpressure.
 			if err := conn.Write(ctx, binary, partial); err != nil {
 				if ctx.Err() == nil {
-					s.log.Warn("ws mesaji yerel sunucuya yazilamadi",
+					s.log.Warn("the ws message could not be written to the local server",
 						slog.Uint64("id", uint64(w.id)), slog.String("err", err.Error()))
-					w.sendClose(s, protocol.WSCloseInternal, "yerel sunucuya yazilamadi")
+					w.sendClose(s, protocol.WSCloseInternal, "could not write to the local server")
 				}
 				return
 			}
@@ -397,7 +412,8 @@ func (s *Session) pumpToUpstream(ctx context.Context, w *wsSession, conn WSConn)
 	}
 }
 
-// pumpFromUpstream yerel sunucudan gelen mesajlari tunele yazar.
+// pumpFromUpstream writes the messages coming from the local server into
+// the tunnel.
 func (s *Session) pumpFromUpstream(ctx context.Context, w *wsSession, conn WSConn) {
 	maxMsg := s.maxWSMessage()
 
@@ -405,33 +421,34 @@ func (s *Session) pumpFromUpstream(ctx context.Context, w *wsSession, conn WSCon
 		binary, data, err := conn.Read(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				// Oturum zaten kapaniyor: kapanis kodunu diger pompa belirledi.
+				// The session is already closing: the other pump decided
+				// the close code.
 				return
 			}
-			code, reason := protocol.WSCloseGoingAway, "yerel baglanti kapandi"
+			code, reason := protocol.WSCloseGoingAway, "the local connection closed"
 			var ce *WSCloseError
 			switch {
 			case errors.As(err, &ce):
-				// Yerel sunucunun kendi kapanis kodu: oldugu gibi gecsin.
+				// The local server's own close code: let it through as is.
 				code, reason = ce.Code, ce.Reason
 			case errors.Is(err, ErrWSClosedNormally):
 				code, reason = protocol.WSCloseNormal, ""
 			}
-			s.log.Debug("ws yerel baglanti bitti",
+			s.log.Debug("the ws local connection ended",
 				slog.Uint64("id", uint64(w.id)), slog.String("err", err.Error()))
 			w.sendClose(s, code, reason)
 			w.halt()
 			return
 		}
 		if int64(len(data)) > maxMsg {
-			s.log.Warn("yerel sunucudan gelen ws mesaji tavani asti",
-				slog.Uint64("id", uint64(w.id)), slog.Int64("tavan", maxMsg))
-			w.sendClose(s, protocol.WSCloseTooBig, "mesaj cok buyuk")
+			s.log.Warn("a ws message from the local server exceeded the limit",
+				slog.Uint64("id", uint64(w.id)), slog.Int64("limit", maxMsg))
+			w.sendClose(s, protocol.WSCloseTooBig, "the message is too large")
 			w.halt()
 			return
 		}
 		if err := w.sink.writeMessage(binary, data); err != nil {
-			s.log.Warn("ws mesaji tunele yazilamadi",
+			s.log.Warn("the ws message could not be written to the tunnel",
 				slog.Uint64("id", uint64(w.id)), slog.String("err", err.Error()))
 			w.halt()
 			return
@@ -439,29 +456,29 @@ func (s *Session) pumpFromUpstream(ctx context.Context, w *wsSession, conn WSCon
 	}
 }
 
-// ErrWSClosedNormally yerel sunucu baglantiyi temiz kapatti (kod 1000).
-// internal/wsbridge Read'den bunu doner.
-var ErrWSClosedNormally = errors.New("ws baglantisi temiz kapandi")
+// ErrWSClosedNormally means the local server closed the connection
+// cleanly (code 1000). internal/wsbridge returns it from Read.
+var ErrWSClosedNormally = errors.New("the ws connection closed cleanly")
 
-// onWSClose ziyaretciden gelen ws-close mesajini isler.
+// onWSClose handles a ws-close message from the visitor.
 func (s *Session) onWSClose(m protocol.WSClose) {
 	s.reqMu.Lock()
 	w, ok := s.socks[m.ID]
 	s.reqMu.Unlock()
 	if !ok {
-		s.log.Debug("bilinmeyen id icin ws-close", slog.Uint64("id", uint64(m.ID)))
+		s.log.Debug("ws-close for an unknown id", slog.Uint64("id", uint64(m.ID)))
 		return
 	}
 	cp := m
 	if !w.push(wsEvent{close: &cp}) {
-		// Pompa zaten bitmis: oturum kapaniyor.
+		// The pump already finished: the session is closing.
 		w.markClosedByVisitor(m.Code, m.Reason)
 		w.cancel()
 	}
 }
 
-// routeWSFrame bir cerceveyi ws oturumuna yonlendirir; sahibi ws degilse
-// false doner.
+// routeWSFrame routes a frame to a ws session; it returns false when the
+// owner is not a ws one.
 func (s *Session) routeWSFrame(frame protocol.Frame) bool {
 	s.reqMu.Lock()
 	w, ok := s.socks[frame.ID]
@@ -469,14 +486,15 @@ func (s *Session) routeWSFrame(frame protocol.Frame) bool {
 	if !ok {
 		return false
 	}
-	// Kuyruk doluysa burada beklenir: alis yonu backpressure.
+	// If the queue is full we wait here: receive-direction backpressure.
 	if !w.push(wsEvent{frame: &frame}) {
-		s.log.Debug("ws cercevesi yonlendirilemedi", slog.Uint64("id", uint64(frame.ID)))
+		s.log.Debug("the ws frame could not be routed", slog.Uint64("id", uint64(frame.ID)))
 	}
 	return true
 }
 
-// finishWS oturumu kayitlardan siler ve akis slotunu birakir.
+// finishWS removes the session from the records and releases the stream
+// slot.
 func (s *Session) finishWS(w *wsSession) {
 	s.reqMu.Lock()
 	cur, ok := s.socks[w.id]
@@ -491,11 +509,11 @@ func (s *Session) finishWS(w *wsSession) {
 	}
 }
 
-// wsSink bir ws oturumunun mesajlarini data kanalina yazar.
+// wsSink writes a ws session's messages to the data channel.
 //
-// HTTP sink'inden ayri: res/end durum makinesi yok, her mesaj kendi
-// bayragini tasir. seq oturum boyunca artar, mesaj basina sifirlanmaz
-// (protocol/README.md).
+// Separate from the HTTP sink: there is no res/end state machine, and
+// every message carries its own flags. seq increments across the session
+// rather than resetting per message (protocol/README.md).
 type wsSink struct {
 	s  *Session
 	id uint32
@@ -505,14 +523,14 @@ type wsSink struct {
 	buf     []byte
 }
 
-// writeMessage bir ws mesajini parcalara bolerek yollar.
+// writeMessage sends a ws message split into chunks.
 //
-// Bos mesaj da bir cerceve uretir: alici FIN bayragini gormeden mesajin
-// bittigini bilemez.
+// An empty message produces a frame too: without seeing the FIN flag the
+// receiver cannot know the message is over.
 func (k *wsSink) writeMessage(binary bool, data []byte) error {
 	dc, flow := k.s.dataChannel()
 	if dc == nil || flow == nil {
-		return errors.New("data kanali henuz acilmadi")
+		return errors.New("the data channel is not open yet")
 	}
 
 	for off := 0; ; off += protocol.MaxWSPayload {
@@ -526,15 +544,16 @@ func (k *wsSink) writeMessage(binary bool, data []byte) error {
 			return err
 		}
 		if dc.ReadyState() != webrtc.DataChannelStateOpen {
-			return fmt.Errorf("data kanali acik degil (%s)", dc.ReadyState())
+			return fmt.Errorf("the data channel is not open (%s)", dc.ReadyState())
 		}
 
 		k.mu.Lock()
 		seq := k.nextSeq
 		k.nextSeq++
-		// Once dis cercevenin basligi (payload'siz), sonra ws yuku: ortaya
-		// [id][seq][bayrak][parca] cikar. AppendWSPayload parcayi
-		// MaxWSPayload ile sinirladigi icin toplam MaxPayload'i gecmez.
+		// First the outer frame header (without payload), then the ws
+		// payload: that gives [id][seq][flags][chunk]. Because
+		// AppendWSPayload bounds the chunk by MaxWSPayload, the total
+		// never passes MaxPayload.
 		frame, err := protocol.AppendFrame(k.buf[:0], k.id, seq, nil)
 		if err == nil {
 			frame, err = protocol.AppendWSPayload(frame, protocol.WSChunk{
@@ -549,7 +568,7 @@ func (k *wsSink) writeMessage(binary bool, data []byte) error {
 		}
 
 		if err := dc.Send(frame); err != nil {
-			return fmt.Errorf("ws cercevesi yollanamadi: %w", err)
+			return fmt.Errorf("the ws frame could not be sent: %w", err)
 		}
 		if fin {
 			return nil

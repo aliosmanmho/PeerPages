@@ -1,18 +1,18 @@
 /// <reference lib="webworker" />
 
 /**
- * PeerPages Service Worker — elle yazilmis, elle derlenir
- * (BRIEF karari: vite-plugin-pwa kullanilmaz).
+ * PeerPages Service Worker — hand-written, built by hand
+ * (a BRIEF decision: no vite-plugin-pwa).
  *
- * Gorevi: kendi kapsamindaki TUM `fetch` isteklerini yakalayip tunel sayfasina
- * iletmek ve cevabi `ReadableStream` ile akitmak. Boylece goreli link, CSS,
- * JS, gorsel ve fetch/XHR seffaf calisir (BRIEF §2).
+ * Its job: catch EVERY `fetch` inside its own scope, hand it to the
+ * tunnel page, and stream the response back. That is what makes relative
+ * links, CSS, JS, images and fetch/XHR work transparently (BRIEF §2).
  *
- * Sinirlar (bilincli):
- *  - SW icinde WebRTC yok → baglantiyi sayfa tutar, SW yalnizca koprudur.
- *  - Tunel sayfasi kapaliysa navigasyon baglanti ekranina yonlendirilir,
- *    alt kaynaklar 503 doner.
- *  - Istek govdesi akitilmaz, tamponlanir (bridge.ts).
+ * Limits, on purpose:
+ *  - no WebRTC inside a SW, so the page holds the connection and the SW
+ *    is only a bridge;
+ *  - with the tunnel page closed, navigations are redirected to the
+ *    connect screen and subresources get a 503.
  */
 
 import { isAppShellPath } from "./base";
@@ -33,47 +33,47 @@ import { injectScriptStream } from "./inject";
 declare const self: ServiceWorkerGlobalScope;
 
 /**
- * SW'nin kapsami — DERLEME ZAMANI degil, CALISMA ZAMANI belirlenir.
+ * The SW scope — decided at RUNTIME, not at build time.
  *
- * `import.meta.env.BASE_URL` kullanmiyoruz cunku SW ayri bir vite
- * derlemesinden gecer ve iki derlemenin `base` degeri kolayca birbirinden
- * ayrilabilir (bir kez ayrildi: SW yolun onekini yanlis kirpti ve yerel
- * sunucuya /PeerPages/index.html gitti, 404). `registration.scope` her zaman
- * dogru: SW'yi sayfa hangi scope ile kaydettiyse o.
+ * We do not use `import.meta.env.BASE_URL` because the SW goes through a
+ * separate vite build and the two builds' `base` values can drift apart
+ * (they did once: the SW trimmed the path prefix wrongly and asked the
+ * local server for /PeerPages/index.html, a 404). `registration.scope` is
+ * always right: it is the scope the page registered the SW with.
  */
 const SCOPE_PATH = new URL(self.registration.scope).pathname;
 
-/** Tunelin bulundugu sayfanin client id'si; SW yeniden baslarsa yeniden bulunur. */
+/** Client id of the page holding the tunnel; refound if the SW restarts. */
 let tunnelClientId: string | null = null;
 
-/** O client'in tuneli oldugunu en son dogruladigimiz an. */
+/** When we last confirmed that client really has the tunnel. */
 let tunnelSeenAt = 0;
 
 /**
- * Onbellekteki client id'nin yeniden yoklanmadan guvenilecegi sure.
+ * How long a cached client id is trusted before it is probed again.
  *
- * Neden gerekli: `clients.get(id)` sekme HAYATTA oldugu surece bir client
- * dondurur — tuneli kaybetmis olsa bile. Sayfanin pagehide'da gonderdigi
- * "tunel gitti" haberi ise EN IYI CABADIR: sekme cokerse, oldurulurse ya da
- * sayfa gezinirse hic gelmez. Bu sure sonunda yeniden probe ediyoruz ki olu
- * bir tunele istek yonlendirmeyelim.
+ * Why it is needed: `clients.get(id)` returns a client as long as the tab
+ * is ALIVE — even after it lost the tunnel. The page's pagehide message
+ * ("tunnel gone") is BEST EFFORT: it never arrives if the tab crashes, is
+ * killed, or navigates away. After this window we probe again so requests
+ * are not routed into a dead tunnel.
  *
- * Tespit TEMBELDIR: istek gelmezse kontrol de olmaz. Zaman sinirli gercek
- * koruma ajan tarafindaki bosta kalma denetimi (agent/internal/tunnel).
- * SW'de periyodik zamanlayici guvenilmez: worker bostayken oldurulur.
+ * Detection is LAZY: no request, no check. The real time-bounded
+ * protection is the idle watchdog on the agent (agent/internal/tunnel).
+ * A periodic timer in a SW is unreliable: an idle worker gets killed.
  */
 const TUNNEL_TRUST_MS = 5000;
 
 /**
- * Sayfa "yeniden baglaniyorum" dedi ve bu ana kadar bekletmeye deger
- * (Faz 4). 0 ise bekletme yok.
+ * The page said "I am reconnecting" and holding requests is worth it
+ * until this moment (phase 4). Zero means no holding.
  */
 let reconnectingUntil = 0;
 
-/** Tunelin donmesini bekleyen istekler. */
+/** Requests waiting for the tunnel to come back. */
 let tunnelWaiters: Array<() => void> = [];
 
-/** Tunel geri geldi: bekleyen istekleri birlikte serbest birak. */
+/** Tunnel is back: release every waiting request together. */
 function releaseTunnelWaiters(): void {
   const waiters = tunnelWaiters;
   tunnelWaiters = [];
@@ -81,11 +81,11 @@ function releaseTunnelWaiters(): void {
 }
 
 /**
- * Tunelin donmesini en fazla `ms` kadar bekler.
+ * Waits at most `ms` for the tunnel to come back.
  *
- * Fetch olayi cevabi beklerken worker hayatta kalir, bu yuzden burada
- * zamanlayici guvenilir — SW'de PERIYODIK zamanlayicinin guvenilmez olmasi
- * ayri bir mesele (worker bostayken oldurulur).
+ * A fetch event keeps the worker alive while its response is pending, so
+ * a timer is reliable here — the unreliability of a PERIODIC timer in a
+ * SW is a different matter (an idle worker gets killed).
  */
 function waitForTunnel(ms: number): Promise<void> {
   return new Promise<void>((resolve) => {
@@ -102,7 +102,7 @@ function waitForTunnel(ms: number): Promise<void> {
 }
 
 self.addEventListener("install", () => {
-  // Yeni SW'yi hemen devreye al: kullanici sekmeyi kapatip acmak zorunda kalmasin.
+  // Take over immediately so the user does not have to close and reopen
   self.skipWaiting();
 });
 
@@ -137,9 +137,9 @@ self.addEventListener("message", (event: ExtendableMessageEvent) => {
       reconnectingUntil = Date.now() + RECONNECT_WINDOW_MS;
       break;
     case "bridge-ws-open": {
-      // Shim'in WebSocket istegi (Faz 6): tunel sahibini bul ve portu ona
-      // AKTAR. Sonrasi sayfa <-> sayfa; SW bosta oldurulebilir, uzun
-      // yasayan bir soket ona dayanamaz.
+      // The shim's WebSocket request (phase 6): find the tunnel owner and
+      // PASS the port along. After that it is page to page; the SW can
+      // be killed while idle and a long-lived socket cannot rely on it.
       const port = event.ports[0];
       if (!port) break;
       event.waitUntil(forwardWsOpen(msg.path, msg.protos, port));
@@ -151,11 +151,11 @@ self.addEventListener("message", (event: ExtendableMessageEvent) => {
 });
 
 /**
- * Shim'in ws istegini tunel sahibi sayfaya iletir.
+ * Forwards the shim's ws request to the tunnel-owner page.
  *
- * Tunel yoksa portu 1013 ile kapatir: shim bunu `onclose` olarak gorur ve
- * sayfa kendi yeniden deneme mantigini isletir (Vite ve Socket.IO ikisi de
- * yeniden dener).
+ * With no tunnel it closes the port with 1013: the shim sees that as
+ * `onclose` and the page runs its own retry logic (both Vite and
+ * Socket.IO do).
  */
 async function forwardWsOpen(
   path: string,
@@ -164,14 +164,14 @@ async function forwardWsOpen(
 ): Promise<void> {
   const client = await findTunnelClient();
   if (!client) {
-    port.postMessage({ type: "ws-close", code: 1013, reason: "tunel yok" });
+    port.postMessage({ type: "ws-close", code: 1013, reason: "no tunnel" });
     port.close();
     return;
   }
   try {
     client.postMessage({ type: "bridge-ws-open-forward", path, protos }, [port]);
   } catch {
-    port.postMessage({ type: "ws-close", code: 1011, reason: "kopru kurulamadi" });
+    port.postMessage({ type: "ws-close", code: 1011, reason: "bridge failed" });
     port.close();
   }
 }
@@ -179,13 +179,13 @@ async function forwardWsOpen(
 self.addEventListener("fetch", (event: FetchEvent) => {
   const request = event.request;
 
-  // Yalnizca kendi kapsamimizdaki istekler (BRIEF guvenlik ilkesi 5).
+  // Only requests inside our own scope (BRIEF security principle 5).
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (!url.pathname.startsWith(SCOPE_PATH)) return;
 
-  // App shell kendi dosyalarini tunelden GECIRMEZ: aksi halde baglanti
-  // ekranini acmak icin tunele ihtiyac duyardik (yumurta-tavuk).
+  // The app shell never sends its own files through the tunnel: we would
+  // need a tunnel to open the connect screen (chicken and egg).
   if (isAppShellPath(url.pathname, SCOPE_PATH)) return;
 
   event.respondWith(handle(request, url));
@@ -194,8 +194,8 @@ self.addEventListener("fetch", (event: FetchEvent) => {
 async function handle(request: Request, url: URL): Promise<Response> {
   let client = await findTunnelClient();
 
-  // Sayfa yeniden baglanmaya calisiyorsa istegi hemen reddetmiyoruz:
-  // uyku/uyanmadan sonra site kirilmak yerine yavaslamis gorunur.
+  // If the page is reconnecting we do not reject the request outright:
+  // after sleep/wake the site looks slow rather than broken.
   if (!client && Date.now() < reconnectingUntil) {
     const waitMs = request.mode === "navigate" ? RECONNECT_WAIT_NAVIGATE_MS : RECONNECT_WAIT_MS;
     await waitForTunnel(waitMs);
@@ -204,13 +204,13 @@ async function handle(request: Request, url: URL): Promise<Response> {
 
   if (!client) {
     if (request.mode === "navigate") {
-      // Baglanti ekranina don; connect/ tunelden gecmedigi icin acilir.
+      // Back to the connect screen; connect/ opens without the tunnel.
       return Response.redirect(
         new URL(`${SCOPE_PATH}connect/`, self.location.origin).toString(),
         302,
       );
     }
-    return new Response("peerpages: tunel acik degil\n", {
+    return new Response("peerpages: tunnel is not open\n", {
       status: 503,
       headers: {
         "content-type": "text/plain; charset=utf-8",
@@ -224,7 +224,7 @@ async function handle(request: Request, url: URL): Promise<Response> {
     try {
       body = await readLimitedBody(request);
     } catch (err) {
-      return new Response(`peerpages: istek govdesi okunamadi (${String(err)})\n`, {
+      return new Response(`peerpages: request body unreadable (${String(err)})\n`, {
         status: 413,
         headers: { "content-type": "text/plain; charset=utf-8" },
       });
@@ -233,10 +233,10 @@ async function handle(request: Request, url: URL): Promise<Response> {
 
   let response = await forward(client, request, url, body);
 
-  // Tunel tam bu istek sirasinda koptuysa sayfa "retryable" hata doner:
-  // istek hedefe hic gitmemistir. Yeniden baglanmayi kisa sure bekleyip
-  // BIR KEZ tekrar deniyoruz — yalnizca idempotent isteklerde, cunku
-  // POST'un hedefe ulasip ulasmadigini buradan bilemeyiz.
+  // If the tunnel dropped during this very request the page returns a
+  // "retryable" error, meaning the request never reached the target. We
+  // wait briefly for the reconnect and try ONCE more — only for
+  // idempotent requests, since we cannot know whether a POST arrived.
   if (response === RETRY_TUNNEL) {
     const idempotent = request.method === "GET" || request.method === "HEAD";
     if (idempotent) {
@@ -251,7 +251,7 @@ async function handle(request: Request, url: URL): Promise<Response> {
   }
 
   if (response === RETRY_TUNNEL) {
-    return new Response("peerpages: tunel acik degil\n", {
+    return new Response("peerpages: tunnel is not open\n", {
       status: 502,
       headers: {
         "content-type": "text/plain; charset=utf-8",
@@ -263,28 +263,28 @@ async function handle(request: Request, url: URL): Promise<Response> {
 }
 
 /**
- * forward'in "tunel yoktu, istek gitmedi" cevabi.
+ * The answer from forward() meaning "there was no tunnel, nothing sent".
  *
- * Response yerine ayri bir deger: cagiran taraf bunu tekrar deneyip
- * deneyemeyecegine karar verir.
+ * A separate value rather than a Response: the caller decides whether it
+ * may retry.
  */
 const RETRY_TUNNEL = Symbol("retry-tunnel");
 
-/** Istek govdesini sinirli boyutta tamponlar. */
+/** Buffers the request body up to a bounded size. */
 async function readLimitedBody(request: Request): Promise<ArrayBuffer | null> {
   const buf = await request.clone().arrayBuffer();
   if (buf.byteLength === 0) return null;
   if (buf.byteLength > MAX_BUFFERED_REQUEST_BODY) {
-    throw new Error(`govde cok buyuk: ${buf.byteLength} bayt`);
+    throw new Error(`body too large: ${buf.byteLength} bytes`);
   }
   return buf;
 }
 
 /**
- * Istegi tunel sayfasina iletir ve cevabi akis halinde dondurur.
+ * Forwards the request to the tunnel page and streams the response back.
  *
- * Tam govde beklenmez: `res` gelir gelmez Response olusturulur, parcalar
- * geldikce akisa yazilir (BRIEF Faz 1).
+ * The full body is never awaited: a Response is built as soon as `res`
+ * arrives and chunks are written to the stream as they come (BRIEF phase 1).
  */
 function forward(
   client: Client,
@@ -325,7 +325,7 @@ function forward(
         try {
           controller.close();
         } catch {
-          // Zaten kapanmis olabilir.
+          // It may already be closed.
         }
       }
       channel.port1.close();
@@ -383,8 +383,8 @@ function forward(
       headers[name.toLowerCase()] = value;
     });
 
-    // Scope oneki cikarilir: yerel sunucu "/index.html" bekler,
-    // ziyaretci "/PeerPages/index.html" istemistir.
+    // The scope prefix is stripped: the local server expects
+    // "/index.html" while the visitor asked for "/PeerPages/index.html".
     const path = `/${url.pathname.slice(SCOPE_PATH.length)}${url.search}`;
 
     try {
@@ -405,14 +405,14 @@ function forward(
 }
 
 /**
- * Cevabi kurar ve gerekiyorsa WebSocket shim'ini enjekte eder (Faz 6).
+ * Builds the response and injects the WebSocket shim when needed (phase 6).
  *
- * Enjeksiyon YALNIZCA iki kosul birlikte saglanirsa: ajan
- * `x-peerpages-ws-shim` isaretini koymus (yani `--inject-ws-shim` verilmis)
- * VE cevap HTML. Baska hicbir cevaba dokunulmaz.
+ * Injection happens ONLY when both hold: the agent set the
+ * `x-peerpages-ws-shim` marker (i.e. `--inject-ws-shim` was passed) AND
+ * the response is HTML. Nothing else is ever touched.
  *
- * Isaret ziyaretciye GITMEZ: ajanla aramizdaki bir detay, sayfanin gormesi
- * gereken bir sey degil.
+ * The marker does NOT reach the visitor: it is a detail between us and
+ * the agent, not something the page should see.
  */
 function buildResponse(msg: BridgeResponseHead, stream: ReadableStream<Uint8Array>): Response {
   const headers = new Headers(msg.headers);
@@ -431,31 +431,31 @@ function buildResponse(msg: BridgeResponseHead, stream: ReadableStream<Uint8Arra
   return new Response(body, { status: msg.status, headers });
 }
 
-/** content-type HTML mi (parametreler yok sayilir). */
+/** Is this content-type HTML (parameters ignored)? */
 function isHTMLResponse(contentType: string | null): boolean {
   if (!contentType) return false;
   const mime = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
   return mime === "text/html" || mime === "application/xhtml+xml";
 }
 
-/** 204/205/304 govde tasiyamaz; aksi halde Response kurucusu hata verir. */
+/** 204/205/304 carry no body; the Response constructor would throw. */
 function statusAllowsBody(status: number): boolean {
   return status !== 204 && status !== 205 && status !== 304;
 }
 
 /**
- * Tunelin bulundugu sayfayi bulur.
+ * Finds the page that holds the tunnel.
  *
- * SW oldurulup yeniden baslatilabilir; o zaman hafizadaki client id kaybolur.
- * Bu yuzden pencereler tek tek yoklanir ve ilk "tunelim var" diyen onbellege
- * alinir.
+ * The SW can be killed and restarted, losing the cached client id. So we
+ * probe the windows one by one and cache the first that says it has the
+ * tunnel.
  */
 async function findTunnelClient(): Promise<Client | null> {
   if (tunnelClientId) {
     const cached = await self.clients.get(tunnelClientId);
     if (cached) {
-      // Taze ise oldugu gibi kullan; bayatladiysa gercekten tuneli var mi
-      // diye sor (sekme hayatta ama tunelsiz olabilir).
+      // Fresh enough: use it. Stale: ask whether it still has the tunnel
+      // (the tab can be alive but tunnel-less).
       if (Date.now() - tunnelSeenAt < TUNNEL_TRUST_MS) return cached;
       if (await probe(cached)) {
         tunnelSeenAt = Date.now();

@@ -16,13 +16,13 @@ agent/coverage.out
 # goreleaser cikisi
 dist/
 
-# üretilen test verisi (deterministik, repoda tutulmaz)
+# generated test data (deterministic, not kept in the repo)
 agent/testdata/site/big.bin
 
-# ajan durumu
+# the agent's state
 .peerpages/
 
-# editör / işletim sistemi
+# editor / operating system
 .DS_Store
 Thumbs.db
 *.swp

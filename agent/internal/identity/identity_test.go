@@ -19,10 +19,10 @@ func TestGenerateProducesValidPair(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !gonostr.IsValid32ByteHex(id.SecretKey) {
-		t.Errorf("gizli anahtar hex degil: %q", id.SecretKey)
+		t.Errorf("the secret key is not hex: %q", id.SecretKey)
 	}
 	if !gonostr.IsValid32ByteHex(id.PublicKey) {
-		t.Errorf("pubkey hex degil: %q", id.PublicKey)
+		t.Errorf("the pubkey is not hex: %q", id.PublicKey)
 	}
 
 	npub, err := id.Npub()
@@ -30,7 +30,7 @@ func TestGenerateProducesValidPair(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(npub, "npub1") {
-		t.Errorf("npub oneki yanlis: %q", npub)
+		t.Errorf("the npub prefix is wrong: %q", npub)
 	}
 
 	nsec, err := id.Nsec()
@@ -38,7 +38,7 @@ func TestGenerateProducesValidPair(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(nsec, "nsec1") {
-		t.Errorf("nsec oneki yanlis: %q", nsec)
+		t.Errorf("the nsec prefix is wrong: %q", nsec)
 	}
 }
 
@@ -52,7 +52,7 @@ func TestGenerateIsRandom(t *testing.T) {
 		t.Fatal(err)
 	}
 	if a.SecretKey == b.SecretKey {
-		t.Error("iki uretim ayni anahtari verdi")
+		t.Error("two generations produced the same key")
 	}
 }
 
@@ -68,39 +68,39 @@ func TestFromSecretKeyAcceptsHexAndNsec(t *testing.T) {
 
 	fromHex, err := identity.FromSecretKey(orig.SecretKey)
 	if err != nil {
-		t.Fatalf("hex kabul edilmeliydi: %v", err)
+		t.Fatalf("hex should have been accepted: %v", err)
 	}
 	fromNsec, err := identity.FromSecretKey(nsec)
 	if err != nil {
-		t.Fatalf("nsec kabul edilmeliydi: %v", err)
+		t.Fatalf("an nsec should have been accepted: %v", err)
 	}
 
 	if fromHex.PublicKey != orig.PublicKey || fromNsec.PublicKey != orig.PublicKey {
-		t.Error("ayni anahtardan farkli pubkey turedi")
+		t.Error("the same key derived a different pubkey")
 	}
 
-	// Bosluklu ve buyuk harfli hex de kabul edilmeli.
+	// Hex with whitespace and uppercase has to be accepted too.
 	spaced, err := identity.FromSecretKey("  " + strings.ToUpper(orig.SecretKey) + "\n")
 	if err != nil {
-		t.Fatalf("bosluklu/buyuk harfli hex kabul edilmeliydi: %v", err)
+		t.Fatalf("hex with whitespace or uppercase should have been accepted: %v", err)
 	}
 	if spaced.PublicKey != orig.PublicKey {
-		t.Error("normalize edilmis hex farkli pubkey verdi")
+		t.Error("the normalized hex produced a different pubkey")
 	}
 }
 
 func TestFromSecretKeyRejects(t *testing.T) {
 	cases := map[string]string{
-		"bos":           "",
-		"sadece bosluk": "   ",
-		"kisa hex":      "abcd",
-		"hex degil":     strings.Repeat("z", 64),
-		"npub verildi":  "npub1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-		"bozuk nsec":    "nsec1bozuk",
+		"empty":            "",
+		"whitespace only":  "   ",
+		"short hex":        "abcd",
+		"not hex":          strings.Repeat("z", 64),
+		"npub verildi":     "npub1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+		"a malformed nsec": "nsec1broken",
 	}
 	for name, in := range cases {
 		if got, err := identity.FromSecretKey(in); err == nil {
-			t.Errorf("%s: reddedilmeliydi, donen pubkey %q", name, got.PublicKey)
+			t.Errorf("%s: should have been refused, returned pubkey %q", name, got.PublicKey)
 		}
 	}
 }
@@ -114,36 +114,36 @@ func TestSaveAndLoadRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := identity.Save(path, orig); err != nil {
-		t.Fatalf("Save hata: %v", err)
+		t.Fatalf("Save error: %v", err)
 	}
 
 	got, err := identity.Load(path)
 	if err != nil {
-		t.Fatalf("Load hata: %v", err)
+		t.Fatalf("Load error: %v", err)
 	}
 	if got.SecretKey != orig.SecretKey || got.PublicKey != orig.PublicKey {
-		t.Error("roundtrip bozuldu")
+		t.Error("the round trip broke")
 	}
 
-	// Dosya nsec olarak ve aciklama satirlariyla yazilmali.
+	// The file has to be written as an nsec, with the comment lines.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(data)
 	if !strings.Contains(text, "nsec1") {
-		t.Errorf("dosya nsec icermeli:\n%s", text)
+		t.Errorf("the file has to contain an nsec:\n%s", text)
 	}
-	if !strings.Contains(text, "PAYLASMA") {
-		t.Errorf("dosya uyari satiri icermeli:\n%s", text)
+	if !strings.Contains(text, "DO NOT SHARE") {
+		t.Errorf("the file has to contain the warning line:\n%s", text)
 	}
 	if strings.Contains(text, orig.SecretKey) {
-		t.Error("ham hex gizli anahtar dosyaya yazilmamali (nsec yeterli)")
+		t.Error("a raw hex secret key must not be written to the file (the nsec is enough)")
 	}
 }
 
-// Var olan anahtarin uzerine YAZILMAMALI: peer-id degisirse kullanicinin
-// payllastigi URL sessizce gecersiz olur.
+// An existing key MUST NOT be overwritten: if the peer-id changes, the
+// URL the user shared quietly stops working.
 func TestSaveRefusesToOverwrite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "key")
 
@@ -160,7 +160,7 @@ func TestSaveRefusesToOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := identity.Save(path, second); err == nil {
-		t.Fatal("var olan dosyanin uzerine yazilmamaliydi")
+		t.Fatal("an existing file should not have been overwritten")
 	}
 
 	got, err := identity.Load(path)
@@ -168,13 +168,13 @@ func TestSaveRefusesToOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.SecretKey != first.SecretKey {
-		t.Error("ilk anahtar korunmaliydi")
+		t.Error("the first key should have been kept")
 	}
 }
 
 func TestSaveUsesRestrictivePermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("Windows'ta POSIX izinleri yok; koruma ACL'lere kaliyor")
+		t.Skip("there are no POSIX permissions on Windows; the ACLs have to carry the protection")
 	}
 	path := filepath.Join(t.TempDir(), "gizli", "key")
 
@@ -191,21 +191,21 @@ func TestSaveUsesRestrictivePermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if perm := st.Mode().Perm(); perm != 0o600 {
-		t.Errorf("dosya izni %o, beklenen 600", perm)
+		t.Errorf("file permissions %o, expected 600", perm)
 	}
 	dst, err := os.Stat(filepath.Dir(path))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if perm := dst.Mode().Perm(); perm != 0o700 {
-		t.Errorf("dizin izni %o, beklenen 700", perm)
+		t.Errorf("directory permissions %o, expected 700", perm)
 	}
 }
 
 func TestLoadMissingFile(t *testing.T) {
-	_, err := identity.Load(filepath.Join(t.TempDir(), "yok"))
+	_, err := identity.Load(filepath.Join(t.TempDir(), "missing"))
 	if !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("os.ErrNotExist beklenirdi, geldi: %v", err)
+		t.Errorf("os.ErrNotExist was expected, got: %v", err)
 	}
 }
 
@@ -229,23 +229,23 @@ func TestLoadSkipsCommentsAndBlankLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.PublicKey != orig.PublicKey {
-		t.Error("yorumlu dosya dogru okunmadi")
+		t.Error("a file with comments was not read correctly")
 	}
 }
 
 func TestLoadRejectsCorruptFile(t *testing.T) {
 	for name, content := range map[string]string{
-		"bos":          "",
-		"sadece yorum": "# yalnizca yorum\n",
-		"cop":          "bu bir anahtar degil\n",
-		"yarim nsec":   "nsec1abc\n",
+		"empty":          "",
+		"a comment only": "# only a comment\n",
+		"cop":            "this is not a key\n",
+		"yarim nsec":     "nsec1abc\n",
 	} {
 		path := filepath.Join(t.TempDir(), "key")
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := identity.Load(path); err == nil {
-			t.Errorf("%s: reddedilmeliydi", name)
+			t.Errorf("%s: should have been refused", name)
 		}
 	}
 }
@@ -258,7 +258,7 @@ func TestLoadOrCreate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !created {
-		t.Error("ilk cagri anahtari uretmeliydi")
+		t.Error("the first call should have generated the key")
 	}
 
 	second, created, err := identity.LoadOrCreate(path)
@@ -266,23 +266,24 @@ func TestLoadOrCreate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if created {
-		t.Error("ikinci cagri var olani okumaliydi")
+		t.Error("the second call should have read the existing one")
 	}
 	if second.SecretKey != first.SecretKey {
-		t.Error("peer-id degismemeli: ayni anahtar donmeliydi")
+		t.Error("the peer-id must not change: the same key should have come back")
 	}
 }
 
-// Bozuk dosya varsa SESSIZCE yeni anahtar uretilmemeli: peer-id degisirse
-// kullanicinin paylastigi URL calismaz ve nedeni gorunmez.
+// With a corrupt file no new key may be generated SILENTLY: if the
+// peer-id changes, the URL the user shared stops working and the cause
+// stays invisible.
 func TestLoadOrCreateDoesNotMaskCorruptFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "key")
-	if err := os.WriteFile(path, []byte("bozuk icerik\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("corrupt content\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, created, err := identity.LoadOrCreate(path); err == nil {
-		t.Errorf("bozuk dosya hata vermeliydi (created=%v)", created)
+		t.Errorf("a corrupt file should have returned an error (created=%v)", created)
 	}
 }
 
@@ -298,20 +299,20 @@ func TestShortenNpub(t *testing.T) {
 
 	short := identity.ShortenNpub(npub)
 	if len(short) >= len(npub) {
-		t.Errorf("kisaltilmali: %q", short)
+		t.Errorf("it has to be shortened: %q", short)
 	}
 	if !strings.HasPrefix(short, npub[:12]) {
-		t.Errorf("ilk 12 karakter korunmali: %q", short)
+		t.Errorf("the first 12 characters have to be kept: %q", short)
 	}
 	if !strings.HasSuffix(short, npub[len(npub)-4:]) {
-		t.Errorf("son 4 karakter korunmali: %q", short)
+		t.Errorf("the last 4 characters have to be kept: %q", short)
 	}
 	if id.Short() != short {
-		t.Error("Short() ShortenNpub ile ayni olmali")
+		t.Error("Short() has to match ShortenNpub")
 	}
 
-	if got := identity.ShortenNpub("kisa"); got != "kisa" {
-		t.Errorf("kisa deger degismemeli: %q", got)
+	if got := identity.ShortenNpub("short"); got != "short" {
+		t.Errorf("a short value must not change: %q", got)
 	}
 }
 
@@ -325,40 +326,40 @@ func TestVisitorURL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := id.VisitorURL("https://kullanici.github.io/PeerPages/", "", "")
+	got, err := id.VisitorURL("https://example.github.io/PeerPages/", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "https://kullanici.github.io/PeerPages/#" + npub
+	want := "https://example.github.io/PeerPages/#" + npub
 	if got != want {
-		t.Errorf("URL:\n  geldi:    %s\n  beklenen: %s", got, want)
+		t.Errorf("URL:\n  got:      %s\n  expected: %s", got, want)
 	}
 
-	// Sondaki bolu eksikse eklenmeli.
-	got, err = id.VisitorURL("https://kullanici.github.io/PeerPages", "", "default")
+	// A missing trailing slash has to be added.
+	got, err = id.VisitorURL("https://example.github.io/PeerPages", "", "default")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != want {
-		t.Errorf("sondaki bolu eklenmeli: %s", got)
+		t.Errorf("a trailing slash has to be added: %s", got)
 	}
 
-	// Sir varsa `#npub:secret`.
+	// With a secret it is `#npub:secret`.
 	got, err = id.VisitorURL("https://x.example/", "gizli", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "https://x.example/#"+npub+":gizli" {
-		t.Errorf("sirli URL: %s", got)
+		t.Errorf("the URL with a secret: %s", got)
 	}
 
-	// Hedef varsa npub'dan SONRA, sirdan ONCE gelir.
+	// A target comes AFTER the npub and BEFORE the secret.
 	got, err = id.VisitorURL("https://x.example/", "", "admin")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "https://x.example/#"+npub+"/admin" {
-		t.Errorf("hedefli URL: %s", got)
+		t.Errorf("the URL with a target: %s", got)
 	}
 
 	got, err = id.VisitorURL("https://x.example/", "gizli", "admin")
@@ -366,20 +367,21 @@ func TestVisitorURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != "https://x.example/#"+npub+"/admin:gizli" {
-		t.Errorf("hedefli + sirli URL: %s", got)
+		t.Errorf("the URL with a target and a secret: %s", got)
 	}
 
-	// "default" varsayilan hedef: URL'ye eklenmez, kisa kalir.
+	// "default" is the default target: it is not added to the URL, which
+	// stays short.
 	got, err = id.VisitorURL("https://x.example/", "", "default")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "https://x.example/#"+npub {
-		t.Errorf("default hedef URL'ye eklenmemeli: %s", got)
+		t.Errorf("the default target must not be added to the URL: %s", got)
 	}
 
 	if _, err := id.VisitorURL("", "", ""); err == nil {
-		t.Error("bos app URL'si reddedilmeliydi")
+		t.Error("an empty app URL should have been refused")
 	}
 }
 
@@ -389,12 +391,12 @@ func TestDefaultKeyPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	if filepath.Base(path) != "key" {
-		t.Errorf("dosya adi 'key' olmali: %s", path)
+		t.Errorf("the file name has to be 'key': %s", path)
 	}
 	if filepath.Base(filepath.Dir(path)) != ".peerpages" {
-		t.Errorf("dizin '.peerpages' olmali: %s", path)
+		t.Errorf("the directory has to be '.peerpages': %s", path)
 	}
 	if !filepath.IsAbs(path) {
-		t.Errorf("mutlak yol olmali: %s", path)
+		t.Errorf("it has to be an absolute path: %s", path)
 	}
 }

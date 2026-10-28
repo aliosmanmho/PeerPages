@@ -1,66 +1,71 @@
-# PeerPages signaling protokolü — normatif tanım
+# The PeerPages signaling protocol — the normative definition
 
-Bu dosya Nostr üzerinden taşınan signaling mesajlarının **tek doğru
-kaynağıdır**. `signaling-testvectors.json` bu tanımın makine tarafından
-okunabilir karşılığıdır ve **hem** TypeScript (`web/src/nostr/`) **hem** Go
-(`agent/internal/signaling/`) tarafı aynı dosyayı okuyarak test edilir.
+This file is the **single source of truth** for the signaling messages
+carried over Nostr. `signaling-testvectors.json` is the machine-readable
+counterpart of this definition, and **both** the TypeScript
+(`web/src/nostr/`) **and** the Go (`agent/internal/signaling/`) side are
+tested by reading the same file.
 
-Data channel protokolü ayrı bir dosyada: [`README.md`](README.md).
+The data channel protocol lives in a separate file:
+[`README.md`](README.md).
 
-> Değiştiriyorsan: bu dosyayı güncelle, vektör ekle, iki tarafı da yeşile
-> geçir. Tek taraflı değişiklik kabul edilmez (`../CONTRIBUTING.md`).
+> If you change it: update this file, add vectors, and get both sides
+> green. A one-sided change is not accepted (`../CONTRIBUTING.md`).
 
-## Taşıma: Nostr event'i
+## The transport: a Nostr event
 
-| Alan | Değer |
+| Field | Value |
 |---|---|
-| `kind` | **25050** — ephemeral aralıkta (20000–29999), relay'ler saklamaz |
-| `tags` | `[["p", "<alıcı pubkey hex>"]]` |
-| `content` | **NIP-44** ile şifrelenmiş *payload* (aşağıda) |
-| `pubkey` | gönderenin pubkey'i (ziyaretçide her ziyarette yeni, geçici) |
+| `kind` | **25050** — in the ephemeral range (20000–29999), so relays do not store it |
+| `tags` | `[["p", "<recipient pubkey hex>"]]` |
+| `content` | the *payload* (below) encrypted with **NIP-44** |
+| `pubkey` | the sender's pubkey (on the visitor side a new, ephemeral one on every visit) |
 
-Relay'ler yalnızca "bir pubkey bir şey aldı" görür; içerik onlara kapalıdır
-(`../docs/BRIEF.md` §6 ilke 2).
+Relays only see "a pubkey received something"; the content is closed to
+them (`../docs/BRIEF.md` section 6, principle 2).
 
-### Kimler kimdir
+### Who is who
 
-- **Ajan**: uzun ömürlü kimlik. peer-id = **tam npub**, URL'de `#` sonrası.
-- **Ziyaretçi**: her ziyarette **yeni geçici keypair** üretir.
+- **The agent**: a long-lived identity. peer-id = the **full npub**, after
+  the `#` in the URL.
+- **The visitor**: generates a **new ephemeral keypair** on every visit.
 
-### Akış
+### The flow
 
 ```
-ziyaretçi                        relay'ler                        ajan
+visitor                          relays                          agent
     │                                │                              │
-    │  offer     (#p = ajan npub) ──►│──────────────────────────────►│
+    │  offer     (#p = agent npub) ─►│──────────────────────────────►│
     │                                │                              │ Session(answerer)
-    │◄───────────────────────────────│◄── answer   (#p = ziyaretçi) ─│
-    │  candidate (#p = ajan)      ──►│──────────────────────────────►│
-    │◄───────────────────────────────│◄── candidate (#p = ziyaretçi) │
+    │◄───────────────────────────────│◄── answer    (#p = visitor) ──│
+    │  candidate (#p = agent)     ──►│──────────────────────────────►│
+    │◄───────────────────────────────│◄── candidate (#p = visitor) ──│
     │                                │                              │
-    │           … WebRTC kurulur, signaling biter …                  │
+    │           … WebRTC comes up, signaling ends …                  │
     │                                │                              │
-    │  bye       (#p = ajan)      ──►│──────────────────────────────►│
+    │  bye       (#p = agent)     ──►│──────────────────────────────►│
 ```
 
-**Offer'ı ziyaretçi yayınlar.** Ajan, ziyaretçinin geçici pubkey'ini önceden
-bilemez — dolayısıyla ilk mesajı o gönderemez (kime şifreleyeceğini bilemez).
-Karar ve gerekçesi `../docs/BRIEF.md` §8'de.
+**The visitor publishes the offer.** The agent cannot know the visitor's
+ephemeral pubkey in advance — so it cannot send the first message (it
+would not know who to encrypt to). The decision and its reasoning are in
+`../docs/BRIEF.md` section 8.
 
-## Payload
+## The payload
 
-NIP-44'ün *içine* konan düz metin. İki biçimi var:
+The plain text put *inside* NIP-44. It has two forms:
 
-| Biçim | Ne zaman |
+| Form | When |
 |---|---|
-| kanonik JSON (aşağıda) | paylaşılan sır yok |
-| `pps1.<base64url>` | paylaşılan sır var (`--secret`) |
+| canonical JSON (below) | there is no shared secret |
+| `pps1.<base64url>` | there is a shared secret (`--secret`) |
 
-Alıcı, payload'ın `pps1.` ile başlayıp başlamadığına bakarak hangisi olduğunu
-anlar. Ajan `--secret` ile başlatılmışsa **sırsız payload'ı reddeder**; sır
-olmadan başlatılmışsa `pps1.` payload'ı çözemez ve reddeder.
+The receiver tells which one it is by whether the payload starts with
+`pps1.`. If the agent was started with `--secret` it **refuses an unsealed
+payload**; if it was started without one it cannot open a `pps1.` payload
+and refuses it.
 
-## Mesajlar
+## The messages
 
 ```jsonc
 { "v": 1, "t": "offer",     "sid": "0123456789abcdef", "sdp": "v=0\r\n…" }
@@ -70,130 +75,136 @@ olmadan başlatılmışsa `pps1.` payload'ı çözemez ve reddeder.
 { "v": 1, "t": "bye",       "sid": "0123456789abcdef", "reason": "visitor-left" }
 ```
 
-### Alan kuralları
+### The field rules
 
-| Alan | Tip | Kural |
+| Field | Type | Rule |
 |---|---|---|
-| `v` | tamsayı | şimdilik yalnızca `1` |
+| `v` | integer | only `1` for now |
 | `t` | string | `offer` / `answer` / `candidate` / `bye` |
-| `sid` | string | **tam 16 küçük harf hex** karakter (64 bit) |
-| `sdp` | string | boş olamaz, en fazla 65536 bayt |
-| `target` | string | **yalnızca `offer`'da, opsiyonel**; `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$` (1–32 karakter) |
-| `cand` | string | boş olamaz, en fazla 1024 bayt |
-| `mid` | string | boş olamaz, en fazla 32 bayt (`sdpMid`) |
-| `reason` | string | boş olamaz, en fazla 64 bayt |
+| `sid` | string | **exactly 16 lowercase hex** characters (64 bits) |
+| `sdp` | string | must not be empty, at most 65536 bytes |
+| `target` | string | **on `offer` only, and optional**; `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$` (1–32 characters) |
+| `cand` | string | must not be empty, at most 1024 bytes |
+| `mid` | string | must not be empty, at most 32 bytes (`sdpMid`) |
+| `reason` | string | must not be empty, at most 64 bytes |
 
-### Hedef seçimi (`target`)
+### Choosing the target (`target`)
 
-Bir ajan birden çok yerel projeyi yayınlayabilir
+One agent can share several local projects
 (`--target default=http://localhost:3000 --target admin=http://localhost:4000`).
-Ziyaretçi hangisini istediğini **URL'de** söyler (`#npub1…/admin`) ve bu ad
-`offer`'da taşınır.
+The visitor says which one they want **in the URL** (`#npub1…/admin`), and
+that name rides in the `offer`.
 
-| Durum | Davranış |
+| Case | Behaviour |
 |---|---|
-| `target` yok | ajan `default`'u kullanır; o da yoksa alfabetik ilk hedef |
-| `target` tanımlı bir ad | o hedefe bağlanılır |
-| `target` tanımsız bir ad | ajan `bye` + `reason: "unknown-target"` döner, oturum **hiç kurulmaz** |
+| no `target` | the agent uses `default`; with none, the alphabetically first target |
+| `target` is a defined name | that target is used |
+| `target` is an undefined name | the agent answers `bye` + `reason: "unknown-target"` and **no session is built at all** |
 
-Hedef **oturum başına sabittir**: tünel kurulduktan sonra değişmez, değiştirmek
-yeni bir bağlantı (yeni URL) demektir. Bu yüzden alan `offer`'da, data channel
-protokolünün `req` mesajında değil — Faz 1'in çerçeveleme ve kanonik anahtar
-sırası hiç değişmedi. Hedef adlarının listesi tünel açıldıktan sonra ctrl
-`hello` mesajındaki `targets` alanıyla da bildirilir (bkz. [`README.md`](README.md)).
+The target is **fixed per session**: it does not change once the tunnel is
+up, and changing it means a new connection (a new URL). That is why the
+field lives in the `offer` rather than in the data channel protocol's
+`req` message — phase 1's framing and canonical key order never changed.
+The list of target names is also announced after the tunnel opens, in the
+`targets` field of the ctrl `hello` message (see [`README.md`](README.md)).
 
-`target` diğer mesaj tiplerinde **anlamsızdır** ve okunmaz (ayrıştırıcı
-tanımadığı alanları genel olarak yok sayar).
+`target` is **meaningless** on the other message types and is not read
+(the parser ignores fields it does not recognise in general).
 
-`sid` neden var: bir ajana aynı anda birden çok ziyaretçi gelebilir ve
-`candidate` mesajlarının hangi oturuma ait olduğu bilinmek zorunda. Ziyaretçi
-üretir, ajan aynısını yansıtır.
+Why `sid` exists: several visitors can reach one agent at the same time,
+and which session a `candidate` message belongs to has to be known. The
+visitor generates it and the agent mirrors it back.
 
-**Aday sonu (end-of-candidates) taşınmaz.** Tarayıcı `onicecandidate`'i `null`
-ile bir kez daha çağırır; biz bunu göndermiyoruz, sadece göndermeyi bırakıyoruz.
-Bu yüzden `cand` boş olamaz.
+**End-of-candidates is not carried.** The browser calls
+`onicecandidate` one more time with `null`; we do not send that, we simply
+stop sending. That is why `cand` cannot be empty.
 
-### Hata kodları
+### The error codes
 
-Data channel protokolüyle **aynı** kod kümesi (`README.md`):
+**The same** set of codes as the data channel protocol
+(`README.md`):
 
-| Kod | Ne zaman |
+| Code | When |
 |---|---|
-| `bad-json` | JSON okunamadı ya da en üst düzey bir nesne değil |
-| `unknown-type` | `t` tanınmayan bir değer (boş string dahil) |
-| `missing-field` | tip için zorunlu bir alan yok |
-| `bad-field` | alan var ama tipi/aralığı/biçimi geçersiz |
-| `bad-secret` | `pps1.` payload çözülemedi (yanlış/eksik sır) ya da sır beklenirken düz JSON geldi |
+| `bad-json` | the JSON could not be read, or the top level is not an object |
+| `unknown-type` | `t` holds an unrecognised value (an empty string included) |
+| `missing-field` | a field required for the type is missing |
+| `bad-field` | the field is there but its type, range or format is invalid |
+| `bad-secret` | a `pps1.` payload could not be opened (a wrong or missing secret), or plain JSON arrived where a secret was expected |
 
-Sıralama: `bad-secret` → `bad-json` → `missing-field` (`t` yoksa) →
-`bad-field` (`t` string değilse) → `unknown-type` → tipe özgü kontroller.
+The order: `bad-secret` → `bad-json` → `missing-field` (when `t` is
+absent) → `bad-field` (when `t` is not a string) → `unknown-type` → the
+type-specific checks.
 
-### Kanonik serileştirme
+### The canonical serialization
 
-Vektörlerin iki dilde **bayt bayt aynı** doğrulanabilmesi için:
+So the vectors can be verified **byte for byte** in both languages:
 
-1. Boşluk yok.
-2. Anahtar sırası tipe göre sabit:
+1. No whitespace.
+2. The key order is fixed per type:
 
-   | Tip | Sıra |
+   | Type | Order |
    |---|---|
-   | `offer` | `v, t, sid, sdp` + hedef varsa `, target` |
+   | `offer` | `v, t, sid, sdp` plus `, target` when there is one |
    | `answer` | `v, t, sid, sdp` |
    | `candidate` | `v, t, sid, cand, mid` |
    | `bye` | `v, t, sid, reason` |
 
-3. Opsiyonel alan yoksa **hiç yazılmaz** — boş string ya da `null` olarak
-   yazılmaz. Bugün bu yalnızca `offer.target` için geçerli; hedefsiz bir
-   `offer`'ın kanonik biçimi bu alan eklenmeden önceki haliyle **birebir
-   aynıdır**, yani eski vektörler aynen geçerli kalır.
-4. HTML kaçışı yapılmaz, ASCII dışı karakterler `\u` ile kaçırılmaz.
-   Kontrol karakterleri `JSON.stringify` ile aynı kaçırılır (`\n`, `\r`,
-   `\t`, `\b`, `\f`, diğerleri `\u00xx`). SDP `\r\n` içerdiği için bu kural
-   pratikte her mesajda işliyor.
+3. An absent optional field is **not written at all** — not as an empty
+   string and not as `null`. Today that holds for `offer.target` only; the
+   canonical form of a target-less `offer` is **exactly** what it was
+   before this field existed, so the old vectors stay valid as they are.
+4. No HTML escaping, and non-ASCII characters are not escaped with `\u`.
+   Control characters are escaped the same way `JSON.stringify` does
+   (`\n`, `\r`, `\t`, `\b`, `\f`, everything else `\u00xx`). Because an
+   SDP contains `\r\n`, that rule applies to every message in practice.
 
-## Paylaşılan sır katmanı (`--secret`)
+## The shared secret layer (`--secret`)
 
-Sır, **NIP-44'ün altında** ek bir katmandır. Amacı: peer-id'yi (npub) bilen
-ama sırrı bilmeyen birinin ajana geçerli bir offer gönderememesi.
+The secret is an extra layer **beneath NIP-44**. Its point: someone who
+knows the peer-id (the npub) but not the secret cannot send the agent a
+valid offer.
 
 ```
-anahtar = HKDF-SHA256(
-    ikm  = UTF-8(secret),
-    salt = UTF-8("peerpages-secret-v1"),
-    info = UTF-8("signaling"),
-    len  = 32)
+key     = HKDF-SHA256(
+              ikm  = UTF-8(secret),
+              salt = UTF-8("peerpages-secret-v1"),
+              info = UTF-8("signaling"),
+              len  = 32)
 
-nonce   = 12 rastgele bayt
+nonce   = 12 random bytes
 ct      = ChaCha20-Poly1305_Seal(
-              key = anahtar,
+              key = key,
               nonce = nonce,
-              plaintext = kanonik JSON,
+              plaintext = the canonical JSON,
               aad = UTF-8("peerpages-signaling-v1"))
 
 payload = "pps1." + base64url_nopad(nonce || ct)
 ```
 
-- `base64url_nopad`: RFC 4648 §5 alfabesi (`-` ve `_`), **dolgu yok**.
-- `ct` AEAD etiketini (16 bayt) içerir.
-- Çözme ters sırada; etiket doğrulanamazsa `bad-secret`.
+- `base64url_nopad`: the RFC 4648 section 5 alphabet (`-` and `_`), with
+  **no padding**.
+- `ct` includes the AEAD tag (16 bytes).
+- Opening it is the reverse; if the tag cannot be verified it is
+  `bad-secret`.
 
-**Sır neyi korumaz:** relay'ler yine "bu npub bir şey aldı" görür, yani
-ajanın çevrimiçi olduğu ve ne zaman trafik aldığı gizlenmez. Sır yalnızca
-*bağlanma yetkisini* korur.
+**What the secret does not protect:** relays still see "this npub received
+something", so neither that the agent is online nor when it received
+traffic is hidden. The secret only guards *the right to connect*.
 
-## Güvenlik kuralları (ajan tarafı)
+## The security rules (agent side)
 
-Ziyaretçi güvenilmez (`../docs/BRIEF.md` §6 ilke 4):
+The visitor is untrusted (`../docs/BRIEF.md` section 6, principle 4):
 
-| Kural | Neden |
+| Rule | Why |
 |---|---|
-| `created_at` ±5 dk dışındaysa reddet | eski event'lerin tekrar oynatılması |
-| Görülen event id'lerini kısa süre tut, tekrarını reddet | replay |
-| Ziyaretçi pubkey'i başına hız limiti | spam / kaynak tüketimi |
-| Eşzamanlı oturum tavanı | kaynak tüketimi |
-| Bilinmeyen `sid` için `candidate` reddet | durum kirletme |
-| `sdp` / `cand` boyut sınırları | bellek tüketimi |
-| Loglarda pubkey kısaltılır | gereksiz kimlik izi |
+| Refuse a `created_at` outside ±5 min | the replay of old events |
+| Remember the event ids seen for a while and refuse repeats | replay |
+| A rate limit per visitor pubkey | spam and resource exhaustion |
+| A concurrent session limit | resource exhaustion |
+| Refuse a `candidate` for an unknown `sid` | state pollution |
+| Size limits on `sdp` and `cand` | memory exhaustion |
+| Shorten pubkeys in the logs | an unnecessary identity trail |
 
-Bu kuralların uygulanması `agent/internal/signaling` ve ajan akışındadır
-(Faz 2.5); bu dosya yalnızca **ne** olduğunu tanımlar.
+Enforcing these rules happens in `agent/internal/signaling` and in the
+agent flow (phase 2.5); this file only defines **what** they are.

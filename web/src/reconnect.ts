@@ -1,50 +1,50 @@
 /**
- * Tunelin kendi kendine toparlanmasi (BRIEF Faz 4).
+ * The tunnel recovering on its own (BRIEF phase 4).
  *
- * Neden ziyaretci tarafi: ajan yalnizca CEVAP veren taraftir (answerer-only)
- * ve oturum tek seferliktir — yeni bir baglanti ancak ziyaretcinin yeni bir
- * offer yayinlamasiyla kurulur. Ustelik Faz 3'un bosta kalma denetimi 30
- * saniye sessizlikten sonra ajan tarafindaki oturumu zaten kapatiyor, yani
- * uyku/uyanma gibi uzun kopmalarda kurtarilacak bir oturum kalmiyor:
- * her deneme SIFIRDAN yeni oturum kurar (yeni sid, yeni gecici keypair).
+ * Why the visitor side does it: the agent is answerer-only and a session
+ * is one-shot — a new connection only comes about when the visitor
+ * publishes a new offer. On top of that, the phase 3 idle check already
+ * closes the agent-side session after 30 seconds of silence, so after a
+ * long drop (sleep/wake) there is no session left to rescue: every attempt
+ * builds a new session FROM SCRATCH (new sid, new ephemeral keypair).
  *
- * Bu dosya DOM'dan ve signaling'den bagimsiz tutuldu: denemeyi yapan
- * fonksiyon disaridan veriliyor, boylece durum makinesi tek basina test
- * edilebiliyor.
+ * This file is kept free of the DOM and of signaling: the function that
+ * performs an attempt is passed in, so the state machine can be tested on
+ * its own.
  */
 
 export type SupervisorState = "connected" | "reconnecting" | "idle";
 
-/** Varsayilan geri sayim (ms). Son deger tekrar eder. */
+/** Default backoff (ms). The last value repeats. */
 export const DEFAULT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000] as const;
 
 export interface SupervisorInfo {
-  /** Kacinci deneme (1'den baslar; baglandiginda 0). */
+  /** Which attempt this is (starts at 1; 0 once connected). */
   readonly attempt: number;
-  /** Bir sonraki denemeye kalan sure (ms); deneme suruyorsa 0. */
+  /** Time left until the next attempt (ms); 0 while one is running. */
   readonly waitMs: number;
-  /** Son kopma ya da basarisizlik nedeni. */
+  /** Reason for the last drop or failure. */
   readonly reason?: string;
 }
 
 export interface SupervisorOptions {
   /**
-   * Tek bir baglanma denemesi. Basarili donerse tunel acik kabul edilir;
-   * hata atarsa geri sayimla yeniden denenir.
+   * A single connection attempt. If it resolves the tunnel is taken to be
+   * open; if it throws, it is retried with backoff.
    */
   readonly connect: () => Promise<void>;
-  /** Durum degisimlerini bildirir (ekran icin). */
+  /** Reports state changes (for the screen). */
   readonly onState?: (state: SupervisorState, info: SupervisorInfo) => void;
-  /** Geri sayim listesi; verilmezse DEFAULT_BACKOFF_MS. */
+  /** Backoff list; DEFAULT_BACKOFF_MS when omitted. */
   readonly backoffMs?: readonly number[];
   /**
-   * Olay kaynagi; verilmezse `window`. Testler sahte bir hedef verebilir.
-   * `online` ve `visibilitychange` olaylari geri sayimi SIFIRLAR: ikisi de
-   * "ag ya da cihaz geri geldi" demektir ve uyku/uyanma yolu tam olarak
-   * budur.
+   * Event source; `window` when omitted. Tests can pass a fake target.
+   * The `online` and `visibilitychange` events RESET the backoff: both
+   * mean "the network or the device came back", and that is exactly the
+   * sleep/wake path.
    */
   readonly events?: Pick<EventTarget, "addEventListener" | "removeEventListener">;
-  /** Sekmenin gorunur olup olmadigi; verilmezse document.visibilityState. */
+  /** Whether the tab is visible; document.visibilityState when omitted. */
   readonly isVisible?: () => boolean;
 }
 
@@ -62,7 +62,7 @@ export class Supervisor {
   private lastReason: string | undefined;
 
   private readonly onWake = () => {
-    // Ag ya da sekme geri geldi: beklemeyi kes, hemen dene.
+    // Network or tab came back: stop waiting, try right away.
     if (this.state !== "reconnecting") return;
     if (!this.visible()) return;
     this.attempt = 0;
@@ -75,7 +75,7 @@ export class Supervisor {
     this.events = opts.events ?? (typeof window === "undefined" ? null : window);
   }
 
-  /** Olaylari dinlemeye baslar. */
+  /** Starts listening to events. */
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -83,7 +83,7 @@ export class Supervisor {
     this.events?.addEventListener("visibilitychange", this.onWake);
   }
 
-  /** Dinlemeyi birakir ve bekleyen denemeyi iptal eder. */
+  /** Stops listening and cancels a pending attempt. */
   stop(): void {
     this.running = false;
     this.clearTimer();
@@ -92,7 +92,7 @@ export class Supervisor {
     this.state = "idle";
   }
 
-  /** Tunel acildi (ilk baglanti ya da yeniden baglanma). */
+  /** The tunnel opened (first connection or a reconnect). */
   markConnected(): void {
     this.clearTimer();
     const wasReconnecting = this.state === "reconnecting";
@@ -104,11 +104,10 @@ export class Supervisor {
   }
 
   /**
-   * Tunel koptu: geri sayimla yeniden denemeye baslar.
+   * The tunnel dropped: starts retrying with backoff.
    *
-   * Ayni kopma icin birden cok kaynak haber verebilir (WebRTC durumu ve
-   * canlilik ping'i), bu yuzden tekrarlanan cagrilar geri sayimi
-   * uzatmaz.
+   * More than one source can report the same drop (the WebRTC state and
+   * the liveness ping), so repeated calls do not extend the backoff.
    */
   markLost(reason: string): void {
     if (!this.running) return;
@@ -119,7 +118,7 @@ export class Supervisor {
     this.schedule();
   }
 
-  /** Beklemeden hemen dene (kullanici "simdi dene" dedi). */
+  /** Try now without waiting (the user asked to retry). */
   retryNow(): void {
     if (!this.running) return;
     this.clearTimer();
@@ -131,7 +130,7 @@ export class Supervisor {
     return this.state;
   }
 
-  /** Kac kez yeniden baglanildi. */
+  /** How many times we reconnected. */
   get reconnects(): number {
     return this.reconnectCount;
   }
@@ -165,8 +164,8 @@ export class Supervisor {
 
     try {
       await this.opts.connect();
-      // Basari markConnected ile bildirilir: tunelin gercekten acildigina
-      // karar veren yer cagiran taraf.
+      // Success is reported through markConnected: the caller is what
+      // decides the tunnel really opened.
     } catch (err) {
       this.lastReason = err instanceof Error ? err.message : String(err);
       if (this.running && this.state === "reconnecting") this.schedule();

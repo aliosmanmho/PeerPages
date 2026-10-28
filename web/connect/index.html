@@ -1,5 +1,11 @@
 <!doctype html>
-<html lang="tr">
+<!--
+  lang="en" is the default; src/i18n.ts rewrites it at boot from ?lang=, the
+  stored choice or the browser. Text marked with data-i18n is filled from the
+  dictionary, so the markup carries English as a readable fallback for the
+  moment before the script runs (and for anyone reading the source).
+-->
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -10,60 +16,75 @@
     <main class="shell">
       <header class="shell__head">
         <h1 class="shell__title">PeerPages</h1>
-        <p class="shell__sub">Sunucusuz tunel</p>
+        <p class="shell__sub" data-i18n="app.tagline">Serverless tunnel</p>
+        <label class="lang">
+          <span class="lang__label" data-i18n="lang.label">Language</span>
+          <select class="lang__select" id="lang-select">
+            <option value="en" data-i18n="lang.en">English</option>
+            <option value="tr" data-i18n="lang.tr">Türkçe</option>
+          </select>
+        </label>
       </header>
 
       <section class="status" aria-live="polite">
         <ol class="status__steps" id="status-steps">
-          <li class="status__step" data-step="sw">Service Worker</li>
-          <li class="status__step" data-step="signal">Signaling</li>
-          <li class="status__step" data-step="ice">ICE</li>
-          <li class="status__step" data-step="tunnel">Tunel</li>
+          <li class="status__step" data-step="sw" data-i18n="step.sw">Service Worker</li>
+          <li class="status__step" data-step="signal" data-i18n="step.signal">Signaling</li>
+          <li class="status__step" data-step="ice" data-i18n="step.ice">ICE</li>
+          <li class="status__step" data-step="tunnel" data-i18n="step.tunnel">Tunnel</li>
         </ol>
-        <p class="status__msg" id="status-msg">Baslatiliyor…</p>
+        <p class="status__msg" id="status-msg" data-i18n="status.booting">Starting…</p>
       </section>
 
       <section class="panel" id="panel-nostr" hidden>
-        <h2 class="panel__title">Ajana baglaniliyor</h2>
+        <h2 class="panel__title" data-i18n="panel.nostr.title">Connecting to the agent</h2>
         <p class="panel__hint">
-          peer-id: <code id="nostr-peer">—</code>
+          <span data-i18n="panel.nostr.peerid">peer-id:</span> <code id="nostr-peer">—</code>
         </p>
         <p class="panel__hint" id="nostr-detail"></p>
         <div class="panel__actions">
-          <button type="button" id="btn-retry" class="btn" disabled>Yeniden dene</button>
+          <button type="button" id="btn-retry" class="btn" data-i18n="btn.retry" disabled>
+            Try again
+          </button>
         </div>
       </section>
 
       <!--
-        URL'de peer-id yokken gorunur (src/main.ts). Bu ekrana gelen kisi
-        buyuk ihtimalle README'den ya da bir lansman baglantisindan geliyor:
-        once ne oldugunu, sonra ne yapacagini gormeli. Elle signaling akisi
-        ALTTA kaliyor, cunku o ileri seviye bir yol.
-
-        Dili INGILIZCE: arayuzun geri kalani Turkce ama bu blogun kitlesi
-        tam olarak Ingilizce README'den gelen yabanci ziyaretci.
+        Shown when the URL carries no peer-id (src/main.ts). Whoever lands
+        here most likely arrived from the README or a launch link: they need
+        to know what this is before they are asked to do anything. The manual
+        signaling flow stays BELOW, because that is the advanced path.
       -->
       <section class="panel intro" id="panel-intro" hidden>
-        <h2 class="panel__title">What is this?</h2>
+        <h2 class="panel__title" data-i18n="intro.title">What is this?</h2>
         <p class="intro__lead">
-          <strong>PeerPages</strong> lets you share a web server running on your
-          own machine — <code>localhost:3000</code> — with anyone, over this
-          GitHub Pages address. No proxy server, no account, nothing for the
-          visitor to install.
+          <strong>PeerPages</strong>
+          <span data-i18n="intro.lead"
+            >lets you share a web server running on your own machine — localhost:3000 — with
+            anyone, over this GitHub Pages address. No proxy server, no account, nothing for the
+            visitor to install.</span
+          >
         </p>
         <p class="panel__hint">
-          <strong>Someone sent you a link?</strong> It needs a peer-id: the
-          address must end with <code>#npub1…</code>. Ask them to resend the
-          full URL their agent printed.
+          <strong data-i18n="intro.sent.q">Someone sent you a link?</strong>
+          <span data-i18n="intro.sent.a"
+            >It needs a peer-id: the address must end with #npub1… Ask them to resend the full URL
+            their agent printed.</span
+          >
         </p>
         <p class="panel__hint">
-          <strong>Want to share your own localhost?</strong> Install the agent
-          and run it — it prints a ready-to-share link back to this page:
+          <strong data-i18n="intro.share.q">Want to share your own localhost?</strong>
+          <span data-i18n="intro.share.a"
+            >Install the agent and run it — it prints a ready-to-share link back to this
+            page:</span
+          >
         </p>
         <pre class="intro__code"><code>go install github.com/aliosmanmho/PeerPages/agent@latest
 peerpages serve --target http://localhost:3000</code></pre>
         <p class="panel__hint">
-          How it works, the security model and the honest limits:
+          <span data-i18n="intro.docs"
+            >How it works, the security model and the honest limits:</span
+          >
           <a class="intro__link" href="https://github.com/aliosmanmho/PeerPages"
             >github.com/aliosmanmho/PeerPages</a
           >
@@ -71,14 +92,28 @@ peerpages serve --target http://localhost:3000</code></pre>
       </section>
 
       <section class="panel" id="panel-manual">
-        <h2 class="panel__title">1. Offer uret ve ajana yapistir</h2>
+        <h2 class="panel__title" data-i18n="manual.step1.title">
+          1. Create an offer and paste it into the agent
+        </h2>
         <p class="panel__hint">
-          Ajani calistir: <code id="agent-cmd">peerpages serve --manual --target http://localhost:3000</code>
-          — sonra burada offer uret ve ajanin terminaline yapistir.
+          <span data-i18n="manual.step1.hint.before">Run the agent:</span>
+          <code id="agent-cmd">peerpages serve --manual --target http://localhost:3000</code>
+          <span data-i18n="manual.step1.hint.after"
+            >— then create an offer here and paste it into the agent's terminal.</span
+          >
         </p>
         <div class="panel__actions">
-          <button type="button" id="btn-make-offer" class="btn btn--primary">Offer uret</button>
-          <button type="button" id="btn-copy-offer" class="btn" disabled>Kopyala</button>
+          <button
+            type="button"
+            id="btn-make-offer"
+            class="btn btn--primary"
+            data-i18n="btn.makeOffer"
+          >
+            Create offer
+          </button>
+          <button type="button" id="btn-copy-offer" class="btn" data-i18n="btn.copy" disabled>
+            Copy
+          </button>
         </div>
         <textarea
           id="offer-output"
@@ -86,10 +121,11 @@ peerpages serve --target http://localhost:3000</code></pre>
           rows="4"
           spellcheck="false"
           readonly
-          placeholder="(Offer uret'e basinca burada olusur)"
+          data-i18n-attr="placeholder:manual.offerPlaceholder"
+          placeholder="(appears here once you press Create offer)"
         ></textarea>
 
-        <h2 class="panel__title">2. Ajanin answer'ini yapistir</h2>
+        <h2 class="panel__title" data-i18n="manual.step2.title">2. Paste the agent's answer</h2>
         <textarea
           id="answer-input"
           class="panel__io"
@@ -99,41 +135,73 @@ peerpages serve --target http://localhost:3000</code></pre>
           placeholder="eyJ0eXBlIjoiYW5zd2VyIi…"
         ></textarea>
         <div class="panel__actions">
-          <button type="button" id="btn-accept-answer" class="btn btn--primary" disabled>
-            Answer'i uygula
+          <button
+            type="button"
+            id="btn-accept-answer"
+            class="btn btn--primary"
+            data-i18n="btn.applyAnswer"
+            disabled
+          >
+            Apply answer
           </button>
         </div>
       </section>
 
       <section class="panel panel--ok" id="panel-connected" hidden>
-        <h2 class="panel__title">Tunel acik</h2>
+        <h2 class="panel__title" data-i18n="connected.title">Tunnel open</h2>
         <p class="panel__hint">
-          Bu sekmeyi <strong>kapatma</strong> — WebRTC baglantisini bu sayfa tutuyor.
-          Service Worker istekleri buraya yonlendiriyor.
+          <strong data-i18n="connected.keepOpen.strong">Keep this tab open</strong>
+          <span data-i18n="connected.keepOpen.rest"
+            >— this page holds the WebRTC connection and the Service Worker forwards requests
+            here.</span
+          >
         </p>
         <p class="panel__hint">
-          Siteyi <strong>yeni bir sekmede</strong> ac:
-          <a id="link-site" href="../" target="_blank" rel="noopener">tunel uzerinden ac</a>
+          <span data-i18n="connected.openSite.before">Open the site in a</span>
+          <strong data-i18n="connected.openSite.strong">new tab</strong>:
+          <a
+            id="link-site"
+            href="../"
+            target="_blank"
+            rel="noopener"
+            data-i18n="connected.openSite.link"
+            >open through the tunnel</a
+          >
         </p>
         <dl class="metrics" id="metrics"></dl>
 
         <div class="share">
-          <p class="panel__hint">
-            Bu adresi baska bir cihazda ac — ayni tunele baglanir:
+          <p class="panel__hint" data-i18n="share.hint">
+            Open this address on another device — it joins the same tunnel:
           </p>
           <code class="share__url" id="share-url"></code>
           <p class="panel__actions">
-            <button class="btn" id="btn-copy-url" type="button">Adresi kopyala</button>
-            <button class="btn" id="btn-qr" type="button" aria-expanded="false">QR kod</button>
+            <button class="btn" id="btn-copy-url" type="button" data-i18n="btn.copyUrl">
+              Copy address
+            </button>
+            <button
+              class="btn"
+              id="btn-qr"
+              type="button"
+              aria-expanded="false"
+              data-i18n="btn.qr"
+            >
+              QR code
+            </button>
           </p>
           <div class="qr" id="qr" hidden>
-            <canvas id="qr-canvas" aria-label="Ziyaretci adresinin QR kodu" role="img"></canvas>
-            <p class="qr__hint">Telefonun kamerasiyla okut.</p>
+            <canvas
+              id="qr-canvas"
+              role="img"
+              data-i18n-attr="aria-label:qr.ariaLabel"
+              aria-label="QR code of the visitor address"
+            ></canvas>
+            <p class="qr__hint" data-i18n="qr.hint">Scan it with your phone's camera.</p>
           </div>
         </div>
       </section>
 
-      <noscript>PeerPages JavaScript gerektirir.</noscript>
+      <noscript data-i18n="noscript">PeerPages needs JavaScript.</noscript>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

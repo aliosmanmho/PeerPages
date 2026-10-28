@@ -1,13 +1,13 @@
 /**
- * Ziyaretcinin relay listesini URL'den degistirmesi.
+ * Letting the visitor override the relay list from the URL.
  *
- * BRIEF bolum 4: "Varsayilan relay listesi (en az 3, **kullanici
- * degistirebilir**)". Bu dosya o degistirmeyi uyguluyor:
+ * BRIEF section 4: "Default relay list (at least 3, **user
+ * overridable**)". This file implements the override:
  *
- *     .../connect/?relay=wss://nos.lol&relay=wss://nostr.mom#npub1…
+ *     .../connect/?relay=wss://nos.lol&relay=wss://nostr.mom#npub1...
  *
- * Ayni zamanda Nostr e2e testinin yerel sahte relay'e baglanmasini sagliyor,
- * yani test icin ayri bir arka kapi yok.
+ * It is also how the Nostr e2e test reaches a local fake relay, so there is
+ * no separate back door for tests.
  */
 
 export class RelayListError extends Error {
@@ -17,41 +17,41 @@ export class RelayListError extends Error {
   }
 }
 
-/** Tek bir relay adresini dogrular ve normalize eder (Go tarafiyla ayni kural). */
+/** Validates and normalizes one relay address (same rule as the Go side). */
 export function normalizeRelayURL(raw: string): string {
   const s = raw.trim();
   if (s === "") {
-    throw new RelayListError("relay adresi bos");
+    throw new RelayListError("empty relay address");
   }
 
   let u: URL;
   try {
     u = new URL(s);
   } catch {
-    throw new RelayListError(`relay adresi okunamadi: ${s}`);
+    throw new RelayListError(`relay address could not be read: ${s}`);
   }
   if (u.protocol !== "ws:" && u.protocol !== "wss:") {
-    throw new RelayListError(`relay adresi ws:// ya da wss:// olmali: ${s}`);
+    throw new RelayListError(`relay address must be ws:// or wss://: ${s}`);
   }
   if (u.hostname === "") {
-    throw new RelayListError(`relay adresinde host yok: ${s}`);
+    throw new RelayListError(`relay address has no host: ${s}`);
   }
 
   u.hash = "";
   u.search = "";
-  // Sondaki bolu atilir ki ayni relay iki kez listelenmesin.
+  // Drop a trailing slash so the same relay cannot be listed twice.
   const text = u.toString();
   return text.endsWith("/") ? text.slice(0, -1) : text;
 }
 
 /**
- * URL sorgu dizesinden relay listesini okur.
+ * Reads the relay list from the URL query string.
  *
- * `relay` parametresi tekrarlanabilir; virgulle ayrilmis liste de kabul
- * edilir. Parametre yoksa `null` doner (varsayilan liste kullanilir).
+ * The `relay` parameter may repeat, and a comma-separated list is accepted.
+ * Absent, it returns `null` (the default list is used).
  *
- * @throws {RelayListError} verilen adreslerden biri gecersizse — sessizce
- * varsayilana donmek, kullanicinin verdigi listenin yok sayildigini gizlerdi.
+ * @throws {RelayListError} when one of the addresses is invalid — silently
+ * falling back to the default would hide that the user's list was ignored.
  */
 export function relaysFromSearch(search: string): string[] | null {
   const params = new URLSearchParams(search);
@@ -68,7 +68,7 @@ export function relaysFromSearch(search: string): string[] | null {
     out.push(url);
   }
   if (out.length === 0) {
-    throw new RelayListError("relay parametresi verildi ama bos");
+    throw new RelayListError("relay parameter given but empty");
   }
   return out;
 }

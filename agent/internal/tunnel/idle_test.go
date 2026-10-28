@@ -11,13 +11,15 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/protocol"
 )
 
-// Faz 3: ziyaretci gidince ajan kaynagi birakmali.
+// Phase 3: once the visitor is gone the agent has to release its
+// resources.
 //
-// Neden tek basina WebRTC'ye guvenmiyoruz: sayfanin pagehide'da gonderdigi
-// haber en iyi cabadir (sekme cokerse hic gelmez), ICE'in Disconnected'a
-// gecmesi ise cok daha uzun surebilir ve geri donebilir.
+// Why we do not rely on WebRTC alone: the notice the page sends on
+// pagehide is best effort (if the tab crashes it never arrives), and ICE
+// moving to Disconnected can take far longer and may come back.
 
-// Ziyaretci susunca oturum IdleTimeout icinde kapanir.
+// When the visitor falls silent the session closes within
+// IdleTimeout.
 func TestIdleSessionClosed(t *testing.T) {
 	sess, v := connect(t, Config{
 		IdleTimeout:  600 * time.Millisecond,
@@ -29,21 +31,23 @@ func TestIdleSessionClosed(t *testing.T) {
 	})
 	v.nextCtrl(t, settle) // hello
 
-	// Ziyaretci hicbir sey yollamiyor ve ping'e pong donmuyor: gitmis kabul.
+	// The visitor sends nothing and answers no ping with a pong: taken as
+	// gone.
 	select {
 	case <-sess.Done():
 	case <-time.After(5 * time.Second):
-		t.Fatal("bosta kalan oturum kapanmadi")
+		t.Fatal("the idle session did not close")
 	}
 	if !errors.Is(sess.Err(), ErrIdle) {
-		t.Errorf("kapanis nedeni: %v, beklenen ErrIdle", sess.Err())
+		t.Errorf("the close reason: %v, expected ErrIdle", sess.Err())
 	}
 }
 
-// Ziyaretci yanit verdigi surece oturum kapanmaz.
+// As long as the visitor answers, the session stays open.
 //
-// Ajan ping yolluyor, sayfa pong donuyor (web/src/tunnel.ts): sessiz ama acik
-// bir tunel bu sayede ayakta kalir.
+// The agent sends pings and the page answers with pongs
+// (web/src/tunnel.ts): that is what keeps a quiet but open tunnel
+// alive.
 func TestActiveSessionStaysOpen(t *testing.T) {
 	sess, v := connect(t, Config{
 		IdleTimeout:  600 * time.Millisecond,
@@ -54,7 +58,7 @@ func TestActiveSessionStaysOpen(t *testing.T) {
 		}),
 	})
 
-	// Ziyaretci tarafini taklit et: gelen ping'e pong don.
+	// Imitate the visitor side: answer an incoming ping with a pong.
 	stop := make(chan struct{})
 	defer close(stop)
 	go func() {
@@ -72,18 +76,20 @@ func TestActiveSessionStaysOpen(t *testing.T) {
 
 	select {
 	case <-sess.Done():
-		t.Fatalf("pong donen oturum kapanmamaliydi: %v", sess.Err())
+		t.Fatalf("a session that answers with pongs should not have closed: %v", sess.Err())
 	case <-time.After(2 * time.Second):
 	}
 }
 
-// Tavani asan govde `req`'TEN ONCE gelirse de istek iptal edilir.
+// A body that passes the limit cancels the request even when it arrives
+// BEFORE `req`.
 //
-// Bu yol gercekten gorulebilir: ctrl ve data ayri SCTP akislari oldugu icin
-// aralarinda siralama garantisi YOK (Faz 1'de olculdu, BRIEF bolum 8).
-// Daha once bu durumda cerceve sessizce dusuruluyordu: govde hic gelmedigi
-// icin proxy sonsuza kadar bekliyor, ziyaretci abort almiyor ve istek
-// askida kaliyordu — yani tavan korumasi kaynak sizintisina donusuyordu.
+// This path really does happen: because ctrl and data are separate SCTP
+// streams there is NO ordering guarantee between them (measured in phase
+// 1, BRIEF section 8). The frame used to be dropped silently in this
+// case: because the body never arrived the proxy waited forever, the
+// visitor got no abort and the request hung — so a limit guard turned
+// into a resource leak.
 func TestEarlyOversizedBodyAborts(t *testing.T) {
 	served := make(chan struct{}, 1)
 	_, v := connect(t, Config{
@@ -96,12 +102,12 @@ func TestEarlyOversizedBodyAborts(t *testing.T) {
 	})
 	v.nextCtrl(t, settle) // hello
 
-	// Once cerceve, SONRA req: erken tampon yolu.
+	// The frame FIRST, req AFTER: the early buffer path.
 	if err := v.sendFrame(11, 0, bytes.Repeat([]byte("y"), 2048)); err != nil {
 		t.Fatal(err)
 	}
-	// Cercevenin ajana varmasina zaman tani; aksi halde sira tersine donup
-	// testin olcmek istedigi yolu atlayabiliriz.
+	// Give the frame time to reach the agent; otherwise the order can
+	// flip and we skip the path the test means to measure.
 	time.Sleep(300 * time.Millisecond)
 
 	if err := v.sendCtrl(protocol.Req{
@@ -112,13 +118,13 @@ func TestEarlyOversizedBodyAborts(t *testing.T) {
 
 	got := v.collect(t, 11, settle)
 	if got.aborted != "body-too-large" {
-		t.Errorf("abort nedeni %q, beklenen body-too-large", got.aborted)
+		t.Errorf("the abort reason is %q, expected body-too-large", got.aborted)
 	}
-	// Istek proxy'ye HIC dusmemeli: tavani asan govdeyi hedefe tasimanin
-	// anlami yok.
+	// The request must NEVER reach the proxy: carrying a body that passes
+	// the limit to the target is pointless.
 	select {
 	case <-served:
-		t.Error("tavani asan istek proxy'ye dusmemeliydi")
+		t.Error("a request that passes the limit should not have reached the proxy")
 	default:
 	}
 }

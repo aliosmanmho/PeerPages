@@ -1,12 +1,13 @@
 import { WS_SHIM_FILE } from "./bridge";
 
 /**
- * App shell'in yayinlandigi temel yol (GitHub Pages alt yolu olabilir).
+ * Base path the app shell is published under (may be a GitHub Pages
+ * subpath).
  *
- * Vite `import.meta.env.BASE_URL` olarak derleme zamani `base` degerini verir
- * ("/" ya da "/PeerPages/"). Service Worker scope'u ve app shell URL'leri bu
- * degerden turetilir — boylece SW yalnizca kendi kapsamindaki istekleri
- * yakalar (BRIEF guvenlik ilkesi 5).
+ * Vite hands the build-time `base` value over as
+ * `import.meta.env.BASE_URL` ("/" or "/PeerPages/"). The Service Worker
+ * scope and every app shell URL derive from it, which is what keeps the SW
+ * to its own scope (BRIEF security principle 5).
  */
 export const BASE_PATH: string = normalizeBase(import.meta.env.BASE_URL);
 
@@ -18,31 +19,31 @@ function normalizeBase(raw: string | undefined): string {
   return base;
 }
 
-/** Scope kokune gore mutlak yol uretir: `inBase("sw.js")` → "/PeerPages/sw.js". */
+/** Absolute path under the scope root: `inBase("sw.js")` -> "/PeerPages/sw.js". */
 export function inBase(path: string): string {
   return BASE_PATH + path.replace(/^\/+/, "");
 }
 
 /**
- * Baglanti ekrani ve tunel sahibi sayfanin yolu.
+ * Path of the connect screen, i.e. the tunnel-owner page.
  *
- * Scope kokunde DEGIL: scope koku yerel sitenin koku. Boylece
- *  - ziyaretci sitenin kokunu dogal URL'de gorur,
- *  - tunel sahibi sekmenin URL'si hicbir zaman tunelden gecmez, yani o sekme
- *    yenilendiginde tunel kendini kapatmaz.
- * Karari ve gerekcesi: BRIEF §8.
+ * NOT at the scope root: that root belongs to the local site. This way
+ *  - the visitor sees the site root at its natural URL, and
+ *  - the tunnel-owner tab URL never goes through the tunnel, so refreshing
+ *    that tab does not close the tunnel.
+ * Decision and reasoning: BRIEF section 8.
  */
 export const CONNECT_PATH: string = `${BASE_PATH}connect/`;
 
 /**
- * Verilen URL app shell'in kendi dosyalarindan biri mi?
+ * Is this URL one of the app shell's own files?
  *
- * Bu dosyalar tunele GONDERILMEZ; aksi halde baglanti ekranini getirmek icin
- * tunele ihtiyac duyardik (yumurta-tavuk).
+ * These are NEVER sent through the tunnel; otherwise we would need a
+ * tunnel to fetch the connect screen (chicken and egg).
  *
- * Scope kokunun KENDISI app shell degil: orasi yerel sitenin koku ve tunel
- * acikken tunelden gecer. Tunel yoksa SW navigasyonu baglanti ekranina
- * yonlendirir, alt kaynaklara 503 doner (src/sw.ts).
+ * The scope root ITSELF is not app shell: that is the local site root and
+ * it does go through the tunnel. With no tunnel the SW redirects
+ * navigations to the connect screen and 503s subresources (src/sw.ts).
  */
 export function isAppShellPath(pathname: string, base: string = BASE_PATH): boolean {
   if (!pathname.startsWith(base)) return false;
@@ -53,9 +54,9 @@ export function isAppShellPath(pathname: string, base: string = BASE_PATH): bool
     rest === "connect/index.html" ||
     rest === "sw.js" ||
     rest === "favicon.ico" ||
-    // WebSocket shim (Faz 6): app shell'in kendi dosyasi. Tunelden
-    // GECMEMELI, aksi halde ziyaretcinin sitesinde boyle bir dosya aranir ve
-    // 404 doner.
+    // WebSocket shim (phase 6): an app shell file. It must NOT go through
+    // the tunnel, or the visitor's site gets asked for a file it does not
+    // have and answers 404.
     rest === WS_SHIM_FILE ||
     rest.startsWith("assets/")
   );

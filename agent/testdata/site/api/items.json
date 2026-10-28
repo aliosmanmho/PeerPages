@@ -1,8 +1,8 @@
 {
   "items": [
-    { "ad": "alfa", "deger": 1 },
-    { "ad": "beta", "deger": 2 },
-    { "ad": "gama", "deger": 3 }
+    { "name": "alfa", "value": 1 },
+    { "name": "beta", "value": 2 },
+    { "name": "gama", "value": 3 }
   ],
-  "toplam": 3
+  "total": 3
 }

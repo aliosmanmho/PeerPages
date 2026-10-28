@@ -1,15 +1,16 @@
 import { defineConfig } from "vite";
 
 /**
- * App shell derlemesi.
+ * The app shell build.
  *
- * `base` GitHub Pages alt yolu icin build-time ayarlanir:
+ * `base` is set at build time for the GitHub Pages subpath:
  *   PEERPAGES_BASE=/PeerPages/ npm run build
- * Varsayilan `/` lokal gelistirme ve `vite preview` icin uygundur.
+ * The default `/` suits local development and `vite preview`.
  *
- * Service Worker BU derlemeye dahil degil; `vite.sw.config.ts` ile ayrica
- * derlenir (BRIEF: vite-plugin-pwa kullanilmaz, SW elle yazilir ve elle
- * derlenir — scope kokunde sabit `sw.js` adi gerekiyor).
+ * The Service Worker is NOT part of THIS build; it is built separately
+ * with `vite.sw.config.ts` (BRIEF: vite-plugin-pwa is not used, the SW is
+ * written and built by hand — a fixed `sw.js` name at the scope root is
+ * required).
  */
 export default defineConfig({
   base: process.env.PEERPAGES_BASE ?? "/",
@@ -18,12 +19,14 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     sourcemap: true,
-    // Iki HTML girdisi:
-    //  - index.html      : scope koku. Onyukleyici; tunel acikken SW burayi
-    //                      yerel sitenin kokune proxy'ler.
-    //  - connect/index.html : baglanti ekrani + tunel sahibi sayfa. SW bu
-    //                      yolu asla tunelden gecirmez.
-    // Gerekcesi BRIEF §8.
+    // Two HTML entries:
+    //  - index.html      : the scope root. The bootloader; with the tunnel
+    //                      open the SW proxies this to the local site's
+    //                      root.
+    //  - connect/index.html : the connect screen and the tunnel-owner
+    //                      page. The SW never sends this path through the
+    //                      tunnel.
+    // The reasoning: BRIEF section 8.
     rollupOptions: {
       input: {
         boot: "index.html",

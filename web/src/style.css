@@ -59,6 +59,39 @@ textarea {
   font-size: 0.875rem;
 }
 
+/* Language picker in the header (src/i18n.ts). */
+.shell__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+}
+
+.shell__head .shell__title {
+  flex: 0 0 auto;
+}
+
+.shell__head .shell__sub {
+  flex: 1 1 auto;
+}
+
+.lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  color: var(--dim);
+}
+
+.lang__select {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+}
+
 .status {
   margin: 1.5rem 0;
   padding: 1rem;
@@ -207,7 +240,7 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
-/* Tanitim blogu: peer-id'siz gelen ziyaretci icin (connect/index.html). */
+/* The intro panel: for a visitor arriving with no peer-id (connect/index.html). */
 .intro__lead {
   margin: 0 0 0.75rem;
   font-size: 0.875rem;
@@ -254,7 +287,7 @@ textarea {
 
 /*
  * QR beyaz zeminde kalmali: koyu temada da okunabilsin. Kamera kontrast
- * ister, tema tercihi degil.
+ * wants, not a theme preference.
  */
 .qr canvas {
   display: block;

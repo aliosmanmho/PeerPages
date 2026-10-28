@@ -20,7 +20,7 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/nostr"
 )
 
-// doctorTimeout tum kontrolun ust siniri.
+// doctorTimeout bounds the whole check.
 const doctorTimeout = 60 * time.Second
 
 func newDoctorCmd() *cobra.Command {
@@ -38,23 +38,25 @@ func newDoctorCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Relay'leri ve ag yolunu test et",
-		Long: `Relay'lerin ve ag yolunun signaling icin uygun olup olmadigini olcer.
+		Short: "Test the relays and the network path",
+		Long: `Measures whether the relays and the network path are fit for signaling.
 
-Her relay icin:
-  1. NIP-11 bilgi dokumani (auth gerekiyor mu, sinirlar ne)
-  2. WebSocket baglantisi (ulasilabiliyor mu, ne kadar surede)
-  3. Ephemeral yanki testi: kind 25050 yayinlanip ABONEDEN geri okunuyor mu
+For every relay:
+  1. the NIP-11 information document (does it want auth, what are the limits)
+  2. the WebSocket connection (is it reachable, and how fast)
+  3. the ephemeral echo test: can a kind 25050 event be published and read
+     back FROM A SUBSCRIPTION
 
-Ucuncu adim en onemlisi: bir relay event'i "OK" ile kabul edip sessizce
-dusurebilir. O zaman signaling calismaz ama hata da gorunmez.
+The third step matters most: a relay can accept an event with "OK" and
+drop it silently. Then signaling does not work and no error shows up.
 
-Ayrica STUN erisimi ve NAT tipi tahmini yapar (iki STUN sunucusunun gordugu
-dis portu karsilastirir).
+It also checks STUN reachability and guesses the NAT type (by comparing
+the external port two STUN servers see).
 
---turn verilirse her TURN sunucusundan ALLOCATION ISTENIR: "sunucu ayakta mi"
-degil "bana relay adresi veriyor mu" sorusu olculur. Rapor sonunda NAT karari
-ile TURN sonucunu birlestiren tek satirlik bir tavsiye yazar.`,
+With --turn, every TURN server is ASKED FOR AN ALLOCATION: the question
+measured is not "is the server up" but "does it give me a relay address".
+At the end of the report it writes one line of advice that joins the NAT
+verdict and the TURN result.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			log := logging.New(cmd.ErrOrStderr(), verbose)
@@ -81,9 +83,9 @@ ile TURN sonucunu birlestiren tek satirlik bir tavsiye yazar.`,
 			}
 
 			iceCfg := ice.Config{STUN: stuns, TURN: turns, User: turnUser, Pass: turnPassword}
-			// Cloudflare verilmisse kimlik bilgisini SIMDI cekip gercek
-			// adresle test ediyoruz: kullanicinin elle kimlik bilgisi
-			// kopyalamasina gerek yok.
+			// If Cloudflare was given we fetch the credentials NOW and
+			// test against the real address: the user does not have to
+			// copy credentials by hand.
 			if cfKeyID != "" {
 				creds, cerr := ice.FetchCredentials(ctx, ice.CloudflareOptions{
 					KeyID: cfKeyID, Token: cfApiToken,
@@ -114,12 +116,12 @@ ile TURN sonucunu birlestiren tek satirlik bir tavsiye yazar.`,
 			}
 
 			if len(report.UsableRelays) == 0 {
-				return fmt.Errorf("kullanilabilir relay bulunamadi (%d relay denendi)", len(report.Relays))
+				return fmt.Errorf("no usable relay was found (%d relays tried)", len(report.Relays))
 			}
-			// TURN istendi ama hicbiri allocation vermedi: sessizce 0 ile
-			// cikmak, kullanicinin TURN'un calistigini sanmasina yol acar.
+			// TURN was asked for but none granted an allocation: exiting
+			// quietly with 0 would let the user think TURN works.
 			if report.TURN != nil && !report.TURN.Usable() {
-				return fmt.Errorf("hicbir TURN sunucusu allocation vermedi (%d sunucu denendi)",
+				return fmt.Errorf("no TURN server granted an allocation (%d servers tried)",
 					len(report.TURN.Servers))
 			}
 			return nil
@@ -128,35 +130,35 @@ ile TURN sonucunu birlestiren tek satirlik bir tavsiye yazar.`,
 
 	fl := cmd.Flags()
 	fl.StringArrayVar(&relays, "relay", nil,
-		"test edilecek relay (tekrarlanabilir; verilmezse varsayilan liste)")
+		"a relay to test (repeatable; the default list when omitted)")
 	fl.StringArrayVar(&stuns, "stun", nil,
-		"test edilecek STUN sunucusu (tekrarlanabilir; NAT tipi icin en az iki tane)")
+		"a STUN server to test (repeatable; at least two for the NAT type)")
 	fl.StringArrayVar(&turns, "turn", nil,
-		"test edilecek TURN sunucusu (turn:/turns:, tekrarlanabilir)")
-	fl.StringVar(&turnUser, "turn-user", "", "TURN kullanici adi")
+		"a TURN server to test (turn:/turns:, repeatable)")
+	fl.StringVar(&turnUser, "turn-user", "", "the TURN user name")
 	fl.StringVar(&turnPass, "turn-pass", "",
-		"TURN sifresi ("+envTURNPass+" ortam degiskeni de kullanilabilir)")
+		"the TURN password (the "+envTURNPass+" environment variable works too)")
 	fl.StringVar(&cfKeyID, "turn-cloudflare-key-id", "",
-		"Cloudflare Realtime TURN anahtar kimligi (kimlik bilgisi API'den cekilir)")
+		"the Cloudflare Realtime TURN key id (the credentials are fetched from the API)")
 	fl.StringVar(&cfToken, "turn-cloudflare-token", "",
-		"Cloudflare API jetonu ("+envCloudflareToken+" ortam degiskeni onerilir)")
-	fl.BoolVar(&asJSON, "json", false, "ciktiyi JSON olarak ver")
-	fl.BoolVarP(&verbose, "verbose", "v", false, "ayrintili log")
+		"the Cloudflare API token (the "+envCloudflareToken+" environment variable is preferred)")
+	fl.BoolVar(&asJSON, "json", false, "write the output as JSON")
+	fl.BoolVarP(&verbose, "verbose", "v", false, "verbose logging")
 	return cmd
 }
 
-// defaultSTUNServers NAT tipi tahmini icin IKI sunucu gerekiyor.
+// defaultSTUNServers: the NAT type guess needs TWO servers.
 //
-// Liste internal/ice'tan geliyor: daha once hem burada hem serve.go'da
-// kopyalanmisti ve ikisi sessizce ayrilabilirdi.
+// The list comes from internal/ice: it used to be copied both here and in
+// serve.go, and the two could drift apart silently.
 func defaultSTUNServers() []string {
 	return ice.DefaultSTUN
 }
 
 func printReport(w io.Writer, report doctor.Report) {
-	fmt.Fprintln(w, "RELAY'LER")
+	fmt.Fprintln(w, "RELAYS")
 	tw := tabwriter.NewWriter(w, 0, 8, 2, ' ', 0)
-	fmt.Fprintln(tw, "  relay\tdurum\tbaglanti\tyayin\tyanki\tnot")
+	fmt.Fprintln(tw, "  relay\tverdict\tconnect\tpublish\techo\tnote")
 	for _, r := range report.Relays {
 		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
 			r.URL,
@@ -169,19 +171,19 @@ func printReport(w io.Writer, report doctor.Report) {
 	}
 	_ = tw.Flush()
 
-	fmt.Fprintf(w, "\n  kullanilabilir: %d / %d\n", len(report.UsableRelays), len(report.Relays))
+	fmt.Fprintf(w, "\n  usable: %d / %d\n", len(report.UsableRelays), len(report.Relays))
 	if len(report.UsableRelays) > 0 {
-		fmt.Fprintf(w, "  liste: %s\n", strings.Join(report.UsableRelays, " "))
+		fmt.Fprintf(w, "  list: %s\n", strings.Join(report.UsableRelays, " "))
 	}
 
 	fmt.Fprintln(w, "\nSTUN / NAT")
 	tw = tabwriter.NewWriter(w, 0, 8, 2, ' ', 0)
-	fmt.Fprintln(tw, "  sunucu\tdurum\tgorulen adres\tsure")
+	fmt.Fprintln(tw, "  server\tstatus\tseen address\ttime")
 	for _, s := range report.STUN.Servers {
-		status := "basarisiz"
+		status := "failed"
 		addr := "—"
 		if s.OK {
-			status = "tamam"
+			status = "ok"
 			addr = fmt.Sprintf("%s:%d", s.MappedIP, s.Port)
 		}
 		detail := ""
@@ -192,7 +194,7 @@ func printReport(w io.Writer, report doctor.Report) {
 	}
 	_ = tw.Flush()
 
-	fmt.Fprintf(w, "\n  NAT tahmini: %s\n", report.STUN.Verdict)
+	fmt.Fprintf(w, "\n  NAT guess: %s\n", report.STUN.Verdict)
 	if report.STUN.Note != "" {
 		fmt.Fprintf(w, "  %s\n", report.STUN.Note)
 	}
@@ -200,12 +202,12 @@ func printReport(w io.Writer, report doctor.Report) {
 	if report.TURN != nil {
 		fmt.Fprintln(w, "\nTURN")
 		tw = tabwriter.NewWriter(w, 0, 8, 2, ' ', 0)
-		fmt.Fprintln(tw, "  sunucu\tdurum\trelay adresi\tsure\tnot")
+		fmt.Fprintln(tw, "  server\tstatus\trelay address\ttime\tnote")
 		for _, t := range report.TURN.Servers {
-			status := "basarisiz"
+			status := "failed"
 			addr := "—"
 			if t.OK {
-				status = "tamam"
+				status = "ok"
 				addr = t.RelayedAddr
 			}
 			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n",
@@ -214,14 +216,14 @@ func printReport(w io.Writer, report doctor.Report) {
 		_ = tw.Flush()
 	}
 
-	fmt.Fprintln(w, "\nSONUC")
+	fmt.Fprintln(w, "\nVERDICT")
 	switch {
 	case len(report.UsableRelays) == 0:
-		fmt.Fprintln(w, "  Kullanilabilir relay YOK. --relay ile kendi relay'ini ver.")
+		fmt.Fprintln(w, "  NO usable relay. Pass your own with --relay.")
 	case report.TURN != nil && !report.TURN.Usable():
-		fmt.Fprintln(w, "  Relay var ama TURN calismiyor.")
+		fmt.Fprintln(w, "  There are relays but TURN does not work.")
 	default:
-		fmt.Fprintln(w, "  Signaling icin yeterli relay var.")
+		fmt.Fprintln(w, "  There are enough relays for signaling.")
 	}
 	if report.Advice != "" {
 		fmt.Fprintf(w, "  %s\n", report.Advice)
@@ -240,13 +242,13 @@ func note(r doctor.RelayReport) string {
 	case r.Err != "":
 		return r.Err
 	case r.Nip11Err != "":
-		return "NIP-11 okunamadi: " + r.Nip11Err
+		return "NIP-11 could not be read: " + r.Nip11Err
 	case r.Nip11 != nil && r.Nip11.MinPowDifficulty > 0:
-		return fmt.Sprintf("PoW istiyor (zorluk %d)", r.Nip11.MinPowDifficulty)
+		return fmt.Sprintf("wants PoW (difficulty %d)", r.Nip11.MinPowDifficulty)
 	case r.Nip11 != nil && r.Nip11.PaymentRequired:
-		return "ucretli relay"
+		return "paid relay"
 	case r.Nip11 != nil && r.Nip11.RestrictedWrites:
-		return "yazma kisitli"
+		return "writes restricted"
 	case r.Nip11 != nil && r.Nip11.Name != "":
 		return r.Nip11.Name
 	default:

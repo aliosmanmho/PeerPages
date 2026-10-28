@@ -8,11 +8,11 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-// flowControl data channel'in gonderim tamponu icin backpressure uygular.
+// flowControl applies backpressure for the data channel's send buffer.
 //
-// protocol/README.md: bufferedAmount 1 MiB'i gecerse gonderim bekler,
-// 256 KiB'a dusunce devam eder. Bu olmadan 5 MB'lik bir indirme tum govdeyi
-// bellege alir ve kanali tikar.
+// protocol/README.md: once bufferedAmount passes 1 MiB sending waits, and
+// it resumes when it drops to 256 KiB. Without this a 5 MB download pulls
+// the whole body into memory and clogs the channel.
 type flowControl struct {
 	dc   *webrtc.DataChannel
 	high uint64
@@ -38,11 +38,11 @@ func (f *flowControl) signal() {
 	}
 }
 
-// pollInterval guvenlik agi: OnBufferedAmountLow yalnizca esigin ALTINA
-// dusuldugunde tetiklenir; olay kacirilirsa burada yakalanir.
+// pollInterval is a safety net: OnBufferedAmountLow only fires when the
+// buffer drops BELOW the threshold; a missed event is caught here.
 const pollInterval = 20 * time.Millisecond
 
-// wait tampon bosalana kadar bekler.
+// wait blocks until the buffer drains.
 func (f *flowControl) wait(ctx context.Context) error {
 	for {
 		if f.dc.BufferedAmount() <= f.high {

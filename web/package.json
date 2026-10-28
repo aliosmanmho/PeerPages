@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "PeerPages app shell + elle yazilmis Service Worker (Vite + TypeScript, framework yok)",
+  "description": "The PeerPages app shell plus a hand-written Service Worker (Vite + TypeScript, no framework)",
   "license": "MIT",
   "scripts": {
     "dev": "vite",

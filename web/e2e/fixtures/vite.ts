@@ -1,10 +1,11 @@
 /**
- * Vite dev sunucusu fixture'i (Faz 6).
+ * The Vite dev server fixture (phase 6).
  *
- * Kabul kriterinin asil yarisi: "Vite HMR tunel uzerinden calisiyor". Sahte
- * bir ws ucu bunu kanitlamaz — HMR'in kendi el sikismasi (alt protokol
- * `vite-hmr`, token, modul guncelleme mesajlari) gercek sunucuyla
- * olculmeli. `vite` zaten devDependency, yeni bagimlilik gerekmiyor.
+ * The real half of the acceptance criterion: "Vite HMR works over the
+ * tunnel". A fake ws endpoint does not prove that — HMR's own handshake
+ * (the `vite-hmr` subprotocol, the token, the module update messages) has
+ * to be measured against the real server. `vite` is already a
+ * devDependency, so no new dependency is needed.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -16,14 +17,14 @@ import { LineWatcher } from "./agent";
 
 const WEB_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const APP_DIR = join(WEB_DIR, "e2e", "fixtures", "vite-app");
-const MESSAGE_FILE = join(APP_DIR, "src", "mesaj.js");
+const MESSAGE_FILE = join(APP_DIR, "src", "message.js");
 
 export interface ViteApp {
-  /** Ajana verilecek hedef (base oneki DAHIL). */
+  /** The target to hand to the agent (INCLUDING the base prefix). */
   targetURL: string;
-  /** `src/mesaj.js`'i degistirir; HMR bunu yakalamali. */
+  /** Changes `src/message.js`; HMR has to catch that. */
   setMessage: (text: string) => void;
-  /** Dosyayi ilk haline dondurur. */
+  /** Puts the file back to its original state. */
   reset: () => void;
   output: () => string[];
   stop: () => void;
@@ -31,18 +32,19 @@ export interface ViteApp {
 }
 
 export interface ViteAppOptions {
-  /** App shell'in scope koku; fixture'in `base` degeri bununla AYNI olmali. */
+  /** The app shell's scope root; the fixture's `base` has to be the SAME. */
   readonly base: string;
 }
 
 /**
- * Fixture projesini `vite dev` ile baslatir.
+ * Starts the fixture project with `vite dev`.
  *
- * `base` neden onemli: Service Worker scope onekini kirparak ajana yolluyor,
- * Vite ise onekli yollar bekliyor. Ikisini hizalamak icin fixture'in base'i
- * scope koku, ajanin hedefi de ayni oneki tasiyan URL olur. Bu ayni zamanda
- * Vite'in urettigi KOK-MUTLAK yollarin scope icinde kalmasini sagliyor
- * (BRIEF §8'deki yapisal sinir).
+ * Why `base` matters: the Service Worker strips the scope prefix before
+ * sending to the agent, while Vite expects prefixed paths. To line the
+ * two up, the fixture's base is the scope root and the agent's target is
+ * a URL carrying the same prefix. That also keeps the ROOT-ABSOLUTE paths
+ * Vite produces inside the scope (the structural boundary in BRIEF
+ * section 8).
  */
 export async function startViteApp(opts: ViteAppOptions): Promise<ViteApp> {
   const original = readFileSync(MESSAGE_FILE, "utf8");
@@ -63,8 +65,8 @@ export async function startViteApp(opts: ViteAppOptions): Promise<ViteApp> {
   proc.stderr?.setEncoding("utf8");
   proc.stderr?.on("data", (c: string) => watcher.feed(c));
 
-  // "Local: http://127.0.0.1:PORT/base/" satirini bekle; port 0 verdigimiz
-  // icin adresi yalnizca buradan ogrenebiliyoruz.
+  // Wait for the "Local: http://127.0.0.1:PORT/base/" line; because we
+  // passed port 0 this is the only place the address comes from.
   const line = await watcher.waitFor(
     (l) => /https?:\/\/127\.0\.0\.1:\d+/.test(stripAnsi(l)),
     60_000,
@@ -84,7 +86,7 @@ export async function startViteApp(opts: ViteAppOptions): Promise<ViteApp> {
   return {
     targetURL,
     setMessage: (text: string) => {
-      writeFileSync(MESSAGE_FILE, `export const mesaj = ${JSON.stringify(text)};\n`);
+      writeFileSync(MESSAGE_FILE, `export const message = ${JSON.stringify(text)};\n`);
     },
     reset: () => writeFileSync(MESSAGE_FILE, original),
     output: () => watcher.all(),
@@ -93,8 +95,8 @@ export async function startViteApp(opts: ViteAppOptions): Promise<ViteApp> {
   };
 }
 
-/** Vite ciktisi renkli: eslesmeler icin ANSI kacislarini temizle. */
+/** The Vite output is coloured: strip the ANSI escapes before matching. */
 function stripAnsi(s: string): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI kacisi
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: an ANSI escape
   return s.replace(/\u001b\[[0-9;]*m/g, "");
 }

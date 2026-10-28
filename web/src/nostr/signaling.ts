@@ -1,12 +1,13 @@
 /**
- * Nostr uzerinden tasinan signaling mesajlari.
+ * The signaling messages carried over Nostr.
  *
- * Normatif tanim: `protocol/signaling.md`. Go karsiligi:
- * `agent/internal/signaling`. Iki taraf AYNI test vektorlerini okur:
- * `protocol/signaling-testvectors.json` (ucuncu bir bagimsiz uygulama ile
- * uretildi).
+ * Normative definition: `protocol/signaling.md`. Go counterpart:
+ * `agent/internal/signaling`. Both sides read the SAME test vectors:
+ * `protocol/signaling-testvectors.json` (produced with a third,
+ * independent implementation).
  *
- * Bu dosya YALNIZCA mesaj bicimini bilir; Nostr tasimasi `./pool.ts`'de.
+ * This file knows ONLY the message format; the Nostr transport lives in
+ * `./pool.ts`.
  */
 
 import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
@@ -14,10 +15,10 @@ import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { base64urlnopad } from "@scure/base";
 
-/** Su an desteklenen signaling surumu. */
+/** The signaling version supported right now. */
 export const SIGNALING_VERSION = 1;
 
-/** Sinirlar (protocol/signaling.md). */
+/** Limits (protocol/signaling.md). */
 export const SID_LENGTH = 16;
 export const MAX_SDP = 65536;
 export const MAX_CANDIDATE = 1024;
@@ -26,19 +27,19 @@ export const MAX_REASON = 64;
 export const MAX_TARGET_NAME = 32;
 
 /**
- * Hedef adi bicimi (protocol/signaling.md).
+ * Target name format (protocol/signaling.md).
  *
- * Go tarafindaki targetNameRe ve agent/internal/target'taki nameRe ile AYNI
- * kumeyi kabul etmek zorunda; paylasilan vektorler bunu dogruluyor.
+ * It MUST accept the same set as targetNameRe on the Go side and nameRe in
+ * agent/internal/target; the shared vectors check that.
  */
 const TARGET_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$/;
 
-/** Hedef adi bicimini dogrular. */
+/** Validates the target name format. */
 export function validTargetName(name: string): boolean {
   return TARGET_NAME_RE.test(name);
 }
 
-/** Paylasilan sir katmani parametreleri. */
+/** Parameters of the shared-secret layer. */
 export const SECRET_PREFIX = "pps1.";
 const SECRET_SALT = "peerpages-secret-v1";
 const SECRET_INFO = "signaling";
@@ -49,7 +50,7 @@ const KEY_BYTES = 32;
 
 export type SignalingType = "offer" | "answer" | "candidate" | "bye";
 
-/** Hata kodlari — data channel protokolunun kumesi + bad-secret. */
+/** Error codes: the data channel protocol's set plus bad-secret. */
 export type SignalingErrorCode =
   | "bad-secret"
   | "bad-json"
@@ -72,10 +73,10 @@ export interface OfferMsg {
   readonly sid: string;
   readonly sdp: string;
   /**
-   * Ziyaretcinin istedigi hedef adi (URL'deki `#npub1…/admin`).
+   * The target name the visitor asked for (`#npub1.../admin` in the URL).
    *
-   * Opsiyonel: hedef belirtilmediginde alan kanonik bicime HIC yazilmaz
-   * (ajan `default`'a duser).
+   * Optional: with no target given, the field is NOT written into the
+   * canonical form at all (the agent falls back to `default`).
    */
   readonly target?: string;
 }
@@ -104,7 +105,7 @@ export type SignalingMsg = OfferMsg | AnswerMsg | CandidateMsg | ByeMsg;
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-/** Yeni oturum kimligi uretir (16 kucuk harf hex = 64 bit). */
+/** Generates a new session id (16 lowercase hex chars = 64 bits). */
 export function newSID(): string {
   const bytes = new Uint8Array(SID_LENGTH / 2);
   crypto.getRandomValues(bytes);
@@ -115,16 +116,16 @@ export function newSID(): string {
   return out;
 }
 
-/** sid bicimini dogrular: tam 16 kucuk harf hex. */
+/** Validates the sid format: exactly 16 lowercase hex chars. */
 export function validSID(sid: string): boolean {
   return sid.length === SID_LENGTH && /^[0-9a-f]+$/.test(sid);
 }
 
 /**
- * Mesajin kanonik serilestirmesi (protocol/signaling.md).
+ * The message's canonical serialization (protocol/signaling.md).
  *
- * Go tarafindaki Msg.Canonical ile bayt bayt ayni cikti uretir:
- * bosluk yok, anahtar sirasi tipe gore sabit.
+ * Produces byte-for-byte the same output as Msg.Canonical on the Go side:
+ * no whitespace, key order fixed per type.
  */
 export function canonicalSignaling(msg: SignalingMsg): string {
   const head = `{"v":${SIGNALING_VERSION},"t":${JSON.stringify(msg.t)},"sid":${JSON.stringify(msg.sid)}`;
@@ -142,12 +143,12 @@ export function canonicalSignaling(msg: SignalingMsg): string {
   }
 }
 
-/** Alan kurallarini dogrular; gecersizse SignalingError atar. */
+/** Validates the field rules; throws SignalingError when invalid. */
 export function validateSignaling(msg: SignalingMsg): void {
   if (!validSID(msg.sid)) {
     throw new SignalingError(
       "bad-field",
-      `sid tam ${SID_LENGTH} kucuk harf hex olmali, verilen: ${JSON.stringify(msg.sid)}`,
+      `sid must be exactly ${SID_LENGTH} lowercase hex chars, got: ${JSON.stringify(msg.sid)}`,
     );
   }
   switch (msg.t) {
@@ -156,7 +157,7 @@ export function validateSignaling(msg: SignalingMsg): void {
       if (msg.target !== undefined && !validTargetName(msg.target)) {
         throw new SignalingError(
           "bad-field",
-          `offer.target bicimi gecersiz, verilen: ${JSON.stringify(msg.target)}`,
+          `offer.target format is invalid, got: ${JSON.stringify(msg.target)}`,
         );
       }
       return;
@@ -174,41 +175,38 @@ export function validateSignaling(msg: SignalingMsg): void {
 }
 
 /**
- * Uzunluk kontrolu BAYT cinsinden yapilir.
+ * The length check is done in BYTES.
  *
- * Go tarafi `len(string)` ile bayt sayiyor; JS'in `.length`'i UTF-16 kod
- * birimi sayar. ASCII disi karakterlerde ikisi farkli olur, bu yuzden
- * TextEncoder ile bayta ceviriyoruz — aksi halde iki taraf ayni mesaj icin
- * farkli karar verir.
+ * The Go side counts bytes with `len(string)`; JS `.length` counts UTF-16
+ * code units. For non-ASCII characters the two differ, so we convert with
+ * TextEncoder — otherwise the two sides would decide differently about the
+ * same message.
  */
 function checkLen(label: string, value: string, max: number): void {
   if (value === "") {
-    throw new SignalingError("bad-field", `${label} bos olamaz`);
+    throw new SignalingError("bad-field", `${label} must not be empty`);
   }
   const bytes = enc.encode(value).byteLength;
   if (bytes > max) {
-    throw new SignalingError(
-      "bad-field",
-      `${label} en fazla ${max} bayt olabilir, verilen: ${bytes}`,
-    );
+    throw new SignalingError("bad-field", `${label} may be at most ${max} bytes, got: ${bytes}`);
   }
 }
 
 type Raw = Record<string, unknown>;
 
 /**
- * Kanonik JSON metnini ayristirip dogrular.
+ * Parses and validates canonical JSON text.
  *
- * Sirli payload'lar icin once `Sealer.open` cagrilmali; bu fonksiyon duz
- * JSON bekler.
+ * For sealed payloads `Sealer.open` must be called first; this function
+ * expects plain JSON.
  */
 export function parseSignaling(text: string): SignalingMsg {
   const trimmed = text.replace(/^[\s]+/, "");
   if (trimmed === "") {
-    throw new SignalingError("bad-json", "bos metin");
+    throw new SignalingError("bad-json", "empty text");
   }
   if (!trimmed.startsWith("{")) {
-    throw new SignalingError("bad-json", "en ust duzey bir JSON nesnesi olmali");
+    throw new SignalingError("bad-json", "the top level must be a JSON object");
   }
 
   let raw: unknown;
@@ -218,35 +216,35 @@ export function parseSignaling(text: string): SignalingMsg {
     throw new SignalingError("bad-json", String(err));
   }
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    throw new SignalingError("bad-json", "en ust duzey bir JSON nesnesi olmali");
+    throw new SignalingError("bad-json", "the top level must be a JSON object");
   }
   const o = raw as Raw;
 
-  // Sira protocol/signaling.md'de tanimli.
+  // The order is defined in protocol/signaling.md.
   if (!has(o, "t")) {
-    throw new SignalingError("missing-field", "t yok");
+    throw new SignalingError("missing-field", "t is missing");
   }
   const t = o.t;
   if (typeof t !== "string") {
-    throw new SignalingError("bad-field", `t string olmali, verilen: ${JSON.stringify(t)}`);
+    throw new SignalingError("bad-field", `t must be a string, got: ${JSON.stringify(t)}`);
   }
 
   if (!has(o, "v")) {
-    throw new SignalingError("missing-field", "v yok");
+    throw new SignalingError("missing-field", "v is missing");
   }
   const v = o.v;
   if (typeof v !== "number" || !Number.isInteger(v)) {
-    throw new SignalingError("bad-field", `v tamsayi olmali, verilen: ${JSON.stringify(v)}`);
+    throw new SignalingError("bad-field", `v must be an integer, got: ${JSON.stringify(v)}`);
   }
   if (v !== SIGNALING_VERSION) {
-    throw new SignalingError("bad-field", `v ${SIGNALING_VERSION} olmali, verilen: ${v}`);
+    throw new SignalingError("bad-field", `v must be ${SIGNALING_VERSION}, got: ${v}`);
   }
 
   const sid = stringField(o, "sid");
   if (!validSID(sid)) {
     throw new SignalingError(
       "bad-field",
-      `sid tam ${SID_LENGTH} kucuk harf hex olmali, verilen: ${JSON.stringify(sid)}`,
+      `sid must be exactly ${SID_LENGTH} lowercase hex chars, got: ${JSON.stringify(sid)}`,
     );
   }
 
@@ -254,20 +252,20 @@ export function parseSignaling(text: string): SignalingMsg {
   switch (t) {
     case "offer": {
       const sdp = stringField(o, "sdp");
-      // target opsiyonel: alanin HIC olmamasi gecerli, ama varsa gecerli bir
-      // ad olmak zorunda (bos string ya da null degil).
+      // target is optional: the field being absent entirely is valid, but
+      // if present it must be a valid name (not an empty string or null).
       if (Object.hasOwn(o, "target") && o.target !== undefined) {
         const name = o.target;
         if (typeof name !== "string") {
           throw new SignalingError(
             "bad-field",
-            `target string olmali, verilen: ${JSON.stringify(name)}`,
+            `target must be a string, got: ${JSON.stringify(name)}`,
           );
         }
         if (name === "") {
           throw new SignalingError(
             "bad-field",
-            "offer.target bos olamaz (hedefsiz offer'da alan hic olmamali)",
+            "offer.target must not be empty (in a target-less offer the field must be absent)",
           );
         }
         msg = { t: "offer", sid, sdp, target: name };
@@ -299,22 +297,22 @@ function has(o: Raw, k: string): boolean {
 
 function stringField(o: Raw, key: string): string {
   if (!has(o, key)) {
-    throw new SignalingError("missing-field", `${key} yok`);
+    throw new SignalingError("missing-field", `${key} is missing`);
   }
   const v = o[key];
   if (typeof v !== "string") {
-    throw new SignalingError("bad-field", `${key} string olmali, verilen: ${JSON.stringify(v)}`);
+    throw new SignalingError("bad-field", `${key} must be a string, got: ${JSON.stringify(v)}`);
   }
   return v;
 }
 
 /**
- * Paylasilan sir katmani.
+ * The shared-secret layer.
  *
- * `null` Sealer "sir yok" demektir ve payload duz kanonik JSON olur.
- * Kurallar (protocol/signaling.md):
- *  - Sir varsa payload sirli OLMAK ZORUNDA; duz JSON reddedilir.
- *  - Sir yoksa sirli payload reddedilir (cozemeyiz).
+ * A `null` Sealer means "no secret" and the payload is plain canonical
+ * JSON. The rules (protocol/signaling.md):
+ *  - with a secret the payload MUST be sealed; plain JSON is rejected,
+ *  - without a secret a sealed payload is rejected (we cannot open it).
  */
 export class Sealer {
   private readonly key: Uint8Array;
@@ -323,10 +321,10 @@ export class Sealer {
     this.key = key;
   }
 
-  /** Sirdan HKDF-SHA256 ile anahtar turetir. */
+  /** Derives the key from the secret with HKDF-SHA256. */
   static fromSecret(secret: string): Sealer {
     if (secret === "") {
-      throw new SignalingError("bad-secret", "paylasilan sir bos");
+      throw new SignalingError("bad-secret", "the shared secret is empty");
     }
     const key = hkdf(
       sha256,
@@ -338,7 +336,7 @@ export class Sealer {
     return new Sealer(key);
   }
 
-  /** Turetilen anahtari hex olarak dondurur. YALNIZCA test icin. */
+  /** Returns the derived key as hex. For tests ONLY. */
   keyHex(): string {
     let out = "";
     for (const b of this.key) {
@@ -347,7 +345,7 @@ export class Sealer {
     return out;
   }
 
-  /** Kanonik JSON'u sirli payload'a cevirir. */
+  /** Turns canonical JSON into a sealed payload. */
   seal(canonical: string): string {
     const nonce = new Uint8Array(NONCE_BYTES);
     crypto.getRandomValues(nonce);
@@ -355,14 +353,14 @@ export class Sealer {
   }
 
   /**
-   * Sabit nonce ile sifreler. Test vektorleri icin; uretimde `seal`
-   * kullanilir (nonce her mesajda rastgele olmali).
+   * Encrypts with a fixed nonce. For test vectors; production uses `seal`
+   * (the nonce must be random for every message).
    */
   sealWithNonce(nonce: Uint8Array, canonical: string): string {
     if (nonce.byteLength !== NONCE_BYTES) {
       throw new SignalingError(
         "bad-secret",
-        `nonce ${NONCE_BYTES} bayt olmali, verilen: ${nonce.byteLength}`,
+        `nonce must be ${NONCE_BYTES} bytes, got: ${nonce.byteLength}`,
       );
     }
     const ct = chacha20poly1305(this.key, nonce, enc.encode(SECRET_AAD)).encrypt(
@@ -374,10 +372,13 @@ export class Sealer {
     return SECRET_PREFIX + base64urlnopad.encode(blob);
   }
 
-  /** Sirli payload'i kanonik JSON'a cevirir. */
+  /** Turns a sealed payload back into canonical JSON. */
   open(payload: string): string {
     if (!isSealed(payload)) {
-      throw new SignalingError("bad-secret", "paylasilan sir gerekli ama payload sirsiz");
+      throw new SignalingError(
+        "bad-secret",
+        "a shared secret is required but the payload is not sealed",
+      );
     }
     const body = payload.slice(SECRET_PREFIX.length);
 
@@ -385,10 +386,10 @@ export class Sealer {
     try {
       blob = base64urlnopad.decode(body);
     } catch {
-      throw new SignalingError("bad-secret", "base64 cozulemedi");
+      throw new SignalingError("bad-secret", "base64 could not be decoded");
     }
     if (blob.byteLength < NONCE_BYTES + AEAD_TAG_BYTES) {
-      throw new SignalingError("bad-secret", `payload cok kisa (${blob.byteLength} bayt)`);
+      throw new SignalingError("bad-secret", `payload is too short (${blob.byteLength} bytes)`);
     }
 
     const nonce = blob.subarray(0, NONCE_BYTES);
@@ -397,33 +398,36 @@ export class Sealer {
       const plain = chacha20poly1305(this.key, nonce, enc.encode(SECRET_AAD)).decrypt(ct);
       return dec.decode(plain);
     } catch {
-      // Yanlis sir, bozuk etiket ya da oynanmis veri: ayrim yapmiyoruz.
-      throw new SignalingError("bad-secret", "payload dogrulanamadi (yanlis sir ya da bozuk veri)");
+      // Wrong secret, broken tag or tampered data: we do not distinguish.
+      throw new SignalingError(
+        "bad-secret",
+        "the payload could not be verified (wrong secret or corrupt data)",
+      );
     }
   }
 
-  /** Mesaji payload'a cevirir. */
+  /** Turns a message into a payload. */
   encode(msg: SignalingMsg): string {
     validateSignaling(msg);
     return this.seal(canonicalSignaling(msg));
   }
 
-  /** Payload'i mesaja cevirir. */
+  /** Turns a payload into a message. */
   decode(payload: string): SignalingMsg {
     return parseSignaling(this.open(payload));
   }
 }
 
-/** Payload sirli mi. */
+/** Whether the payload is sealed. */
 export function isSealed(payload: string): boolean {
   return payload.startsWith(SECRET_PREFIX);
 }
 
 /**
- * Sir olmadan kodlama: payload duz kanonik JSON.
+ * Encoding without a secret: the payload is plain canonical JSON.
  *
- * `Sealer` ile ayni sozlesmeyi paylasir ki cagiran taraf sir olup olmadigini
- * tek bir yerde kararlastirip gerisini ayni sekilde yazabilsin.
+ * It shares the same contract as `Sealer` so the caller decides in one
+ * place whether there is a secret and writes the rest the same way.
  */
 export const plainCodec = {
   encode(msg: SignalingMsg): string {
@@ -432,13 +436,16 @@ export const plainCodec = {
   },
   decode(payload: string): SignalingMsg {
     if (isSealed(payload)) {
-      throw new SignalingError("bad-secret", "payload sirli ama paylasilan sir verilmedi");
+      throw new SignalingError(
+        "bad-secret",
+        "the payload is sealed but no shared secret was given",
+      );
     }
     return parseSignaling(payload);
   },
 };
 
-/** Sir varsa Sealer, yoksa duz codec. */
+/** Sealer when there is a secret, the plain codec otherwise. */
 export type Codec = Pick<Sealer, "encode" | "decode">;
 
 export function codecFor(secret: string | null): Codec {

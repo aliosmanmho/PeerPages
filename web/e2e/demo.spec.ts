@@ -8,21 +8,21 @@ import { startTestSite, type TestSite } from "./fixtures/agent";
 import { type FakeRelay, startFakeRelay, startNostrAgent } from "./fixtures/nostr";
 
 /**
- * README icin GERCEK ekran goruntuleri uretir (Faz 7).
+ * Produces REAL screenshots for the README (phase 7).
  *
- * Normal kosumda ATLANIR: `playwright.config.ts` icinde `grepInvert` ile
- * `@demo` etiketli testler dislaniyor. Elle kostur:
+ * SKIPPED in a normal run: `playwright.config.ts` excludes the tests
+ * tagged `@demo` with `grepInvert`. Run it by hand:
  *
- *   Git Bash : PEERPAGES_DEMO=1 npx playwright test demo
+ *   Git Bash  : PEERPAGES_DEMO=1 npx playwright test demo
  *   PowerShell: $env:PEERPAGES_DEMO=1; npx playwright test demo
  *
- * Neden test icinde: goruntunun GERCEK olmasini istiyoruz. Kurgu bir
- * ekran goruntusu hazirlamak kolay ama bu proje, dogrulanamayan iddialari
- * baslangictan beri reddediyor -- bu goruntuler calisan bir tunelden
- * aliniyor.
+ * Why it lives in a test: we want the images to be REAL. Staging a
+ * screenshot is easy, but this project has refused unverifiable claims
+ * from the start — these images are taken from a working tunnel.
  *
- * 10 saniyelik GIF bu betikle UReTILMIYOR: tarifi docs/LAUNCH.md'de,
- * cunku kullanicinin kendi makinesinin kaydi daha ikna edici.
+ * The 10-second GIF is NOT produced by this script: the recipe is in
+ * docs/LAUNCH.md, because a recording from the user's own machine is more
+ * convincing.
  */
 
 const BASE = "/PeerPages/";
@@ -45,10 +45,10 @@ test.afterAll(() => {
   site?.stop();
 });
 
-test.describe("Faz 7 — README gorselleri @demo", () => {
-  // README'nin hero gorselleri: solda sahibin gordugu baglanti ekrani,
-  // sagda ziyaretcinin gordugu site.
-  test("baglanti ekrani ve tunelden gecen site", async ({ context }) => {
+test.describe("phase 7 — the README images @demo", () => {
+  // The README's hero images: on the left the connect screen the owner
+  // sees, on the right the site the visitor sees.
+  test("the connect screen and a site served over the tunnel", async ({ context }) => {
     const agent = await startNostrAgent({
       targetURL: site.url,
       relayURLs: [relay.url],
@@ -66,15 +66,18 @@ test.describe("Faz 7 — README gorselleri @demo", () => {
         timeout: 90_000,
       });
 
-      // Ziyaretci sekmesi: birkac istek yap ki sayaclar bos gorunmesin.
+      // The visitor tab: make a few requests so the counters do not look
+      // empty.
       const visitor = await context.newPage();
-      // Dar bir kirpma: test sitesinin icerigi ~470px, gerisi bos alan.
+      // A narrow crop: the test site's content is about 470px and the
+      // rest is empty space.
       await visitor.setViewportSize({ width: 1000, height: 500 });
       await visitor.goto(BASE);
-      await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi");
+      await expect(visitor.locator("#title")).toHaveText("PeerPages test site");
       await visitor.evaluate(async () => {
         await fetch("api/items", { cache: "no-store" });
-        // ws oturumu: metrik panelindeki "WebSocket" satiri gorunsun.
+        // A ws session, so the "WebSocket" row shows up in the metrics
+        // panel.
         const sock = new WebSocket("ws");
         await new Promise<void>((resolve) => {
           sock.onopen = () => resolve();
@@ -83,7 +86,7 @@ test.describe("Faz 7 — README gorselleri @demo", () => {
         (window as unknown as Record<string, unknown>).__demoSocket = sock;
       });
 
-      // Gecikme olcumu ve ws satiri panele dussun.
+      // Let the latency measurement and the ws row reach the panel.
       await owner.waitForFunction(() => (window.__peerpages?.wsSessions() ?? 0) > 0, null, {
         timeout: 30_000,
       });

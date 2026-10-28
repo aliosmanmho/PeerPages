@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   web:
-    name: web (lint + birim test)
+    name: web (lint + unit tests)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -29,16 +29,16 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
-      - name: Derleme (onyukleyici + baglanti ekrani + sw.js)
+      - name: Build (the bootloader, the connect screen and sw.js)
         run: node scripts/build.mjs /PeerPages/
-      - name: Beklenen cikti dosyalari
+      - name: The expected output files
         run: |
-          test -f dist/sw.js            # scope kokunde, hash'siz
-          test -f dist/index.html       # onyukleyici
-          test -f dist/connect/index.html  # baglanti ekrani
+          test -f dist/sw.js            # at the scope root, unhashed
+          test -f dist/index.html       # the bootloader
+          test -f dist/connect/index.html  # the connect screen
 
   agent:
-    name: agent (lint + birim test)
+    name: agent (lint + unit tests)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -58,9 +58,9 @@ jobs:
       - run: go test ./... -race
 
   agent-platforms:
-    # Uc platformda derlendigini her PR'da gormek icin: release
-    # workflow'u yalnizca etiket atilinca kosuyor, o yuzden kirilmayi
-    # orada ogrenmek cok gec olur.
+    # So every PR shows it builds on all three platforms: the release
+    # workflow only runs on a tag, and learning about a breakage there
+    # would be far too late.
     name: agent (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -80,7 +80,7 @@ jobs:
       - run: go test ./...
 
   e2e:
-    name: e2e (Faz 1 kabul kriterleri)
+    name: e2e (the phase 1 acceptance criteria)
     runs-on: ubuntu-latest
     needs: [web, agent]
     steps:
@@ -94,21 +94,22 @@ jobs:
         with:
           go-version: "1.x"
           cache-dependency-path: agent/go.sum
-      - name: Ajani derle ve test verisini uret
+      - name: Build the agent and generate the test data
         working-directory: agent
         run: |
           if [ -d internal/testsite/gen ]; then go run ./internal/testsite/gen; fi
           go build -o peerpages .
-      - name: Web bagimliliklari
+      - name: The web dependencies
         working-directory: web
         run: npm ci
       - name: Chromium
         working-directory: web
         run: npx playwright install --with-deps chromium
-      - name: E2E (elle yol + Nostr yolu, sahte relay)
+      - name: E2E (the manual path plus the Nostr path, with a fake relay)
         working-directory: web
-        # Nostr testleri surec ici sahte relay kullaniyor: CI gercek internet
-        # relay'lerine bagimli olmasin. Gercek relay'lerle kosum elle:
+        # The Nostr tests use an in-process fake relay, so CI does not
+        # depend on real internet relays. Running against real relays is
+        # done by hand:
         # PEERPAGES_E2E_RELAYS="wss://nos.lol" npm run e2e
         run: npm run e2e
       - uses: actions/upload-artifact@v4

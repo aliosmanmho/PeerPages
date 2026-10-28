@@ -4,14 +4,15 @@ import { startTestSite, type TestSite } from "./fixtures/agent";
 import { type FakeRelay, type NostrAgent, startFakeRelay, startNostrAgent } from "./fixtures/nostr";
 
 /**
- * Faz 4 kabul kriterinin otomatiklestirilebilir cekirdegi:
+ * The automatable core of the phase 4 acceptance criterion:
  *
- *   "Laptop uyuyup uyaninca tunel kendini toparliyor."
+ *   "When the laptop sleeps and wakes, the tunnel recovers on its own."
  *
- * Gercek uyku/uyanma tek makineden ve tarayici icinden taklit edilemez;
- * yerine ayni SONUCU ureten durumu kuruyoruz: ajan olup ayni anahtarla
- * geri geliyor, ag kesilip geri geliyor. Elle yapilacak gercek uyku
- * denemesi docs/MANUAL-TEST.md'de.
+ * A real sleep/wake cannot be imitated from a single machine inside a
+ * browser; instead we build the situation that produces the same RESULT:
+ * the agent dies and comes back with the same key, the network drops and
+ * comes back. The real sleep attempt, done by hand, is in
+ * docs/MANUAL-TEST.md.
  */
 
 const BASE = "/PeerPages/";
@@ -35,7 +36,7 @@ async function openVisitorTab(
 ): Promise<Page> {
   const page = await context.newPage();
   page.on("console", (msg) => {
-    if (msg.type() === "error") console.log(`[sayfa hatasi] ${msg.text()}`);
+    if (msg.type() === "error") console.log(`[page error] ${msg.text()}`);
   });
   const hash = agent.visitorURL.slice(agent.visitorURL.indexOf("#"));
   await page.goto(`${CONNECT}?relay=${encodeURIComponent(relay.url)}${hash}`);
@@ -49,11 +50,12 @@ async function expectTunnelOpen(page: Page): Promise<void> {
   });
 }
 
-test.describe("Faz 4 — tunel kendini toparliyor", () => {
-  // Ajan olup ayni anahtarla geri geldiginde ziyaretcinin hicbir sey
-  // yapmasi gerekmemeli. Faz 3'e kadar sayfa tuneli birakip ELLE SIGNALING
-  // panelini aciyordu; URL ile gelen ziyaretci icin tek cikis yenilemekti.
-  test("ajan yeniden baslayinca sayfa kendi kendine baglaniyor", async ({ context }) => {
+test.describe("phase 4 — the tunnel recovers on its own", () => {
+  // When the agent dies and comes back with the same key, the visitor
+  // should have to do nothing. Until phase 3 the page gave up the tunnel
+  // and opened the MANUAL SIGNALING panel; for a visitor who arrived by
+  // URL the only way out was a refresh.
+  test("when the agent restarts the page reconnects on its own", async ({ context }) => {
     const relay = await startFakeRelay();
     const agent = await startNostrAgent({
       targetURL: site.url,
@@ -69,21 +71,22 @@ test.describe("Faz 4 — tunel kendini toparliyor", () => {
       const started = Date.now();
       await agent.restart();
 
-      // Elle tiklama YOK: denetleyici kendi geri sayimiyla toparlamali.
+      // NO manual clicking: the supervisor has to recover on its own
+      // backoff.
       await page.waitForFunction(() => (window.__peerpages?.reconnects() ?? 0) > 0, null, {
         timeout: 90_000,
       });
       await page.waitForFunction(() => window.__peerpages?.hasTunnel() === true, null, {
         timeout: 90_000,
       });
-      console.log(`OLCUM yeniden baglanma (ajan yeniden basladi): ${Date.now() - started} ms`);
+      console.log(`MEASURED reconnect (the agent restarted): ${Date.now() - started} ms`);
 
       expect(await page.evaluate(() => window.__peerpages?.connState())).toBe("connected");
 
-      // Tunel gercekten calisiyor: ziyaretci sekmesi siteyi goruyor.
+      // The tunnel really works: the visitor tab sees the site.
       const visitor = await context.newPage();
       await visitor.goto(BASE);
-      await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi", {
+      await expect(visitor.locator("#title")).toHaveText("PeerPages test site", {
         timeout: 30_000,
       });
       await visitor.close();
@@ -94,9 +97,10 @@ test.describe("Faz 4 — tunel kendini toparliyor", () => {
     }
   });
 
-  // Kopma aninda elle signaling paneli ACILMAMALI ve ekran ne oldugunu
-  // soylemeli: eski davranis "Yeniden offer uretebilirsin" diyordu.
-  test("kopmada ekran yeniden baglandigini soyluyor", async ({ context }) => {
+  // On a drop the manual signaling panel must NOT open, and the screen
+  // has to say what happened: the old behaviour said "you can create a
+  // new offer".
+  test("on a drop the screen says it is reconnecting", async ({ context }) => {
     const relay = await startFakeRelay();
     const agent = await startNostrAgent({
       targetURL: site.url,
@@ -108,10 +112,11 @@ test.describe("Faz 4 — tunel kendini toparliyor", () => {
       const page = await openVisitorTab(context, agent, relay);
       await expectTunnelOpen(page);
 
-      // Ajani oldur ve GERI GETIRME: sayfa denemeye devam etmeli.
+      // Kill the agent and DO NOT bring it back: the page has to keep
+      // trying.
       agent.process.kill();
 
-      await expect(page.locator("#status-msg")).toContainText("yeniden", { timeout: 90_000 });
+      await expect(page.locator("#status-msg")).toContainText("retrying", { timeout: 90_000 });
       await expect(page.locator("#panel-manual")).toBeHidden();
       await expect(page.locator("#panel-connected")).toBeVisible();
       expect(await page.evaluate(() => window.__peerpages?.connState())).toBe("reconnecting");
@@ -124,11 +129,12 @@ test.describe("Faz 4 — tunel kendini toparliyor", () => {
   });
 });
 
-test.describe("Faz 4 — relay dayanikliligi", () => {
-  // Relay dusup geri geldiginde ajan surecinden CIKMAMALI ve yeniden
-  // abone olmali. Faz 3'e kadar abonelik kanali kapandiginda Run hata
-  // donuyor, ajan exit 1 ile oluyordu.
-  test("relay dusup geri gelince ajan hala yayinda", async ({ context }) => {
+test.describe("phase 4 — relay resilience", () => {
+  // When a relay goes down and comes back the agent process must NOT
+  // EXIT, and it has to resubscribe. Until phase 3 Run returned an error
+  // when the subscription channel closed and the agent died with exit
+  // 1.
+  test("when a relay goes down and comes back the agent is still live", async ({ context }) => {
     let relay = await startFakeRelay();
     const port = relay.port;
 
@@ -139,16 +145,18 @@ test.describe("Faz 4 — relay dayanikliligi", () => {
     });
 
     try {
-      // Relay'i oldur, kisa bir sure bekle, AYNI portta geri getir.
+      // Kill the relay, wait a moment, and bring it back on the SAME
+      // port.
       relay.stop();
       await new Promise((r) => setTimeout(r, 1500));
       relay = await startFakeRelay({ port });
 
-      // Ajan olmemis olmali.
+      // The agent must not have died.
       expect(agent.process.exitCode).toBeNull();
 
-      // Ve yeni bir ziyaretci hala baglanabilmeli: abonelik yenilenmis
-      // olmali, yoksa offer'i kimse duymaz.
+      // And a new visitor still has to be able to connect: the
+      // subscription must have been renewed, or nobody hears the
+      // offer.
       const page = await openVisitorTab(context, agent, relay);
       await expectTunnelOpen(page);
       await page.close();
@@ -159,10 +167,11 @@ test.describe("Faz 4 — relay dayanikliligi", () => {
   });
 });
 
-test.describe("Faz 4 — SW bekleme penceresi", () => {
-  // Kopma aninda istenen bir alt kaynak aninda 503 almak yerine yeniden
-  // baglanmayi beklemeli: ziyaretcinin gezdigi site kirilmasin.
-  test("kopma aninda alt kaynak 503 yerine tamamlaniyor", async ({ context }) => {
+test.describe("phase 4 — the SW waiting window", () => {
+  // A subresource requested during a drop has to wait for the reconnect
+  // instead of getting an immediate 503, so the site the visitor is
+  // browsing does not break.
+  test("a subresource caught by a drop completes instead of 503", async ({ context }) => {
     const relay = await startFakeRelay();
     const agent = await startNostrAgent({
       targetURL: site.url,
@@ -174,26 +183,27 @@ test.describe("Faz 4 — SW bekleme penceresi", () => {
       const owner = await openVisitorTab(context, agent, relay);
       await expectTunnelOpen(owner);
 
-      // SW'nin devrede oldugundan emin ol.
+      // Make sure the SW is in control.
       const visitor = await context.newPage();
       await visitor.goto(BASE);
-      await expect(visitor.locator("#baslik")).toHaveText("PeerPages test sitesi", {
+      await expect(visitor.locator("#title")).toHaveText("PeerPages test site", {
         timeout: 30_000,
       });
 
-      // Ajani yeniden baslat; bu arada ziyaretci sekmesinden istek yap.
+      // Restart the agent, and make a request from the visitor tab
+      // meanwhile.
       const restarted = agent.restart();
       const status = await visitor.evaluate(async (base) => {
-        // Kopmanin fark edilmesi icin kisa bir an bekle: istek tam
-        // boslukta gitsin.
+        // Wait a moment so the drop gets noticed: the request should go
+        // out right in the gap.
         await new Promise((r) => setTimeout(r, 1500));
         const res = await fetch(`${base}api/items`, { cache: "no-store" });
         return res.status;
       }, BASE);
       await restarted;
 
-      // 503 da gorulebilir (bekleme penceresi dolarsa) ama bu testin
-      // olcmek istedigi sey tam olarak bunun OLMAMASI.
+      // A 503 can happen too (if the waiting window expires), but what
+      // this test measures is exactly that it does NOT.
       expect(status).toBe(200);
 
       await visitor.close();

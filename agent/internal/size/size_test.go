@@ -22,11 +22,11 @@ func TestParse(t *testing.T) {
 	for _, c := range cases {
 		got, err := Parse(c.in)
 		if err != nil {
-			t.Errorf("Parse(%q) beklenmeyen hata: %v", c.in, err)
+			t.Errorf("Parse(%q) unexpected error: %v", c.in, err)
 			continue
 		}
 		if got != c.want {
-			t.Errorf("Parse(%q) = %d, beklenen %d", c.in, got, c.want)
+			t.Errorf("Parse(%q) = %d, expected %d", c.in, got, c.want)
 		}
 	}
 }
@@ -34,7 +34,7 @@ func TestParse(t *testing.T) {
 func TestParseInvalid(t *testing.T) {
 	for _, in := range []string{"", "   ", "MB", "abc", "-1", "-5MB", "0", "0MB", "1.5MB", "1 XB"} {
 		if got, err := Parse(in); err == nil {
-			t.Errorf("Parse(%q) hata vermeliydi, %d dondu", in, got)
+			t.Errorf("Parse(%q) should have returned an error, returned %d", in, got)
 		}
 	}
 }
@@ -51,7 +51,7 @@ func TestFormat(t *testing.T) {
 	}
 	for _, c := range cases {
 		if got := Format(c.in); got != c.want {
-			t.Errorf("Format(%d) = %q, beklenen %q", c.in, got, c.want)
+			t.Errorf("Format(%d) = %q, expected %q", c.in, got, c.want)
 		}
 	}
 }

@@ -8,9 +8,9 @@ import (
 )
 
 // ws koprusunun sinirlari, hata yollari ve omru.
-// Temel akis (echo, cok parcali mesaj) ws_test.go'da.
+// The basic flow (echo, a multi-chunk message) is in ws_test.go.
 
-// Tek mesaj birden cok cerceveye bolunuyor ve sinirini FIN bayragi belirliyor.
+// One message is split across frames and the FIN flag marks its end.
 func TestWSMultiFrameMessage(t *testing.T) {
 	conn := newFakeWSConn()
 	dialer := &fakeDialer{conn: conn}
@@ -28,7 +28,7 @@ func TestWSMultiFrameMessage(t *testing.T) {
 	}
 	v.waitWSOk(t, id, 5*time.Second)
 
-	// Ziyaretci -> yerel sunucu: iki parcali tek mesaj.
+	// Visitor -> the local server: one message in two chunks.
 	big := make([]byte, protocol.MaxWSPayload+1000)
 	for i := range big {
 		big[i] = byte(i % 251)
@@ -36,40 +36,40 @@ func TestWSMultiFrameMessage(t *testing.T) {
 	var seq uint32
 	v.sendWSMessage(t, id, &seq, true, big)
 	if seq != 2 {
-		t.Fatalf("beklenen 2 cerceve, gonderilen %d", seq)
+		t.Fatalf("2 frames expected, sent %d", seq)
 	}
 
 	select {
 	case got := <-conn.fromAgent:
 		if !got.binary || len(got.data) != len(big) {
-			t.Fatalf("birlestirme bozuk: binary=%v %d bayt", got.binary, len(got.data))
+			t.Fatalf("the assembly is broken: binary=%v %d bytes", got.binary, len(got.data))
 		}
 		for i := range big {
 			if got.data[i] != big[i] {
-				t.Fatalf("bayt %d farkli", i)
+				t.Fatalf("byte %d differs", i)
 			}
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("yerel sunucuya mesaj ulasmadi")
+		t.Fatal("no message reached the local server")
 	}
 
-	// Yerel sunucu -> ziyaretci: ayni mesaj iki cerceve olarak donmeli.
+	// The local server -> the visitor: the same message has to come back as two frames.
 	conn.toAgent <- wsMsg{binary: false, data: big}
 	r := &wsReader{id: id}
 	msg, cl := v.nextWSEvent(t, r, 5*time.Second)
 	if cl != nil {
-		t.Fatalf("beklenmeyen kapanis: %d %q", cl.Code, cl.Reason)
+		t.Fatalf("unexpected close: %d %q", cl.Code, cl.Reason)
 	}
 	if msg.binary || len(msg.data) != len(big) {
-		t.Fatalf("ters yon bozuk: binary=%v %d bayt", msg.binary, len(msg.data))
+		t.Fatalf("the reverse direction is broken: binary=%v %d bytes", msg.binary, len(msg.data))
 	}
 	if r.nextSeq != 2 {
-		t.Errorf("beklenen 2 cerceve, gelen %d", r.nextSeq)
+		t.Errorf("2 frames expected, got %d", r.nextSeq)
 	}
 }
 
-// Kopru kapaliyken (varsayilan) ws-open reddedilmeli: HTML'e mudahale ve ws
-// koprusu acik bir secim olmali (BRIEF Faz 6).
+// With the bridge off (the default) ws-open has to be refused: touching the
+// HTML and the ws bridge have to be an explicit choice (BRIEF phase 6).
 func TestWSBridgeDisabled(t *testing.T) {
 	sess, v := connect(t, Config{Proxy: noopProxy()})
 	defer func() { _ = sess.Close() }()
@@ -80,7 +80,7 @@ func TestWSBridgeDisabled(t *testing.T) {
 	}
 	cl := v.waitWSClose(t, id, 5*time.Second)
 	if cl.Code != protocol.WSClosePolicy {
-		t.Errorf("kapanis kodu %d, beklenen %d", cl.Code, protocol.WSClosePolicy)
+		t.Errorf("close code %d, expected %d", cl.Code, protocol.WSClosePolicy)
 	}
 }
 
@@ -89,22 +89,22 @@ func TestWSBridgeDisabled(t *testing.T) {
 func TestWSDialFailureCarriesCode(t *testing.T) {
 	dialer := &fakeDialer{err: &WSDialError{
 		Code:   protocol.WSClosePolicy,
-		Reason: "yerel sunucu el sikismayi reddetti (404)",
+		Reason: "the local server refused the handshake (404)",
 	}}
 	sess, v := connect(t, Config{Proxy: noopProxy(), WSDialer: dialer})
 	defer func() { _ = sess.Close() }()
 
 	const id = uint32(11)
-	if err := v.sendCtrl(protocol.WSOpen{ID: id, Path: "/yok"}); err != nil {
+	if err := v.sendCtrl(protocol.WSOpen{ID: id, Path: "/missing"}); err != nil {
 		t.Fatal(err)
 	}
 	cl := v.waitWSClose(t, id, 5*time.Second)
 	if cl.Code != protocol.WSClosePolicy || cl.Reason == "" {
-		t.Errorf("kapanis: %d %q", cl.Code, cl.Reason)
+		t.Errorf("close: %d %q", cl.Code, cl.Reason)
 	}
 }
 
-// Mesaj tavani (BRIEF ilke 4: ziyaretci guvenilmez).
+// The message ceiling (BRIEF principle 4: the visitor is untrusted).
 func TestWSMessageTooLarge(t *testing.T) {
 	conn := newFakeWSConn()
 	sess, v := connect(t, Config{
@@ -125,14 +125,14 @@ func TestWSMessageTooLarge(t *testing.T) {
 
 	cl := v.waitWSClose(t, id, 5*time.Second)
 	if cl.Code != protocol.WSCloseTooBig {
-		t.Errorf("kapanis kodu %d, beklenen %d", cl.Code, protocol.WSCloseTooBig)
+		t.Errorf("close code %d, expected %d", cl.Code, protocol.WSCloseTooBig)
 	}
 	if code := conn.waitClosed(t, 5*time.Second); code != protocol.WSCloseTooBig {
-		t.Errorf("yerel baglanti kodu %d, beklenen %d", code, protocol.WSCloseTooBig)
+		t.Errorf("the local connection code is %d, expected %d", code, protocol.WSCloseTooBig)
 	}
 }
 
-// Bozuk cerceveler protokol hatasi: sessizce dusurulmemeli.
+// Malformed frames are a protocol error: they must not be dropped silently.
 func TestWSProtocolErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -147,14 +147,14 @@ func TestWSProtocolErrors(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				// seq 0 bekleniyor, 1 yolluyoruz.
+				// seq 0 is expected, we send 1.
 				if err := v.sendFrame(id, 1, payload); err != nil {
 					t.Fatal(err)
 				}
 			},
 		},
 		{
-			name: "tanimsiz-bayrak",
+			name: "undefined-flag",
 			send: func(t *testing.T, v *visitor, id uint32) {
 				if err := v.sendFrame(id, 0, []byte{0xff, 'a'}); err != nil {
 					t.Fatal(err)
@@ -162,7 +162,7 @@ func TestWSProtocolErrors(t *testing.T) {
 			},
 		},
 		{
-			name: "bos-payload",
+			name: "empty-payload",
 			send: func(t *testing.T, v *visitor, id uint32) {
 				if err := v.sendFrame(id, 0, nil); err != nil {
 					t.Fatal(err)
@@ -209,14 +209,14 @@ func TestWSProtocolErrors(t *testing.T) {
 
 			cl := v.waitWSClose(t, id, 5*time.Second)
 			if cl.Code != protocol.WSCloseProtocol {
-				t.Errorf("kapanis kodu %d, beklenen %d (%q)",
+				t.Errorf("close code %d, expected %d (%q)",
 					cl.Code, protocol.WSCloseProtocol, cl.Reason)
 			}
 		})
 	}
 }
 
-// Akis butcesi: uzun yasayan akislar normal istekleri ac birakmasin.
+// The stream budget: long-lived streams must not starve normal requests.
 func TestWSStreamBudget(t *testing.T) {
 	conn := newFakeWSConn()
 	sess, v := connect(t, Config{
@@ -236,10 +236,10 @@ func TestWSStreamBudget(t *testing.T) {
 	}
 	cl := v.waitWSClose(t, 2, 5*time.Second)
 	if cl.Code != protocol.WSCloseTryAgainLater {
-		t.Errorf("kapanis kodu %d, beklenen %d", cl.Code, protocol.WSCloseTryAgainLater)
+		t.Errorf("close code %d, expected %d", cl.Code, protocol.WSCloseTryAgainLater)
 	}
 
-	// Ilk oturum kapaninca slot geri gelmeli.
+	// Closing the first session has to give the slot back.
 	if err := v.sendCtrl(protocol.WSClose{ID: 1, Code: protocol.WSCloseNormal}); err != nil {
 		t.Fatal(err)
 	}
@@ -261,19 +261,19 @@ func TestWSStreamBudget(t *testing.T) {
 				}
 			case protocol.WSClose:
 				if msg.ID == attempt && msg.Code != protocol.WSCloseTryAgainLater {
-					t.Fatalf("beklenmeyen kapanis: %d %q", msg.Code, msg.Reason)
+					t.Fatalf("unexpected close: %d %q", msg.Code, msg.Reason)
 				}
 			}
 		case <-time.After(300 * time.Millisecond):
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("akis slotu geri gelmedi")
+			t.Fatal("the stream slot did not come back")
 		}
 	}
 }
 
 // Ziyaretci ws-close yollarsa kodu yerel sunucuya AYNEN gecmeli (4000-4999
-// uygulamaya ait kodlar Socket.IO gibi kutuphanelerde anlam tasiyor).
+// application-specific codes carry meaning in libraries like Socket.IO).
 func TestWSVisitorCloseReachesUpstream(t *testing.T) {
 	conn := newFakeWSConn()
 	sess, v := connect(t, Config{
@@ -294,11 +294,11 @@ func TestWSVisitorCloseReachesUpstream(t *testing.T) {
 		t.Fatal(err)
 	}
 	if code := conn.waitClosed(t, 5*time.Second); code != 4001 {
-		t.Errorf("yerel kapanis kodu %d, beklenen 4001", code)
+		t.Errorf("the local close code is %d, expected 4001", code)
 	}
 }
 
-// Yerel sunucu kapatirsa kapanis ziyaretciye ulasmali.
+// If the local server closes, the close has to reach the visitor.
 func TestWSUpstreamCloseReachesVisitor(t *testing.T) {
 	conn := newFakeWSConn()
 	sess, v := connect(t, Config{
@@ -316,12 +316,12 @@ func TestWSUpstreamCloseReachesVisitor(t *testing.T) {
 	_ = conn.Close(protocol.WSCloseNormal, "")
 	cl := v.waitWSClose(t, id, 5*time.Second)
 	if cl.Code != protocol.WSCloseNormal {
-		t.Errorf("kapanis kodu %d, beklenen %d", cl.Code, protocol.WSCloseNormal)
+		t.Errorf("close code %d, expected %d", cl.Code, protocol.WSCloseNormal)
 	}
 }
 
-// ws-open'dan ONCE gelen cerceveler kaybolmamali: ctrl ve data arasinda
-// siralama garantisi yok (Faz 1'de olculdu, protocol/README.md).
+// Frames arriving BEFORE ws-open must not be lost: there is no ordering
+// guarantee between ctrl and data (measured in phase 1, protocol/README.md).
 func TestWSEarlyFramesBeforeOpen(t *testing.T) {
 	conn := newFakeWSConn()
 	sess, v := connect(t, Config{
@@ -334,7 +334,7 @@ func TestWSEarlyFramesBeforeOpen(t *testing.T) {
 	var seq uint32
 	// Cerceveler ONCE.
 	v.sendWSMessage(t, id, &seq, false, []byte("erken"))
-	// ws-open SONRA.
+	// ws-open comes AFTERWARDS.
 	if err := v.sendCtrl(protocol.WSOpen{ID: id, Path: "/ws"}); err != nil {
 		t.Fatal(err)
 	}
@@ -343,15 +343,15 @@ func TestWSEarlyFramesBeforeOpen(t *testing.T) {
 	select {
 	case got := <-conn.fromAgent:
 		if string(got.data) != "erken" {
-			t.Errorf("erken mesaj %q", got.data)
+			t.Errorf("early message %q", got.data)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("ws-open'dan once gelen cerceve kayboldu")
+		t.Fatal("a frame that arrived before ws-open was lost")
 	}
 }
 
-// Tunel kapaninca acik ws oturumlari da dusmeli: aksi halde yerel sunucuya
-// baglanti ve akis slotu sizar.
+// Closing the tunnel has to drop the open ws sessions too: otherwise a
+// connection to the local server and a stream slot leak.
 func TestWSClosedWithSession(t *testing.T) {
 	conn := newFakeWSConn()
 	sess, v := connect(t, Config{

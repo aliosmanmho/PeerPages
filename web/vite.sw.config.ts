@@ -1,20 +1,23 @@
 import { defineConfig } from "vite";
 
 /**
- * Service Worker derlemesi — app shell'den AYRI.
+ * The Service Worker build — SEPARATE from the app shell.
  *
- * Neden ayri:
- *  - SW dosyasinin adi hash'siz ve sabit olmali (`dist/sw.js`), cunku scope
- *    kokunde `register(base + "sw.js", { scope: base })` ile kaydediliyor.
- *  - SW'nin ne bundle'landigi uzerinde tam kontrol lazim (BRIEF karari).
+ * Why separate:
+ *  - the SW file name has to be fixed and unhashed (`dist/sw.js`), because
+ *    it is registered at the scope root with
+ *    `register(base + "sw.js", { scope: base })`.
+ *  - full control over what gets bundled into the SW is needed (a BRIEF
+ *    decision).
  *
- * `emptyOutDir: false` — app derlemesinden sonra calisir, dist'i silmemeli.
- * Bu yuzden `npm run build` sirasi: build:app, sonra build:sw.
+ * `emptyOutDir: false` — it runs after the app build and must not wipe
+ * dist. That is why the `npm run build` order is build:app, then
+ * build:sw.
  */
 export default defineConfig({
-  // App derlemesiyle AYNI base: SW su an asset URL'si uretmiyor ama iki
-  // derlemenin ayri base degerleri tasimasi bir kez hataya yol acti.
-  // (Kapsam yine de calisma zamaninda registration.scope'tan okunuyor.)
+  // The SAME base as the app build: the SW produces no asset URL today,
+  // but the two builds carrying different base values caused a bug once.
+  // (The scope is still read at runtime from registration.scope.)
   base: process.env.PEERPAGES_BASE ?? "/",
   build: {
     target: "esnext",
@@ -26,7 +29,8 @@ export default defineConfig({
       formats: ["es"],
       fileName: () => "sw.js",
     },
-    // SW tek dosya olmali: ayri chunk'lar scope kokunde ek istek demek.
+    // The SW has to be a single file: separate chunks mean extra
+    // requests at the scope root.
     rollupOptions: {
       output: {
         entryFileNames: "sw.js",

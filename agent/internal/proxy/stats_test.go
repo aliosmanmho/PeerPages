@@ -14,7 +14,7 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/target"
 )
 
-// newProxyWithStats sayac takili bir proxy kurar.
+// newProxyWithStats builds a proxy with counters attached.
 func newProxyWithStats(t *testing.T, serverURL string) (*Proxy, *stats.Registry) {
 	t.Helper()
 	targets, err := target.Parse([]string{serverURL})
@@ -38,10 +38,10 @@ func newProxyWithStats(t *testing.T, serverURL string) (*Proxy, *stats.Registry)
 
 func TestStatsCountsSuccessAndBytes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gelen, _ := io.ReadAll(r.Body)
+		got, _ := io.ReadAll(r.Body)
 		_, _ = w.Write(make([]byte, 1000))
-		if len(gelen) != 7 {
-			t.Errorf("hedefe giden govde %d bayt", len(gelen))
+		if len(got) != 7 {
+			t.Errorf("the body that reached the target is %d bytes", len(got))
 		}
 	}))
 	defer srv.Close()
@@ -53,18 +53,19 @@ func TestStatsCountsSuccessAndBytes(t *testing.T) {
 
 	got := reg.Total()
 	if got.Requests != 1 || got.Success != 1 || got.Errors != 0 {
-		t.Errorf("sayaclar: %+v", got)
+		t.Errorf("counters: %+v", got)
 	}
 	if got.BytesOut != 1000 {
-		t.Errorf("giden bayt %d, beklenen 1000", got.BytesOut)
+		t.Errorf("%d bytes out, expected 1000", got.BytesOut)
 	}
 	if got.BytesIn != 7 {
-		t.Errorf("gelen bayt %d, beklenen 7", got.BytesIn)
+		t.Errorf("%d bytes in, expected 7", got.BytesIn)
 	}
 }
 
-// Hedefin 404 ya da 500 dondurmesi proxy icin BASARIDIR: istek tasindi.
-// Hata sayaci yalnizca ajanin cevabi tasiyamadigi durumlar icin.
+// The target answering 404 or 500 IS A SUCCESS for the proxy: the
+// request was carried. The error counter is only for the cases where the
+// agent could not carry the response.
 func TestStatsUpstreamErrorStatusIsSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -77,7 +78,7 @@ func TestStatsUpstreamErrorStatusIsSuccess(t *testing.T) {
 	}, nil, &fakeSink{})
 
 	if got := reg.Total(); got.Success != 1 || got.Errors != 0 {
-		t.Errorf("hedefin 500'u hata sayilmamali: %+v", got)
+		t.Errorf("a 500 from the target must not count as an error: %+v", got)
 	}
 }
 
@@ -86,30 +87,31 @@ func TestStatsCountsErrors(t *testing.T) {
 		_, _ = io.WriteString(w, "ok")
 	}))
 	targetURL := srv.URL
-	srv.Close() // hedef kapali: ulasilamaz
+	srv.Close() // the target is closed: unreachable
 
 	p, reg := newProxyWithStats(t, targetURL)
 
-	// Ulasilamayan hedef.
+	// An unreachable target.
 	p.Serve(context.Background(), protocol.Req{
 		ID: 1, Method: "GET", Path: "/", Headers: map[string]string{}, HasBody: false,
 	}, nil, &fakeSink{})
 
-	// Gecersiz yol (SSRF kalkani): hedef hic cozulemez.
+	// An invalid path (the SSRF shield): the target never resolves.
 	p.Serve(context.Background(), protocol.Req{
 		ID: 2, Method: "GET", Path: "http://baska.example/", Headers: map[string]string{}, HasBody: false,
 	}, nil, &fakeSink{})
 
 	got := reg.Total()
 	if got.Requests != 2 {
-		t.Errorf("istek %d, beklenen 2", got.Requests)
+		t.Errorf("%d requests, expected 2", got.Requests)
 	}
 	if got.Errors != 2 || got.Success != 0 {
-		t.Errorf("sayaclar: %+v, iki hata beklenirdi", got)
+		t.Errorf("counters: %+v, two errors were expected", got)
 	}
 }
 
-// Sayac verilmezse (nil) proxy normal calismali: sayac tutmak zorunlu degil.
+// With no counters given (nil) the proxy has to work normally: counting
+// is not mandatory.
 func TestStatsNilIsSafe(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "merhaba")
@@ -123,6 +125,6 @@ func TestStatsNilIsSafe(t *testing.T) {
 	}, nil, sink)
 
 	if _, _, body, ended, _ := sink.snapshot(); string(body) != "merhaba" || !ended {
-		t.Errorf("sayacsiz proxy calismali: govde %q ended %v", body, ended)
+		t.Errorf("a proxy with no counters has to work: body %q ended %v", body, ended)
 	}
 }

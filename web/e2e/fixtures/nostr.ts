@@ -1,10 +1,10 @@
 /**
- * Nostr yolu icin e2e yardimcilari.
+ * The e2e helpers for the Nostr path.
  *
- * Sahte relay kullaniyoruz: gercek internet relay'lerine bagimli bir CI
- * testi kirilgan olur (relay dusebilir, hiz limiti uygulayabilir, ephemeral
- * event'i atabilir). Akisin kendisi burada deterministik dogrulaniyor;
- * gercek relay'ler `peerpages doctor` ile ayrica olculuyor.
+ * We use a fake relay: a CI test that depends on real internet relays is
+ * fragile (a relay can go down, rate-limit, or drop an ephemeral event).
+ * The flow itself is verified deterministically here; the real relays are
+ * measured separately with `peerpages doctor`.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -19,22 +19,22 @@ const READY = "---PEERPAGES-READY---";
 
 export interface FakeRelay {
   url: string;
-  /** Dinlenen port; ayni adreste yeniden baslatmak icin (Faz 4). */
+  /** The port being listened on, so it can restart on the same address (phase 4). */
   port: number;
   stop: () => void;
 }
 
 export interface FakeRelayOptions {
   /**
-   * Sabit port. Faz 4'un "relay dusup geri geliyor" testi icin gerekli:
-   * 0 ile baslatilan relay yeniden baslatildiginda baska bir adres alir
-   * ve ajan eski adresi arar.
+   * A fixed port. Needed for the phase 4 "a relay goes down and comes
+   * back" test: a relay started with 0 gets a different address when it
+   * restarts, and the agent keeps looking for the old one.
    */
   readonly port?: number;
   readonly extraArgs?: readonly string[];
 }
 
-/** Sahte Nostr relay'ini baslatir ve ws:// adresini dondurur. */
+/** Starts the fake Nostr relay and returns its ws:// address. */
 export async function startFakeRelay(
   opts: readonly string[] | FakeRelayOptions = {},
 ): Promise<FakeRelay> {
@@ -80,7 +80,7 @@ export async function startFakeRelay(
 const FAKETURN_LISTENING = "---PEERPAGES-FAKETURN-LISTENING---";
 
 export interface FakeTurn {
-  /** Ajana verilecek TURN adresi (turn:127.0.0.1:port). */
+  /** The TURN address to hand to the agent (turn:127.0.0.1:port). */
   url: string;
   user: string;
   pass: string;
@@ -88,16 +88,16 @@ export interface FakeTurn {
 }
 
 /**
- * Surec ici TURN sunucusunu baslatir (Faz 5).
+ * Starts the in-process TURN server (phase 5).
  *
- * Ajan --ice-relay-only ile yalnizca relay adayi toplamaya zorlanirsa
- * dogrudan yol IMKANSIZ olur; o zaman tunelin acilmasi trafigin TURN'den
- * gectiginin kanitidir.
+ * Once the agent is forced with --ice-relay-only to gather relay
+ * candidates only, the direct path is IMPOSSIBLE; then the tunnel opening
+ * is proof that the traffic went over TURN.
  */
 export async function startFakeTurn(): Promise<FakeTurn> {
   const bin = ensureAgentBinary();
   const user = "peerpages";
-  const pass = "test-sifre";
+  const pass = "test-password";
   const proc = spawn(bin, ["faketurn", "--port", "0", "--user", user, "--pass", pass], {
     cwd: AGENT_DIR,
     stdio: ["ignore", "pipe", "pipe"],
@@ -130,25 +130,25 @@ export async function startFakeTurn(): Promise<FakeTurn> {
 }
 
 export interface NostrAgent {
-  /** Ajanin peer-id'si (tam npub). */
+  /** The agent's peer-id (the full npub). */
   npub: string;
-  /** Ziyaretcinin acmasi gereken tam URL (ajanin bastigi, varsayilan hedef). */
+  /** The full URL the visitor should open (the one the agent printed, for the default target). */
   visitorURL: string;
   /**
-   * Hedef adi -> ajanin bastigi ziyaretci URL'si.
+   * Target name -> the visitor URL the agent printed.
    *
-   * Coklu hedefte (Faz 3) ajan her hedef icin ayri bir URL basiyor; test
-   * kendi eliyle URL kurmasin.
+   * With several targets (phase 3) the agent prints a separate URL for
+   * each one, so the test should not build URLs by hand.
    */
   urls: Record<string, string>;
   output: () => string[];
   stop: () => void;
   /**
-   * Ajani oldurup AYNI anahtarla yeniden baslatir (Faz 4).
+   * Kills the agent and restarts it with the SAME key (phase 4).
    *
-   * Anahtar ayni oldugu icin peer-id de ayni kalir: ziyaretcinin URL'si
-   * gecerliligini korur ve sayfanin kendi kendine yeniden baglanmasi
-   * olculebilir.
+   * Because the key is the same the peer-id stays the same: the visitor's
+   * URL keeps working and the page reconnecting on its own can be
+   * measured.
    */
   restart: () => Promise<void>;
   process: ChildProcess;
@@ -156,23 +156,24 @@ export interface NostrAgent {
 
 export interface NostrAgentOptions {
   readonly targetURL: string;
-  /** Ek hedefler: ad -> yerel adres (Faz 3 coklu hedef). */
+  /** Extra targets: name -> local address (the phase 3 several-targets case). */
   readonly extraTargets?: Readonly<Record<string, string>>;
   readonly relayURLs: readonly string[];
   readonly appURL: string;
   readonly secret?: string;
-  /** TURN sunucusu ve kimlik bilgisi (Faz 5). */
+  /** The TURN server and its credentials (phase 5). */
   readonly turn?: { url: string; user: string; pass: string };
-  /** Yalnizca relay adayi topla: dogrudan yolu imkansiz kilar. */
+  /** Gather relay candidates only: it makes the direct path impossible. */
   readonly iceRelayOnly?: boolean;
   readonly extraArgs?: string[];
 }
 
 /**
- * Ajani NOSTR modunda baslatir (varsayilan mod) ve hazir olmasini bekler.
+ * Starts the agent in NOSTR mode (the default) and waits until it is
+ * ready.
  *
- * Her cagri icin gecici bir anahtar dizini kullaniyoruz: testler
- * ~/.peerpages/key dosyasina dokunmasin ve her testin peer-id'si farkli olsun.
+ * Every call uses a temporary key directory: the tests must not touch
+ * ~/.peerpages/key, and every test gets its own peer-id.
  */
 export async function startNostrAgent(opts: NostrAgentOptions): Promise<NostrAgent> {
   const bin = ensureAgentBinary();
@@ -218,17 +219,17 @@ export async function startNostrAgent(opts: NostrAgentOptions): Promise<NostrAge
 
   await watcher.waitFor((l) => l.includes(READY), 40_000, "ajanin hazir isaretcisi");
 
-  // Ajan her hedef icin ziyaretci URL'sini basiyor; testin elle URL
-  // kurmasina gerek yok.
+  // The agent prints the visitor URL for every target, so the test does
+  // not have to build one by hand.
   const urlLines = watcher
     .all()
     .map((l) => l.trim())
     .filter((l) => l.startsWith(opts.appURL) && l.includes("#npub1"));
   if (urlLines.length === 0) {
-    throw new Error(`ziyaretci URL'si bulunamadi: ${watcher.tail()}`);
+    throw new Error(`the visitor URL was not found: ${watcher.tail()}`);
   }
 
-  // Fragment dilbilgisi: npub [ "/" hedef ] [ ":" sir ]
+  // The fragment grammar: npub [ "/" target ] [ ":" secret ]
   const urls: Record<string, string> = {};
   let npub = "";
   for (const line of urlLines) {
@@ -258,7 +259,7 @@ export async function startNostrAgent(opts: NostrAgentOptions): Promise<NostrAge
       watcher = new LineWatcher();
       proc = spawn(bin, args, { cwd: AGENT_DIR, stdio: ["ignore", "pipe", "pipe"] });
       attach(proc);
-      await watcher.waitFor((l) => l.includes(READY), 40_000, "yeniden baslayan ajan");
+      await watcher.waitFor((l) => l.includes(READY), 40_000, "the restarted agent");
       handle.process = proc;
     },
     stop: () => {
@@ -266,7 +267,8 @@ export async function startNostrAgent(opts: NostrAgentOptions): Promise<NostrAge
       try {
         rmSync(keyDir, { recursive: true, force: true });
       } catch {
-        // Gecici dizin silinemezse testi dusurmeye deger bir sey degil.
+        // A temporary directory that cannot be removed is not worth
+        // failing the test over.
       }
     },
     process: proc,

@@ -1,16 +1,16 @@
-import { mesaj } from "./mesaj.js";
+import { message } from "./message.js";
 
 function render(text) {
-  const el = document.getElementById("mesaj");
+  const el = document.getElementById("message");
   if (el) el.textContent = text;
 }
 
-render(mesaj);
+render(message);
 
-// HMR kancasi: modul degisince sayfayi YENILEMEDEN yeniden cizer. Testin
-// "yenilenmedi" iddiasi buna dayaniyor.
+// The HMR hook: when the module changes it redraws WITHOUT reloading the
+// page. The test's "it did not reload" claim rests on this.
 if (import.meta.hot) {
-  import.meta.hot.accept("./mesaj.js", (yeni) => {
-    if (yeni) render(yeni.mesaj);
+  import.meta.hot.accept("./message.js", (next) => {
+    if (next) render(next.message);
   });
 }

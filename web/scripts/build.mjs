@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 /**
- * Web derlemesi: app shell + elle derlenen Service Worker.
+ * The web build: the app shell plus the hand-built Service Worker.
  *
- * Neden bir script: `base` degerini ortam degiskeniyle vermek gerekiyor ve
- * bunu npm scriptinde platformdan bagimsiz yapmanin temiz bir yolu yok
- * (Windows'ta `VAR=x cmd` calismaz, Git Bash ise `/PeerPages/` degerini
- * Windows yoluna cevirir). Node araya girince iki sorun da bitiyor.
+ * Why a script: `base` has to be passed through an environment variable,
+ * and there is no clean platform-independent way to do that in an npm
+ * script (`VAR=x cmd` does not work on Windows, and Git Bash turns
+ * `/PeerPages/` into a Windows path). Putting Node in between ends both
+ * problems.
  *
- * Kullanim:
+ * Usage:
  *   node scripts/build.mjs             # base "/"
- *   node scripts/build.mjs /PeerPages/ # GitHub Pages alt yolu
+ *   node scripts/build.mjs /PeerPages/ # the GitHub Pages subpath
  */
 
 import { spawnSync } from "node:child_process";
@@ -20,16 +21,17 @@ const webDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const base = process.argv[2] ?? process.env.PEERPAGES_BASE ?? "/";
 
 if (/^[A-Za-z]:/.test(base)) {
-  // Git Bash (MSYS) "/PeerPages/" argumanini Windows yoluna cevirmis.
+  // Git Bash (MSYS) turned the "/PeerPages/" argument into a Windows
+  // path.
   console.error(
-    `base bir Windows yoluna cevrilmis: ${base}
+    `base was turned into a Windows path: ${base}
 ` +
-      "Git Bash kullaniyorsan: MSYS_NO_PATHCONV=1 node scripts/build.mjs /PeerPages/",
+      "If you are using Git Bash: MSYS_NO_PATHCONV=1 node scripts/build.mjs /PeerPages/",
   );
   process.exit(1);
 }
 if (!base.startsWith("/") || !base.endsWith("/")) {
-  console.error(`base "/" ile baslayip "/" ile bitmeli, verilen: ${base}`);
+  console.error(`base has to start and end with "/", got: ${base}`);
   process.exit(1);
 }
 
@@ -43,15 +45,15 @@ function run(args) {
     shell: process.platform === "win32",
   });
   if (res.status !== 0) {
-    console.error(`basarisiz: npx ${args.join(" ")}`);
+    console.error(`failed: npx ${args.join(" ")}`);
     process.exit(res.status ?? 1);
   }
 }
 
-// SIRA ONEMLI: sonraki derlemeler emptyOutDir: false ile calisir, app
-// shell'i silmemeleri icin ondan sonra gelmeli.
+// THE ORDER MATTERS: the later builds run with emptyOutDir: false, so
+// they have to come after the app shell rather than wipe it.
 run(["vite", "build"]);
 run(["vite", "build", "--config", "vite.sw.config.ts"]);
 run(["vite", "build", "--config", "vite.shim.config.ts"]);
 
-console.log(`web derlendi (base=${base})`);
+console.log(`the web app was built (base=${base})`);

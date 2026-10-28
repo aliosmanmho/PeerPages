@@ -12,11 +12,11 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/protocol"
 )
 
-// sink bir istegin cevabini ctrl + data kanallarina yazar.
+// sink writes a request's response to the ctrl and data channels.
 //
-// Durum makinesi: yeni -> res yollandi -> (govde parcalari) -> kapandi.
-// Yanlis sirali cagrilar hata doner; boylece proxy katmanindaki bir hata
-// protokolu bozmaz.
+// The state machine: new -> res sent -> (body chunks) -> closed. Calls in
+// the wrong order return an error, so a bug in the proxy layer cannot
+// break the protocol.
 type sink struct {
 	s  *Session
 	id uint32
@@ -24,9 +24,11 @@ type sink struct {
 	mu      sync.Mutex
 	resSent bool
 	closed  bool
-	// nextSeq bir sonraki cerceve sirasi; ayni zamanda yollanan cerceve sayisi.
+	// nextSeq is the next frame sequence, and also the number of frames
+	// sent.
 	nextSeq uint32
-	// sentBytes yollanan toplam govde bayti; end mesajinda bildirilir.
+	// sentBytes is the total body bytes sent; reported in the end
+	// message.
 	sentBytes int64
 	buf       []byte
 	writeErr  error
@@ -40,13 +42,13 @@ func newSink(s *Session, id uint32) *sink {
 	}
 }
 
-// SendRes cevap basligini yollar.
+// SendRes sends the response head.
 func (k *sink) SendRes(status int, headers map[string]string) error {
 	k.mu.Lock()
 	switch {
 	case k.closed:
 		k.mu.Unlock()
-		return errors.New("sink kapali")
+		return errors.New("the sink is closed")
 	case k.resSent:
 		k.mu.Unlock()
 		return errors.New("res zaten yollandi")
@@ -54,24 +56,25 @@ func (k *sink) SendRes(status int, headers map[string]string) error {
 	k.resSent = true
 	k.mu.Unlock()
 
-	// Uzun yasayan akis: butceyi degistir (bkz. Session.reclassifyAsStream).
+	// A long-lived stream: switch budgets (see
+	// Session.reclassifyAsStream).
 	if isEventStream(headers["content-type"]) {
 		if err := k.s.reclassifyAsStream(k.id); err != nil {
-			// Ziyaretci sebebi gormeli: sessizce 502 donmek ya da askida
-			// birakmak yanlis teshise yol acar.
+			// The visitor must see the reason: answering 502 silently, or
+			// leaving it hanging, leads to a wrong diagnosis.
 			_ = k.Abort("too-many-streams")
-			return fmt.Errorf("akis kabul edilemedi: %w", err)
+			return fmt.Errorf("the stream could not be accepted: %w", err)
 		}
 	}
 
 	return k.s.sendCtrl(protocol.Res{ID: k.id, Status: status, Headers: headers})
 }
 
-// isEventStream content-type'in SSE olup olmadigini soyler.
+// isEventStream says whether the content-type is SSE.
 //
-// Parametreler (`; charset=utf-8`) ve bas/son bosluklar yok sayilir; baslik
-// adlari ve degerleri ziyaretciden degil yerel sunucudan geliyor ama yine de
-// bicimine guvenmiyoruz.
+// Parameters (`; charset=utf-8`) and surrounding whitespace are ignored;
+// the header names and values come from the local server rather than the
+// visitor, but we still do not trust their shape.
 func isEventStream(contentType string) bool {
 	mime := contentType
 	if i := strings.IndexByte(mime, ';'); i >= 0 {
@@ -80,15 +83,16 @@ func isEventStream(contentType string) bool {
 	return strings.EqualFold(strings.TrimSpace(mime), "text/event-stream")
 }
 
-// Write govdenin bir parcasini 16 KiB'lik cercevelere bolerek yollar.
+// Write sends a piece of the body split into 16 KiB frames.
 //
-// Her cerceveden once backpressure kontrolu yapilir; tampon dolu ise bekler.
+// Backpressure is checked before every frame; if the buffer is full it
+// waits.
 func (k *sink) Write(p []byte) error {
 	k.mu.Lock()
 	switch {
 	case k.closed:
 		k.mu.Unlock()
-		return errors.New("sink kapali")
+		return errors.New("the sink is closed")
 	case !k.resSent:
 		k.mu.Unlock()
 		return errors.New("govdeden once res yollanmali")
@@ -99,11 +103,12 @@ func (k *sink) Write(p []byte) error {
 	}
 	k.mu.Unlock()
 
-	// Kanal ve akis denetimi ziyaretci tarafindan acildigi icin asenkron
-	// geliyor; bir kez alip dongu boyunca kullaniyoruz.
+	// The channel and its flow control arrive asynchronously because the
+	// visitor opens them; we take them once and use them for the whole
+	// loop.
 	data, flow := k.s.dataChannel()
 	if data == nil || flow == nil {
-		return k.fail(errors.New("data kanali henuz acilmadi"))
+		return k.fail(errors.New("the data channel is not open yet"))
 	}
 
 	for off := 0; off < len(p); off += protocol.MaxPayload {
@@ -116,7 +121,7 @@ func (k *sink) Write(p []byte) error {
 			return k.fail(err)
 		}
 		if data.ReadyState() != webrtc.DataChannelStateOpen {
-			return k.fail(fmt.Errorf("data kanali acik degil (%s)", data.ReadyState()))
+			return k.fail(fmt.Errorf("the data channel is not open (%s)", data.ReadyState()))
 		}
 
 		k.mu.Lock()
@@ -129,7 +134,7 @@ func (k *sink) Write(p []byte) error {
 		}
 
 		if err := data.Send(frame); err != nil {
-			return k.fail(fmt.Errorf("cerceve yollanamadi: %w", err))
+			return k.fail(fmt.Errorf("the frame could not be sent: %w", err))
 		}
 
 		k.mu.Lock()
@@ -139,12 +144,12 @@ func (k *sink) Write(p []byte) error {
 	return nil
 }
 
-// End govdenin bittigini bildirir.
+// End reports that the body is finished.
 func (k *sink) End() error {
 	k.mu.Lock()
 	if k.closed {
 		k.mu.Unlock()
-		return errors.New("sink kapali")
+		return errors.New("the sink is closed")
 	}
 	k.closed = true
 	sent := k.resSent
@@ -153,15 +158,17 @@ func (k *sink) End() error {
 	k.mu.Unlock()
 
 	if !sent {
-		// res yollanmadan end anlamsiz: ziyaretci askida kalmasin.
+		// end without res is meaningless: the visitor must not be left
+		// hanging.
 		return k.s.sendCtrl(protocol.Abort{ID: k.id, Reason: "no-response"})
 	}
-	// frames/len ZORUNLU: alici ctrl ile data arasinda siralama olmadigi icin
-	// bu sayaclarla govdenin bittigini anlar (protocol/README.md).
+	// frames/len are MANDATORY: because the receiver has no ordering
+	// between ctrl and data, these counters are how it learns the body is
+	// over (protocol/README.md).
 	return k.s.sendCtrl(protocol.End{ID: k.id, Frames: frames, Len: length})
 }
 
-// Abort akisi iptal eder.
+// Abort cancels the stream.
 func (k *sink) Abort(reason string) error {
 	k.mu.Lock()
 	if k.closed {
@@ -186,7 +193,7 @@ func (k *sink) fail(err error) error {
 	return err
 }
 
-// ensureClosed Proxy akisi kapatmadan dondugunde cagrilir.
+// ensureClosed is called when Proxy returns without closing the stream.
 func (k *sink) ensureClosed() {
 	k.mu.Lock()
 	closed := k.closed

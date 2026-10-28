@@ -8,18 +8,19 @@ import type { TestVectors } from "./vectors";
 const vectorsPath = fileURLToPath(new URL("../../../protocol/testvectors.json", import.meta.url));
 const V = JSON.parse(readFileSync(vectorsPath, "utf8")) as TestVectors;
 
-describe("parseCtrl + canonicalCtrl — gecerli vektorler", () => {
+describe("parseCtrl + canonicalCtrl — the valid vectors", () => {
   for (const v of V.ctrl.valid) {
     it(v.name, () => {
       const msg = parseCtrl(v.text);
-      // Kanonik cikti Go tarafiyla bayt bayt ayni olmali.
+      // The canonical output has to be byte-for-byte the same as the Go
+      // side's.
       expect(canonicalCtrl(msg)).toBe(v.canonical);
-      // Kanonik metin yeniden ayristirildiginda ayni mesaji vermeli.
+      // Reparsing the canonical text has to give the same message.
       expect(parseCtrl(canonicalCtrl(msg))).toEqual(msg);
     });
   }
 
-  it("tum mesaj tiplerini kapsiyor", () => {
+  it("it covers every message type", () => {
     const seen = new Set(V.ctrl.valid.map((v) => (parseCtrl(v.text) as CtrlMsg).t));
     expect([...seen].sort()).toEqual([
       "abort",
@@ -36,7 +37,7 @@ describe("parseCtrl + canonicalCtrl — gecerli vektorler", () => {
   });
 });
 
-describe("parseCtrl — reddedilmesi gerekenler", () => {
+describe("parseCtrl — what has to be refused", () => {
   for (const v of V.ctrl.invalid) {
     it(`${v.name} → ${v.error}`, () => {
       try {
@@ -50,8 +51,8 @@ describe("parseCtrl — reddedilmesi gerekenler", () => {
   }
 });
 
-describe("parseCtrl — alan ayrintilari", () => {
-  it("req alanlarini dogru okur", () => {
+describe("parseCtrl — the field details", () => {
+  it("it reads the req fields correctly", () => {
     const msg = parseCtrl(
       '{"t":"req","id":17,"method":"GET","path":"/api/items?x=1","headers":{"Accept":"text/html"},"hasBody":false}',
     );
@@ -60,12 +61,12 @@ describe("parseCtrl — alan ayrintilari", () => {
       id: 17,
       method: "GET",
       path: "/api/items?x=1",
-      headers: { accept: "text/html" }, // baslik adlari kucuk harfe normalize
+      headers: { accept: "text/html" }, // header names are normalized to lower case
       hasBody: false,
     });
   });
 
-  it("res alanlarini dogru okur", () => {
+  it("it reads the res fields correctly", () => {
     expect(parseCtrl('{"t":"res","id":3,"status":404,"headers":{}}')).toEqual({
       t: "res",
       id: 3,
@@ -74,7 +75,7 @@ describe("parseCtrl — alan ayrintilari", () => {
     });
   });
 
-  it("hello alanlarini dogru okur", () => {
+  it("it reads the hello fields correctly", () => {
     expect(
       parseCtrl('{"t":"hello","v":1,"targets":["default","admin"],"auth":"required"}'),
     ).toEqual({
@@ -85,12 +86,12 @@ describe("parseCtrl — alan ayrintilari", () => {
     });
   });
 
-  it("ping/pong id tasimaz", () => {
+  it("ping/pong carry no id", () => {
     expect(parseCtrl('{"t":"ping"}')).toEqual({ t: "ping" });
     expect(parseCtrl('{"t":"pong"}')).toEqual({ t: "pong" });
   });
 
-  it("bilinmeyen fazladan alanlari yok sayar", () => {
+  it("it ignores unknown extra fields", () => {
     expect(parseCtrl('{"t":"end","id":1,"frames":0,"len":0,"gelecekteAlan":true}')).toEqual({
       t: "end",
       id: 1,
@@ -99,7 +100,7 @@ describe("parseCtrl — alan ayrintilari", () => {
     });
   });
 
-  it("end sayaclarini okur", () => {
+  it("it reads the end counters", () => {
     expect(parseCtrl('{"t":"end","id":2,"frames":6,"len":90000}')).toEqual({
       t: "end",
       id: 2,
@@ -110,7 +111,7 @@ describe("parseCtrl — alan ayrintilari", () => {
 });
 
 describe("canonicalCtrl", () => {
-  it("headers anahtarlarini siralar", () => {
+  it("it sorts the headers keys", () => {
     const msg = parseCtrl(
       '{"t":"req","id":1,"method":"GET","path":"/","headers":{"z":"3","a":"1","m":"2"},"hasBody":false}',
     );
@@ -119,19 +120,19 @@ describe("canonicalCtrl", () => {
     );
   });
 
-  it("hasBody false olsa bile yazilir", () => {
+  it("it is written even when hasBody is false", () => {
     expect(
       canonicalCtrl({ t: "req", id: 0, method: "GET", path: "/", headers: {}, hasBody: false }),
     ).toBe('{"t":"req","id":0,"method":"GET","path":"/","headers":{},"hasBody":false}');
   });
 
-  it("HTML karakterlerini kacirmaz", () => {
+  it("it does not escape HTML characters", () => {
     const msg = parseCtrl('{"t":"abort","id":1,"reason":"a<b>&c"}');
     expect(canonicalCtrl(msg)).toBe('{"t":"abort","id":1,"reason":"a<b>&c"}');
   });
 
-  it("ASCII disi karakterleri kacirmaz", () => {
-    const msg = parseCtrl('{"t":"abort","id":1,"reason":"çğü"}');
-    expect(canonicalCtrl(msg)).toBe('{"t":"abort","id":1,"reason":"çğü"}');
+  it("it does not escape non-ASCII characters", () => {
+    const msg = parseCtrl('{"t":"abort","id":1,"reason":"é✓ß"}');
+    expect(canonicalCtrl(msg)).toBe('{"t":"abort","id":1,"reason":"é✓ß"}');
   });
 });

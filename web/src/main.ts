@@ -1,6 +1,16 @@
 import "./style.css";
 import { BASE_PATH, inBase } from "./base";
 import {
+  applyTranslations,
+  LANGS,
+  type Lang,
+  lang,
+  resolveLang,
+  setLang,
+  storedLang,
+  t,
+} from "./i18n";
+import {
   IceConfigError,
   type IceRoute,
   iceServers,
@@ -21,75 +31,132 @@ import { Supervisor, type SupervisorInfo, type SupervisorState } from "./reconne
 import { decodeSDP, encodeSDP } from "./signal";
 import { Tunnel } from "./tunnel";
 import { encode, type QRCode } from "./ui/qr";
-import { StatusView } from "./ui/status";
+import { StatusView, type Tone } from "./ui/status";
 
 /**
- * Baglanti ekrani ve tunel sahibi sayfa.
+ * The connect screen, and the page that owns the tunnel.
  *
- * Iki yol var:
- *  - **Nostr (varsayilan):** URL'de peer-id varsa (`#npub1…`) baglanti
- *    kendiliginden kurulur; kopyala-yapistir yok.
- *  - **Elle (`--manual`):** URL'de peer-id yoksa bu sayfa offer uretir,
- *    kullanici ajana yapistirir, ajanin answer'ini geri getirir.
+ * Two paths:
+ *  - **Nostr (default):** when the URL carries a peer-id (`#npub1...`) the
+ *    connection is established on its own; no copy-paste.
+ *  - **Manual (`--manual`):** with no peer-id in the URL this page creates an
+ *    offer, the user pastes it into the agent and brings the answer back.
  *
- * Rol degisimi (Faz 2): kanallari (`ctrl`/`data`) ve offer'i ziyaretci
- * uretir, ajan answer doner. Nedeni: Nostr'da ajan ziyaretcinin gecici
- * pubkey'ini onceden bilemez, ilk mesaji o gonderemez. Karar ve gerekcesi
- * BRIEF bolum 8'de.
+ * Role swap (phase 2): the visitor creates the channels (`ctrl`/`data`) and
+ * the offer, the agent answers. Reason: over Nostr the agent cannot know the
+ * visitor ephemeral pubkey in advance, so it cannot send the first message.
+ * Decision and rationale in BRIEF section 8.
  *
- * WebRTC baglantisini BU sayfa tutar; Service Worker icinde WebRTC yok.
- * Sayfa kapanirsa tunel kapanir.
+ * THIS page holds the WebRTC connection; there is no WebRTC inside a Service
+ * Worker. Close the page and the tunnel closes.
  */
 
 const status = new StatusView();
 
+/**
+ * The last status message, kept as a key so a language switch can redraw it.
+ *
+ * `StatusView.say` takes a finished string on purpose — it is a dumb DOM
+ * sink. Remembering the key here is what makes the switcher able to restate
+ * the current situation in the new language instead of leaving a stale
+ * sentence on screen.
+ */
+let lastStatus: { key: string; params?: Record<string, string | number>; tone: Tone } | null = null;
+
+function sayKey(key: string, params?: Record<string, string | number>, tone: Tone = "info"): void {
+  lastStatus = params ? { key, params, tone } : { key, tone };
+  status.say(t(key, params), tone);
+}
+
+/** Error message as a string, whatever was thrown. */
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Turns a disconnect reason into display text.
+ *
+ * Our own reasons have translations; WebRTC state names ("failed",
+ * "disconnected") pass through as they are, because they are what a reader
+ * would search for.
+ */
+function reasonLabel(reason: string): string {
+  return reason === "no-pong" ? t("reason.noPong") : reason;
+}
+
+/**
+ * Picks the language, applies it to the DOM and wires the picker.
+ *
+ * Runs before anything else draws, so the first paint is already in the
+ * right language.
+ */
+function initLanguage(): void {
+  const navLangs = typeof navigator === "undefined" ? [] : (navigator.languages ?? []);
+  setLang(resolveLang(location.search, storedLang(), navLangs));
+  applyTranslations(document);
+
+  const select = document.getElementById("lang-select") as HTMLSelectElement | null;
+  if (!select) return;
+  select.value = lang();
+  select.addEventListener("change", () => {
+    const next = select.value as Lang;
+    if (!LANGS.includes(next)) return;
+    setLang(next);
+    applyTranslations(document);
+    // Redraw the parts that were built in JS rather than marked up in HTML.
+    if (lastStatus) status.say(t(lastStatus.key, lastStatus.params), lastStatus.tone);
+    if (el.retryBtn) el.retryBtn.textContent = t("btn.retryNow");
+    renderMetrics();
+  });
+}
+
 let tunnel: Tunnel | null = null;
 let peer: RTCPeerConnection | null = null;
 let nostrSession: ConnectResult | null = null;
-/** URL'den gelen hedef adi; yoksa null (ajan default'a duser). */
+/** Target name from the URL; null means the agent falls back to default. */
 let activeTarget: string | null = null;
 
-// Olcum ve durum ekrani icin sayaclar.
+// Counters for the measurements and the status panel.
 const counters = { requests: 0, errors: 0, bytes: 0 };
 
 /**
- * Gecikme olcumu artik SUREKLI: baglanma aninda bir kez degil, duzenli
- * araliklarla. Tek bir ilk olcum tuneli acikken ne oldugunu anlatmiyor.
+ * Latency is measured CONTINUOUSLY, not once at connect time: a single
+ * reading taken at setup says nothing about the tunnel while it is in use.
  */
 const LATENCY_INTERVAL_MS = 5000;
 const LATENCY_HISTORY = 12;
 const latencies: number[] = [];
 let latencyTimer: number | null = null;
 
-/** Hiz hesabi icin son ornek (tunnel.stats zaman damgasi tutmuyor). */
+/** Last sample for the rate calculation; tunnel.stats has no timestamp. */
 let lastSample: { at: number; bytesIn: number; bytesOut: number } | null = null;
 let rateBps = 0;
 
 /**
- * Yeniden baglanma denetleyicisi (Faz 4); yalnizca Nostr yolunda var.
+ * Reconnect supervisor (phase 4); only on the Nostr path.
  *
- * Elle signaling yolunda otomatik yeniden baglanma mumkun degil: offer'i
- * kullanici tasiyor.
+ * Automatic reconnection is impossible on the manual path: a human carries
+ * the offer.
  */
 let supervisor: Supervisor | null = null;
-/** Yeniden baglanirken kullanilacak hedef ve relay listesi. */
+/** Target and relay list to reuse when reconnecting. */
 let reconnectTarget: PeerTarget | null = null;
 let reconnectRelays: string[] | null = null;
-/** URL'den gelen STUN listesi; null ise varsayilan. */
+/** STUN list from the URL; null means the default. */
 let stunOverride: string[] | null = null;
-/** Baglantinin hangi yoldan kuruldugu (TURN kullanilip kullanilmadigi). */
-let iceRoute: IceRoute = "bilinmiyor";
-/** Acik ws oturumu sayisi (Faz 6). */
+/** Which path the connection took, i.e. whether TURN is in use. */
+let iceRoute: IceRoute = "unknown";
+/** Number of open ws sessions (phase 6). */
 let openSockets = 0;
-/** Kendi kapatma islemimiz sirasinda durum olaylarini yok saymak icin. */
+/** Set while we tear down, so our own state events are ignored. */
 let tearingDown = false;
 
 /**
- * Ust uste bu kadar basarisiz ping'den sonra tunel kopmus sayilir.
+ * After this many consecutive failed pings the tunnel counts as lost.
  *
- * Neden gerekli: WebRTC durum makinesi her kopmayi bildirmiyor — kanallar
- * "open" gorunurken karsi taraf gitmis olabilir. Ping zaten 5 saniyede bir
- * atiliyor, yani bu ucuz bir canlilik denetimi.
+ * Why it is needed: the WebRTC state machine does not report every break —
+ * channels can read "open" while the far side is gone. A ping already goes
+ * out every 5 seconds, so this is a cheap liveness check.
  */
 const PING_FAILURES_LOST = 2;
 let pingFailures = 0;
@@ -125,7 +192,7 @@ installBridge(() => tunnel, {
   onRequestError: ({ path, message }) => {
     counters.errors += 1;
     renderMetrics();
-    console.warn(`[peerpages] istek basarisiz: ${path} — ${message}`);
+    console.warn(`[peerpages] request failed: ${path} - ${message}`);
   },
   onSocketChange: (open) => {
     openSockets = open;
@@ -136,21 +203,21 @@ installBridge(() => tunnel, {
 async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!("serviceWorker" in navigator)) {
     status.step("sw", "error");
-    status.say("Bu tarayici Service Worker desteklemiyor — tunel kurulamaz.", "error");
+    sayKey("status.noServiceWorker", undefined, "error");
     return null;
   }
 
   status.step("sw", "active");
-  status.say("Service Worker kuruluyor…");
+  sayKey("status.swInstalling");
 
   try {
-    // Scope BASE_PATH ile sinirli: SW yalnizca kendi kapsamindaki istekleri
-    // yakalar, baska origin'lere ya da ust yollara dokunmaz (ilke 5).
+    // Scope is bounded by BASE_PATH: the SW only catches requests inside
+    // its own scope, never other origins or parent paths (principle 5).
     const reg = await navigator.serviceWorker.register(inBase("sw.js"), { scope: BASE_PATH });
     await navigator.serviceWorker.ready;
 
-    // Ilk yuklemede sayfa henuz kontrol edilmiyor olabilir; controller
-    // gelmeden SW'ye mesaj yollayamayiz.
+    // On a first load the page may not be controlled yet, and we cannot
+    // message the SW before a controller exists.
     if (!navigator.serviceWorker.controller) {
       await new Promise<void>((resolve) => {
         const onChange = () => {
@@ -158,31 +225,31 @@ async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null
           resolve();
         };
         navigator.serviceWorker.addEventListener("controllerchange", onChange);
-        // Bazi durumlarda controllerchange gelmez (zaten aktif SW var):
-        // kisa bir sure sonra devam et.
+        // Sometimes controllerchange never fires because an active SW is
+        // already there: carry on after a short wait.
         setTimeout(resolve, 1500);
       });
     }
 
     status.step("sw", "done");
-    status.say("Service Worker aktif. Ajanin offer'ini yapistir.");
+    sayKey("status.swActive");
     return reg;
   } catch (err) {
     status.step("sw", "error");
-    status.say(`Service Worker kaydi basarisiz: ${String(err)}`, "error");
+    sayKey("status.swFailed", { err: String(err) }, "error");
     return null;
   }
 }
 
 /**
- * Oturumu baslatir: kanallari acar, offer uretir ve ekrana basar.
+ * Starts a session: opens the channels, creates an offer and shows it.
  *
- * Kanallari BU TARAF aciyor (rol degisimi): `ctrl` ve `data`, ikisi de
+ * THIS side opens the channels (the role swap): `ctrl` and `data`, both
  * ordered + reliable (protocol/README.md).
  */
 async function makeOffer(): Promise<void> {
   status.step("signal", "active");
-  status.say("Kanallar aciliyor, ICE adaylari toplaniyor…");
+  sayKey("status.channelsOpening");
 
   const pc = new RTCPeerConnection();
   peer = pc;
@@ -198,7 +265,7 @@ async function makeOffer(): Promise<void> {
     };
     ctrl.addEventListener("open", check);
     data.addEventListener("open", check);
-    setTimeout(() => reject(new Error("kanallar 60 sn icinde acilmadi")), 60_000);
+    setTimeout(() => reject(new Error("channels did not open within 60 s")), 60_000);
   });
 
   pc.onconnectionstatechange = () => {
@@ -217,7 +284,7 @@ async function makeOffer(): Promise<void> {
     await waitForIceGathering(pc);
 
     const local = pc.localDescription;
-    if (!local) throw new Error("yerel SDP olusturulamadi");
+    if (!local) throw new Error("local SDP was not produced");
 
     const encoded = encodeSDP({ type: local.type, sdp: local.sdp });
     if (el.offerOutput) {
@@ -228,37 +295,34 @@ async function makeOffer(): Promise<void> {
     if (el.acceptAnswerBtn) el.acceptAnswerBtn.disabled = false;
 
     status.step("signal", "done");
-    status.say("Offer hazir — ajana yapistir, sonra ajanin answer'ini buraya getir.");
+    sayKey("status.offerReady");
 
-    // Kanallar acilinca tuneli kur.
+    // Build the tunnel once both channels are open.
     void bothOpen
       .then(() => {
         tunnel = new Tunnel(ctrl, data);
         announceTunnelReady();
         status.step("tunnel", "done");
-        status.say("Tunel acik. Bu sekmeyi kapatma.", "ok");
+        sayKey("status.tunnelOpen", undefined, "ok");
         showConnected();
       })
       .catch((err) => {
         status.step("tunnel", "error");
-        status.say(
-          `Tunel kurulamadi: ${err instanceof Error ? err.message : String(err)}`,
-          "error",
-        );
+        sayKey("status.tunnelFailed", { err: messageOf(err) }, "error");
       });
   } catch (err) {
     status.step("signal", "error");
-    status.say(`Offer uretilemedi: ${err instanceof Error ? err.message : String(err)}`, "error");
+    sayKey("status.offerFailed", { err: messageOf(err) }, "error");
     pc.close();
     peer = null;
   }
 }
 
-/** Ajanin bastigi answer'i uygular. */
+/** Applies the answer the agent printed. */
 async function acceptAnswer(pasted: string): Promise<void> {
   const pc = peer;
   if (!pc) {
-    status.say("Once offer uret.", "error");
+    sayKey("status.makeOfferFirst", undefined, "error");
     return;
   }
 
@@ -266,21 +330,21 @@ async function acceptAnswer(pasted: string): Promise<void> {
   try {
     answer = decodeSDP(pasted);
   } catch (err) {
-    status.say(`Answer okunamadi: ${err instanceof Error ? err.message : String(err)}`, "error");
+    sayKey("status.answerUnreadable", { err: messageOf(err) }, "error");
     return;
   }
   if (answer.type !== "answer") {
-    status.say(`Answer bekleniyordu, gelen: ${String(answer.type)}`, "error");
+    sayKey("status.answerExpected", { type: String(answer.type) }, "error");
     return;
   }
 
   try {
     await pc.setRemoteDescription(answer);
     status.step("tunnel", "active");
-    status.say("Answer uygulandi, kanallar bekleniyor…");
+    sayKey("status.answerApplied");
   } catch (err) {
     status.step("tunnel", "error");
-    status.say(`Answer uygulanamadi: ${err instanceof Error ? err.message : String(err)}`, "error");
+    sayKey("status.answerUnreadable", { err: messageOf(err) }, "error");
   }
 }
 
@@ -294,12 +358,12 @@ function waitForIceGathering(pc: RTCPeerConnection): Promise<void> {
       }
     };
     pc.addEventListener("icegatheringstatechange", check);
-    // Trickle yok ama bazi tarayicilar "complete"a gecmekte gecikebilir.
+    // No trickle here, but some browsers are slow to reach "complete".
     setTimeout(resolve, 10_000);
   });
 }
 
-/** Acik tuneli, oturumu ve zamanlayicilari birakir. */
+/** Releases the open tunnel, the session and the timers. */
 function teardownTunnel(reason: string): void {
   tearingDown = true;
   try {
@@ -324,11 +388,12 @@ function teardownTunnel(reason: string): void {
 }
 
 /**
- * Tunel koptu.
+ * The tunnel dropped.
  *
- * Nostr yolunda denetleyici devralir: SIFIRDAN yeni bir oturum kurulur
- * (ajan answerer-only oldugu icin baska yolu yok). Elle signaling yolunda
- * otomatik yeniden baglanma mumkun degil, eski davranis korunuyor.
+ * On the Nostr path the supervisor takes over: a brand-new session is built
+ * FROM SCRATCH (the agent is answerer-only, so there is no other way). On
+ * the manual path automatic reconnection is impossible, so the old
+ * behaviour stays.
  */
 function onTunnelLost(state: string): void {
   if (tearingDown) return;
@@ -336,24 +401,24 @@ function onTunnelLost(state: string): void {
 
   if (supervisor) {
     status.step("tunnel", "active");
-    // SW'ye haber ver: bu boslukta gelen istekler 503 yerine kisa sure
-    // beklesin.
+    // Tell the SW, so requests arriving in this gap wait briefly instead
+    // of getting a 503.
     announceTunnelReconnecting();
     supervisor.markLost(state);
     return;
   }
 
   status.step("tunnel", "error");
-  status.say(`Tunel kapandi (${state}). Yeniden offer uretebilirsin.`, "error");
+  sayKey("status.tunnelClosed", { state }, "error");
   if (el.panelConnected) el.panelConnected.hidden = true;
   if (el.panelManual) el.panelManual.hidden = false;
   if (el.makeOfferBtn) el.makeOfferBtn.disabled = false;
 }
 
-/** Denetleyicinin durum degisimlerini ekrana yazar. */
+/** Writes the supervisor state changes to the screen. */
 function renderReconnectState(state: SupervisorState, info: SupervisorInfo): void {
   if (el.retryBtn) {
-    el.retryBtn.textContent = "Simdi dene";
+    el.retryBtn.textContent = t("btn.retryNow");
     el.retryBtn.disabled = state !== "reconnecting";
   }
   if (state !== "reconnecting") {
@@ -361,14 +426,14 @@ function renderReconnectState(state: SupervisorState, info: SupervisorInfo): voi
     return;
   }
 
-  // Panel acik kalir: sayaclar ve adres gorunur olsun, ziyaretci neyin
-  // devam ettigini bilsin.
-  const neden = info.reason ? ` (${info.reason})` : "";
-  const msg =
-    info.waitMs > 0
-      ? `Baglanti koptu${neden} — ${Math.round(info.waitMs / 1000)} sn icinde yeniden deneniyor…`
-      : `Baglanti koptu${neden} — yeniden baglaniliyor (${info.attempt}. deneme)…`;
-  status.say(msg, "error");
+  // The panel stays open so the counters and the address remain visible:
+  // the visitor should see what is still going on.
+  const reason = info.reason ? ` (${reasonLabel(info.reason)})` : "";
+  if (info.waitMs > 0) {
+    sayKey("status.reconnectIn", { reason, seconds: Math.round(info.waitMs / 1000) }, "error");
+  } else {
+    sayKey("status.reconnectAttempt", { reason, attempt: info.attempt }, "error");
+  }
   renderMetrics();
 }
 
@@ -376,10 +441,11 @@ function showConnected(): void {
   if (el.panelIntro) el.panelIntro.hidden = true;
   if (el.panelManual) el.panelManual.hidden = true;
   if (el.panelConnected) el.panelConnected.hidden = false;
-  // Yerel sitenin koku scope kokunde; bu sayfa connect/ altinda duruyor.
+  // The local site root lives at the scope root; this page sits under
+  // connect/.
   if (el.linkSite) el.linkSite.href = BASE_PATH;
-  // Paylasim bloku yalnizca Nostr yolunda anlamli: elle yolda URL'de
-  // peer-id yok, yani adresi baska cihaza tasimanin faydasi da yok.
+  // The share block only makes sense on the Nostr path: with no peer-id in
+  // the URL there is nothing worth carrying to another device.
   const shareable = location.hash.trim().length > 1;
   const shareBox = el.shareUrl?.closest(".share") as HTMLElement | null;
   if (shareBox) shareBox.hidden = !shareable;
@@ -413,12 +479,12 @@ async function measurePing(): Promise<void> {
     if (latencies.length > LATENCY_HISTORY) latencies.shift();
     pingFailures = 0;
   } catch {
-    // Tek bir basarisizlik yeterli degil: pong gecikmis olabilir. Ust uste
-    // gelirse karsi taraf gitmis demektir — kanallar hala "open" gorunse
-    // bile.
+    // One failure is not enough: a pong may simply be late. Several in a
+    // row mean the far side is gone, even while the channels still read
+    // "open".
     pingFailures += 1;
     if (pingFailures >= PING_FAILURES_LOST) {
-      onTunnelLost("ping-yok");
+      onTunnelLost("no-pong");
       return;
     }
   }
@@ -426,10 +492,10 @@ async function measurePing(): Promise<void> {
 }
 
 /**
- * Secilen aday ciftini okuyup baglanti yolunu tazeler.
+ * Reads the selected candidate pair and refreshes the connection path.
  *
- * Tunel acildiktan HEMEN sonra bos gelebiliyor (tarayici aday ciftini
- * yayinlamamis olabilir), bu yuzden gecikme tikinde tekrar bakiyoruz.
+ * It can come back empty RIGHT AFTER the tunnel opens (the browser may not
+ * have published the pair yet), so we look again on every latency tick.
  */
 async function refreshIceRoute(): Promise<void> {
   const pc = nostrSession?.pc ?? peer;
@@ -442,7 +508,7 @@ async function refreshIceRoute(): Promise<void> {
       renderMetrics();
     }
   } catch {
-    // getStats desteklenmiyorsa ya da baglanti kapandiysa onemli degil.
+    // If getStats is unsupported or the connection is gone, never mind.
   }
 }
 
@@ -453,7 +519,7 @@ function median(values: readonly number[]): number {
   return ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
 }
 
-/** Anlik hiz: son ornekten bu yana gecen bayt / gecen sure. */
+/** Instantaneous rate: bytes since the last sample over elapsed time. */
 function sampleRate(bytesIn: number, bytesOut: number): number {
   const now = performance.now();
   if (!lastSample) {
@@ -476,35 +542,41 @@ function renderMetrics(): void {
 
   const latency =
     latencies.length === 0
-      ? "olculuyor…"
-      : `${(latencies[latencies.length - 1] ?? 0).toFixed(1)} ms ` +
-        `(medyan ${median(latencies).toFixed(1)}, n=${latencies.length})`;
+      ? t("metrics.measuring")
+      : t("metrics.latencyValue", {
+          last: (latencies[latencies.length - 1] ?? 0).toFixed(1),
+          median: median(latencies).toFixed(1),
+          n: latencies.length,
+        });
+
+  const errors = counters.errors > 0 ? ` (${t("metrics.errors", { n: counters.errors })})` : "";
+  const none = t("metrics.none");
 
   const rows: Array<[string, string]> = [
-    ["Gecikme", latency],
-    ["Istek", `${counters.requests}${counters.errors > 0 ? ` (${counters.errors} hata)` : ""}`],
-    ["Alinan", formatBytes(stats?.bytesIn ?? 0)],
-    ["Gonderilen", formatBytes(stats?.bytesOut ?? 0)],
-    ["Hiz", rate > 0 ? `${formatBytes(rate)}/s` : "—"],
-    ["Devam eden", String(stats?.inflight ?? 0)],
-    ["Hedefler", tunnel?.hello?.targets.join(", ") ?? "—"],
-    ["Aktif hedef", activeTarget ?? "default"],
-    // Trafik bir TURN sunucusundan geciyorsa ziyaretci bunu bilmeli:
-    // ucten uca sifreleme surer ama YOL degisir.
-    ["Baglanti yolu", routeLabel(iceRoute)],
+    [t("metrics.latency"), latency],
+    [t("metrics.requests"), `${counters.requests}${errors}`],
+    [t("metrics.received"), formatBytes(stats?.bytesIn ?? 0)],
+    [t("metrics.sent"), formatBytes(stats?.bytesOut ?? 0)],
+    [t("metrics.rate"), rate > 0 ? `${formatBytes(rate)}/s` : none],
+    [t("metrics.inflight"), String(stats?.inflight ?? 0)],
+    [t("metrics.targets"), tunnel?.hello?.targets.join(", ") ?? none],
+    [t("metrics.activeTarget"), activeTarget ?? "default"],
+    // If the traffic goes through a TURN server the visitor should know:
+    // the encryption still holds end to end, but the PATH changed.
+    [t("metrics.route"), routeLabel(iceRoute)],
   ];
 
-  // Yeniden baglanma yalnizca olduysa gosterilir: sifir satiri gurultudur.
+  // Reconnects only show once they happened: a row that always reads zero
+  // is noise.
   if (supervisor && supervisor.reconnects > 0) {
-    rows.push(["Yeniden baglanma", String(supervisor.reconnects)]);
+    rows.push([t("metrics.reconnects"), String(supervisor.reconnects)]);
   }
   if (supervisor?.currentState === "reconnecting") {
-    rows.push(["Durum", "baglanti koptu, yeniden deneniyor"]);
+    rows.push([t("metrics.state"), t("metrics.stateReconnecting")]);
   }
-  // WebSocket satiri yalnizca oturum varsa: her zaman sifir okunan satir
-  // gurultudur (Faz 6).
+  // Same for the WebSocket row: only while a session is open (phase 6).
   if (openSockets > 0) {
-    rows.push(["WebSocket", `${openSockets} acik`]);
+    rows.push([t("metrics.websocket"), t("metrics.wsOpen", { n: openSockets })]);
   }
 
   el.metrics.textContent = "";
@@ -534,17 +606,17 @@ function wireUI(): void {
     if (value === "") return;
     try {
       await navigator.clipboard.writeText(value);
-      status.say("Offer kopyalandi — ajana yapistir.");
+      sayKey("status.offerCopied");
     } catch {
       el.offerOutput?.select();
-      status.say("Kopyalanamadi; metni elle sec ve kopyala.", "error");
+      sayKey("status.copyFailed", undefined, "error");
     }
   });
 
   el.acceptAnswerBtn?.addEventListener("click", () => {
     const pasted = el.answerInput?.value ?? "";
     if (pasted.trim() === "") {
-      status.say("Once ajanin bastigi answer'i yapistir.", "error");
+      sayKey("status.pasteAnswerFirst", undefined, "error");
       return;
     }
     if (el.acceptAnswerBtn) el.acceptAnswerBtn.disabled = true;
@@ -562,7 +634,7 @@ function wireUI(): void {
   });
 
   el.retryBtn?.addEventListener("click", () => {
-    // Denetleyici zaten kuruluysa geri sayimi atlayip hemen dener.
+    // If the supervisor is already up, skip the countdown and try now.
     if (supervisor) {
       supervisor.retryNow();
       return;
@@ -572,15 +644,15 @@ function wireUI(): void {
       const target = parseHash(hash);
       if (target) void connectViaNostr(target);
     } catch {
-      status.say("URL'deki peer-id gecersiz.", "error");
+      sayKey("status.badPeerID", undefined, "error");
     }
   });
 
-  // Sekme kapanirken SW'ye haber ver ve ajana `bye` yolla: ajan kaynak
-  // sizdirmasin, bir sonraki istek bosa beklemesin.
+  // On tab close, tell the SW and send the agent a `bye`: no leaked
+  // resources on its side, no pointless wait on the next request.
   window.addEventListener("pagehide", () => {
     stopLatencyProbe();
-    // Sayfa gidiyor: yeniden baglanmaya calismanin anlami yok.
+    // The page is going away; reconnecting makes no sense.
     supervisor?.stop();
     if (tunnel) announceTunnelGone();
     if (nostrSession) {
@@ -590,7 +662,7 @@ function wireUI(): void {
   });
 }
 
-/** URL'de peer-id varsa Nostr ile baglanir. */
+/** Connects over Nostr when the URL carries a peer-id. */
 async function connectViaNostr(target: PeerTarget): Promise<void> {
   let relayOverride: string[] | null = null;
   try {
@@ -606,8 +678,8 @@ async function connectViaNostr(target: PeerTarget): Promise<void> {
   activeTarget = target.target;
   if (el.panelManual) el.panelManual.hidden = true;
   if (el.panelNostr) el.panelNostr.hidden = false;
-  // Hedef adi varsa ekranda da gorunsun: ziyaretci hangi projeye
-  // baglandigini bilsin.
+  // Show the target name too, so the visitor knows which project they are
+  // connected to.
   if (el.nostrPeer) {
     el.nostrPeer.textContent = target.target
       ? `${shortenNpub(target.npub)} / ${target.target}`
@@ -631,51 +703,52 @@ async function connectViaNostr(target: PeerTarget): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     status.step("tunnel", "error");
     status.say(msg, "error");
-    // Ajan henuz ayakta olmayabilir: denetleyici denemeye devam eder,
-    // ziyaretcinin elle yenilemesi gerekmez.
+    // The agent may simply not be up yet: the supervisor keeps trying, so
+    // the visitor does not have to reload by hand.
     supervisor.markLost(msg);
   }
 }
 
 /**
- * Tek bir Nostr oturumu acar.
+ * Opens a single Nostr session.
  *
- * Her cagri SIFIRDAN kurar: yeni sid, yeni gecici keypair, yeni offer.
- * Ajan answerer-only ve oturum tek seferlik oldugu icin (ICE restart
- * yerine bu yol secildi, BRIEF §8) yeniden baglanma da budur.
+ * Every call builds FROM SCRATCH: new sid, new ephemeral keypair, new
+ * offer. Because the agent is answerer-only and a session is one-shot (this
+ * was chosen over ICE restart, BRIEF section 8), reconnecting is the same
+ * thing.
  */
 async function openNostrSession(): Promise<void> {
   const target = reconnectTarget;
-  if (!target) throw new Error("hedef yok");
+  if (!target) throw new Error("no target");
   const relayOverride = reconnectRelays;
 
   status.step("signal", "active");
-  status.say("Relay'lere baglaniliyor…");
+  sayKey("status.relaysConnecting");
 
   const session = await connectToAgent({
     target,
-    // BRIEF bolum 4: relay listesi kullanici tarafindan degistirilebilir
-    // (?relay=wss://...). Verilmezse varsayilan liste.
+    // BRIEF section 4: the relay list can be overridden by the user
+    // (?relay=wss://...). Without it, the default list.
     ...(relayOverride ? { relays: relayOverride } : {}),
-    // STUN listesi de URL'den degistirilebilir (?stun=...); TURN kimlik
-    // bilgisi sayfaya HIC gelmiyor (BRIEF §8).
+    // The STUN list is overridable too (?stun=...); TURN credentials NEVER
+    // reach the page (BRIEF section 8).
     iceServers: iceServers(stunOverride),
     hooks: {
       onStage: (stage, detail) => {
         switch (stage) {
           case "relay":
-            status.say(`Relay'lere baglaniliyor (${detail ?? ""})…`);
+            sayKey("status.relaysConnectingDetail", { detail: detail ?? "" });
             break;
           case "offer":
-            status.say("Baglanti teklifi yayinlaniyor…");
+            sayKey("status.offerPublishing");
             break;
           case "answer":
             status.step("signal", "done");
             status.step("ice", "active");
-            status.say("Ajanin yaniti bekleniyor…");
+            sayKey("status.waitingAgent");
             break;
           case "ice":
-            status.say("Dogrudan baglanti kuruluyor (ICE)…");
+            sayKey("status.iceConnecting");
             break;
           case "open":
             status.step("ice", "done");
@@ -696,28 +769,31 @@ async function openNostrSession(): Promise<void> {
     }
   });
 
-  // Yeni tunel: gecikme gecmisi eski oturuma ait, sifirlanir. Istek ve
-  // bayt sayaclari KORUNUR — ziyaretci acisindan ayni oturum devam ediyor.
+  // New tunnel: the latency history belonged to the old session, so it is
+  // reset. Request and byte counters are KEPT — from the visitor's point of
+  // view the same session continues.
   latencies.length = 0;
   lastSample = null;
   pingFailures = 0;
-  iceRoute = "bilinmiyor";
+  iceRoute = "unknown";
 
   tunnel = new Tunnel(session.ctrl, session.data);
   announceTunnelReady();
   status.step("tunnel", "done");
-  status.say("Tunel acik. Bu sekmeyi kapatma.", "ok");
+  sayKey("status.tunnelOpen", undefined, "ok");
   showConnected();
   supervisor?.markConnected();
 }
 
 async function main(): Promise<void> {
+  initLanguage();
   wireUI();
 
-  // URL'de peer-id yoksa tanitim blogunu HEMEN ac: bu ekrana gelen kisi
-  // genelde README'den ya da bir lansman baglantisindan geliyor ve once
-  // "bu nedir" sorusunun cevabini ariyor. SW kurulumundan ONCE, cunku SW
-  // kurulamazsa da (eski tarayici, kisitli ortam) o cevaba ihtiyaci var.
+  // With no peer-id in the URL, reveal the intro block IMMEDIATELY: whoever
+  // lands here usually came from the README or a launch link and wants the
+  // "what is this" answer first. Before the SW step, because they need that
+  // answer even when the SW cannot be installed (old browser, locked-down
+  // environment).
   if (location.hash.trim().length <= 1 && el.panelIntro) {
     el.panelIntro.hidden = false;
   }
@@ -731,8 +807,9 @@ async function main(): Promise<void> {
   } catch (err) {
     status.step("signal", "error");
     status.say(err instanceof PeerIDError ? err.message : String(err), "error");
-    // Hatali peer-id: elle yola dusmek yerine sorunu gosteriyoruz, aksi
-    // halde kullanici yanlis URL'yi fark etmeden elle ugrasmaya baslar.
+    // A broken peer-id: show the problem instead of falling back to the
+    // manual path, otherwise the user starts copy-pasting without noticing
+    // that the URL is wrong.
     if (el.panelManual) el.panelManual.hidden = true;
     return;
   }
@@ -742,20 +819,16 @@ async function main(): Promise<void> {
     return;
   }
 
-  // peer-id yok: once "bu nedir", sonra elle signaling yolu.
-  //
-  // Bu ekrana gelen kisi genelde README'den ya da bir lansman baglantisindan
-  // geliyor, yani ajani kurmus olmayabilir; dogrudan "offer uret" demek
-  // onu bos yere ileri seviye bir akisa sokuyordu.
+  // No peer-id: "what is this" first, the manual signaling flow second.
   status.step("signal", "active");
-  status.say("No peer-id in the URL — see below.");
+  sayKey("status.noPeerID");
   if (el.panelNostr) el.panelNostr.hidden = true;
 }
 
 void main();
 
-// E2E testinin sayfa durumunu okuyabilmesi icin kucuk bir pencere kancasi.
-// Uretim davranisini etkilemez.
+// A small window hook so the e2e tests can read the page state. It has no
+// effect on production behaviour.
 declare global {
   interface Window {
     __peerpages?: {
@@ -768,7 +841,7 @@ declare global {
       reconnects: () => number;
       connState: () => string;
       iceRoute: () => string;
-      /** Acik WebSocket oturumu sayisi (Faz 6). */
+      /** Number of open WebSocket sessions (phase 6). */
       wsSessions: () => number;
     };
   }
@@ -781,25 +854,26 @@ window.__peerpages = {
   connState: () => supervisor?.currentState ?? "idle",
   iceRoute: () => iceRoute,
   wsSessions: () => tunnel?.socketCount ?? 0,
-  ping: async () => (tunnel ? tunnel.ping() : Promise.reject(new Error("tunel yok"))),
+  ping: async () => (tunnel ? tunnel.ping() : Promise.reject(new Error("no tunnel"))),
   makeOffer: () => makeOffer(),
   offer: () => el.offerOutput?.value ?? "",
   acceptAnswer: (pasted: string) => acceptAnswer(pasted),
 };
 
 /**
- * Ziyaretci adresini panoya kopyalar.
+ * Copies the visitor address to the clipboard.
  *
- * Yedek yol gercekten gerekli: `navigator.clipboard` GUVENLI BAGLAM ister ve
- * iki cihazla denemede tam olarak o durum var — telefon laptop'a duz IP
- * adresiyle baglandiginda clipboard API yok (docs/MANUAL-TEST.md).
+ * The fallback path is genuinely needed: `navigator.clipboard` requires a
+ * SECURE CONTEXT, and the two-device trial is exactly that case — when a
+ * phone reaches the laptop over a plain IP address there is no clipboard
+ * API (docs/MANUAL-TEST.md).
  */
 async function copyVisitorURL(): Promise<void> {
   const url = location.href;
   const done = (ok: boolean) => {
     if (!el.copyUrlBtn) return;
     const label = el.copyUrlBtn.textContent ?? "";
-    el.copyUrlBtn.textContent = ok ? "Kopyalandi" : "Kopyalanamadi — elle sec";
+    el.copyUrlBtn.textContent = ok ? t("copy.done") : t("copy.failed");
     window.setTimeout(() => {
       if (el.copyUrlBtn) el.copyUrlBtn.textContent = label;
     }, 2000);
@@ -812,10 +886,10 @@ async function copyVisitorURL(): Promise<void> {
       return;
     }
   } catch {
-    // Izin verilmedi ya da guvenli baglam degil: yedek yola gec.
+    // Denied, or not a secure context: fall through to the backup path.
   }
 
-  // Yedek: gecici bir textarea uzerinden execCommand.
+  // Backup: execCommand through a throwaway textarea.
   try {
     const ta = document.createElement("textarea");
     ta.value = url;
@@ -832,7 +906,7 @@ async function copyVisitorURL(): Promise<void> {
   }
 }
 
-/** QR panelini acar/kapatir; ilk acilista kodu uretir. */
+/** Opens and closes the QR panel; renders the code on first open. */
 function toggleQR(): void {
   if (!el.qrBox || !el.qrBtn) return;
   const show = el.qrBox.hidden;
@@ -841,7 +915,7 @@ function toggleQR(): void {
   if (show) drawQR(location.href);
 }
 
-/** QR kodunu canvas'a cizer. */
+/** Draws the QR code onto the canvas. */
 function drawQR(text: string): void {
   const canvas = el.qrCanvas;
   if (!canvas) return;
@@ -850,18 +924,18 @@ function drawQR(text: string): void {
   try {
     code = encode(text);
   } catch (err) {
-    // Adres cok uzunsa (ornegin uzun bir sir) QR uretilemez; kopyala butonu
-    // calismaya devam ediyor, bu yuzden sadece sebebi yaziyoruz.
+    // Too long an address (a long secret, say) cannot be encoded. The copy
+    // button still works, so we just state the reason.
     const hint = el.qrBox?.querySelector(".qr__hint");
     if (hint) {
-      hint.textContent = `QR uretilemedi: ${err instanceof Error ? err.message : String(err)}`;
+      hint.textContent = t("qr.failed", { err: messageOf(err) });
     }
     return;
   }
 
-  // Modul basina 4 piksel: telefon kamerasinin rahat okudugu boyut.
+  // Four pixels per module: a size a phone camera reads comfortably.
   const scale = 4;
-  const quiet = 4; // standardin istedigi sessiz bolge (modul)
+  const quiet = 4; // the quiet zone the standard asks for, in modules
   const side = (code.size + quiet * 2) * scale;
   canvas.width = side;
   canvas.height = side;

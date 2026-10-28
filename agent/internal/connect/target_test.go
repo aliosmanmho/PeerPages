@@ -17,12 +17,15 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
 
-// Faz 3: hedef ziyaretcinin URL'sinden gelir ve offer'da tasinir.
+// Phase 3: the target comes from the visitor's URL and rides in the
+// offer.
 //
-// Buradaki testler tek ajanin IKI projeyi yayinlamasini (BRIEF Faz 3 kabul
-// kriteri) ve bilinmeyen hedefin sessizce default'a dusmemesini dogrular.
+// The tests here check that a single agent shares TWO projects (the BRIEF
+// phase 3 acceptance criterion) and that an unknown target does not fall
+// back to the default silently.
 
-// targetEchoProxy hangi hedefe kuruldugunu cevap govdesinde soyler.
+// targetEchoProxy says which target it was built for in the response
+// body.
 type targetEchoProxy struct{ name string }
 
 func (p targetEchoProxy) Serve(
@@ -33,11 +36,11 @@ func (p targetEchoProxy) Serve(
 	_ = sink.End()
 }
 
-// startAgentWithTargets birden cok hedefle kabul akisini baslatir.
+// startAgentWithTargets starts the accept flow with several targets.
 //
-// Hangi hedefin secildigini gormek icin proxy'yi hedef adiyla etiketliyoruz:
-// dogru hedefin secildigini iddia etmek ancak istek gercekten o proxy'ye
-// dusunce anlam tasir.
+// To see which target was picked we label the proxy with the target name:
+// claiming the right target was chosen only means something once the
+// request really lands on that proxy.
 func startAgentWithTargets(t *testing.T, relayURL string, names []string) *agentFixture {
 	t.Helper()
 
@@ -79,7 +82,7 @@ func startAgentWithTargets(t *testing.T, relayURL string, names []string) *agent
 	return &agentFixture{acceptor: acceptor, id: id, relayURL: relayURL, cancel: cancel, done: done}
 }
 
-// bodyOf tunelden tek bir GET yapar ve govdeyi dondurur.
+// bodyOf makes a single GET over the tunnel and returns the body.
 func bodyOf(t *testing.T, v *visitor, path string) string {
 	t.Helper()
 
@@ -87,7 +90,7 @@ func bodyOf(t *testing.T, v *visitor, path string) string {
 	v.data.OnMessage(func(m webrtc.DataChannelMessage) {
 		frame, err := protocol.DecodeFrame(m.Data)
 		if err != nil {
-			t.Errorf("gecersiz cerceve: %v", err)
+			t.Errorf("invalid frame: %v", err)
 			return
 		}
 		select {
@@ -108,13 +111,14 @@ func bodyOf(t *testing.T, v *visitor, path string) string {
 	case b := <-body:
 		return b
 	case <-time.After(settle):
-		t.Fatal("govde gelmedi")
+		t.Fatal("no body arrived")
 		return ""
 	}
 }
 
-// Tek ajan iki projeyi yayinliyor: her ziyaretci URL'sinde yazan hedefe
-// baglaniyor (BRIEF Faz 3 kabul kriteri).
+// A single agent shares two projects: every visitor connects to the
+// target written in their URL (the BRIEF phase 3 acceptance
+// criterion).
 func TestTwoTargetsServedByOneAgent(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {
@@ -129,8 +133,8 @@ func TestTwoTargetsServedByOneAgent(t *testing.T) {
 		target string
 		want   string
 	}{
-		{"hedefsiz offer default'a duser", "", "default:/x"},
-		{"hedefli offer o hedefe gider", "admin", "admin:/x"},
+		{"an offer with no target falls back to the default", "", "default:/x"},
+		{"an offer with a target goes to that target", "admin", "admin:/x"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v := newVisitor(t, a, "")
@@ -139,27 +143,28 @@ func TestTwoTargetsServedByOneAgent(t *testing.T) {
 
 			msg, ok := v.nextCtrl(settle)
 			if !ok {
-				t.Fatal("hello gelmedi")
+				t.Fatal("no hello arrived")
 			}
 			hello, isHello := msg.(protocol.Hello)
 			if !isHello {
-				t.Fatalf("ilk mesaj hello olmali, geldi: %s", msg.Type())
+				t.Fatalf("the first message has to be hello, got: %s", msg.Type())
 			}
-			// hello hedef listesini bildiriyor; ziyaretci hangi hedeflerin
-			// var oldugunu boyle ogrenir.
+			// hello announces the target list; that is how the visitor
+			// learns which targets exist.
 			if len(hello.Targets) != 2 {
-				t.Errorf("hello.targets: %v, beklenen iki hedef", hello.Targets)
+				t.Errorf("hello.targets: %v, two targets expected", hello.Targets)
 			}
 
 			if got := bodyOf(t, v, "/x"); got != tc.want {
-				t.Errorf("govde %q, beklenen %q (yanlis hedefe baglanildi)", got, tc.want)
+				t.Errorf("body %q, expected %q (it connected to the wrong target)", got, tc.want)
 			}
 		})
 	}
 }
 
-// Bilinmeyen hedef SESSIZCE default'a dusmez: ajan bye ile reddeder ve
-// oturum hic kurulmaz (bosa WebRTC maliyeti de olmaz).
+// An unknown target does NOT fall back to the default SILENTLY: the
+// agent refuses with bye and no session is built at all (so no WebRTC
+// cost is wasted either).
 func TestUnknownTargetRejected(t *testing.T) {
 	relay, err := fakerelay.Start(fakerelay.Options{})
 	if err != nil {
@@ -178,19 +183,19 @@ func TestUnknownTargetRejected(t *testing.T) {
 		if !ok {
 			select {
 			case <-deadline:
-				t.Fatal("bye gelmedi")
+				t.Fatal("no bye arrived")
 			default:
 				continue
 			}
 		}
 		if msg.Type != signaling.TypeBye {
-			t.Fatalf("bye beklenirdi, geldi: %s", msg.Type)
+			t.Fatalf("a bye was expected, got: %s", msg.Type)
 		}
 		if msg.Reason != "unknown-target" {
-			t.Errorf("neden %q, beklenen unknown-target", msg.Reason)
+			t.Errorf("the reason is %q, expected unknown-target", msg.Reason)
 		}
 		if got := a.acceptor.SessionCount(); got != 0 {
-			t.Errorf("acik oturum %d, beklenen 0 (oturum hic kurulmamali)", got)
+			t.Errorf("%d open sessions, expected 0 (no session should be built at all)", got)
 		}
 		return
 	}

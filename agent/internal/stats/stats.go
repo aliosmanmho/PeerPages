@@ -1,12 +1,13 @@
-// Package stats ajanin istek ve bayt sayaclarini tutar.
+// Package stats keeps the agent's request and byte counters.
 //
-// Amac ziyaretcinin degil AJANIN sahibinin gordugu bilgi: hangi hedefe kac
-// istek geldi, kaci basarisiz oldu, ne kadar veri aktarildi. Bagianti
-// ekranindaki olcumler ayri bir sey — onlari tarayici kendi sayiyor.
+// What they are for is the information the AGENT's owner sees, not the
+// visitor's: how many requests reached which target, how many failed, how
+// much data moved. The measurements on the connect screen are a separate
+// thing — the browser counts those itself.
 //
-// Sayaclar atomik: istekler oturum basina farkli goroutine'lerde islenir
-// (tunnel.Session her istegi ayri goroutine'de surer), dolayisiyla kilit
-// yerine sync/atomic kullaniyoruz.
+// The counters are atomic: requests are handled on different goroutines
+// per session (tunnel.Session drives every request on its own
+// goroutine), so we use sync/atomic rather than a lock.
 package stats
 
 import (
@@ -14,27 +15,31 @@ import (
 	"sync/atomic"
 )
 
-// Snapshot bir anlik okuma.
+// Snapshot is one reading.
 type Snapshot struct {
-	// Requests baslayan istek sayisi.
+	// Requests is the number of requests started.
 	Requests uint64
-	// Success cevabi eksiksiz aktarilan istek sayisi.
+	// Success is the number of requests whose response was carried in
+	// full.
 	//
-	// Hedefin 404 ya da 500 dondurmesi BASARILIDIR: proxy isini yapmistir.
-	// Errors yalnizca ajanin cevabi tasiyamadigi durumlari sayar.
+	// The target answering 404 or 500 IS a success: the proxy did its job.
+	// Errors only counts the cases where the agent could not carry the
+	// response.
 	Success uint64
-	// Errors hedefe ulasilamadi, yol gecersiz ya da aktarim yarida kesildi.
+	// Errors: the target was unreachable, the path was invalid, or the
+	// transfer was cut off halfway.
 	Errors uint64
-	// BytesIn ziyaretciden gelen istek govdesi baytlari.
+	// BytesIn is the request body bytes coming from the visitor.
 	BytesIn uint64
-	// BytesOut ziyaretciye giden cevap govdesi baytlari.
+	// BytesOut is the response body bytes going to the visitor.
 	//
-	// Yalnizca GOVDE: ctrl kanalindaki JSON mesajlari ve cerceve basliklari
-	// sayilmaz, yani gercek tel trafigi bundan bir miktar fazladir.
+	// The BODY only: the JSON messages on the ctrl channel and the frame
+	// headers are not counted, so the real traffic on the wire is somewhat
+	// more than this.
 	BytesOut uint64
 }
 
-// Counters tek bir hedefin (ya da toplamin) sayaclari.
+// Counters are the counters of a single target (or of the total).
 type Counters struct {
 	requests atomic.Uint64
 	success  atomic.Uint64
@@ -42,11 +47,11 @@ type Counters struct {
 	bytesIn  atomic.Uint64
 	bytesOut atomic.Uint64
 
-	// parent toplam sayac; nil olabilir (toplamin kendisinde).
+	// parent is the total counter; it may be nil (on the total itself).
 	parent *Counters
 }
 
-// AddRequest yeni bir istegi sayar.
+// AddRequest counts a new request.
 func (c *Counters) AddRequest() {
 	if c == nil {
 		return
@@ -55,7 +60,7 @@ func (c *Counters) AddRequest() {
 	c.parent.AddRequest()
 }
 
-// AddSuccess cevabi eksiksiz aktarilan bir istegi sayar.
+// AddSuccess counts a request whose response was carried in full.
 func (c *Counters) AddSuccess() {
 	if c == nil {
 		return
@@ -64,7 +69,7 @@ func (c *Counters) AddSuccess() {
 	c.parent.AddSuccess()
 }
 
-// AddError tasinamayan bir istegi sayar.
+// AddError counts a request that could not be carried.
 func (c *Counters) AddError() {
 	if c == nil {
 		return
@@ -73,7 +78,7 @@ func (c *Counters) AddError() {
 	c.parent.AddError()
 }
 
-// AddBytesIn ziyaretciden gelen govde baytlarini ekler.
+// AddBytesIn adds the body bytes coming from the visitor.
 func (c *Counters) AddBytesIn(n int64) {
 	if c == nil || n <= 0 {
 		return
@@ -82,7 +87,7 @@ func (c *Counters) AddBytesIn(n int64) {
 	c.parent.AddBytesIn(n)
 }
 
-// AddBytesOut ziyaretciye giden govde baytlarini ekler.
+// AddBytesOut adds the body bytes going to the visitor.
 func (c *Counters) AddBytesOut(n int64) {
 	if c == nil || n <= 0 {
 		return
@@ -91,12 +96,13 @@ func (c *Counters) AddBytesOut(n int64) {
 	c.parent.AddBytesOut(n)
 }
 
-// Snapshot sayaclarin anlik kopyasini dondurur.
+// Snapshot returns a copy of the counters as they are right now.
 //
-// Alanlar tek tek okunur, yani cok yuklu bir anda birbirleriyle tam tutarli
-// olmayabilirler (ornegin requests artmis ama success henuz artmamistir).
-// Bu bilincli: kilit almak sicak yolu yavaslatir ve gosterilen sayilar
-// zaten bir sonraki tikte duzelir.
+// The fields are read one by one, so under heavy load they may not be
+// exactly consistent with each other (requests may have gone up while
+// success has not yet). That is deliberate: taking a lock would slow the
+// hot path down, and the numbers shown correct themselves on the next
+// tick.
 func (c *Counters) Snapshot() Snapshot {
 	if c == nil {
 		return Snapshot{}
@@ -110,17 +116,17 @@ func (c *Counters) Snapshot() Snapshot {
 	}
 }
 
-// Registry hedef basina sayaclari ve toplami tutar.
+// Registry holds the per-target counters and the total.
 //
-// Hedef listesi ajan basladiginda sabitlenir (CLI'dan gelir), bu yuzden
-// harita kurulduktan sonra yalnizca okunur: kilit gerekmez.
+// The target list is fixed when the agent starts (it comes from the CLI),
+// so once the map is built it is read-only: no lock needed.
 type Registry struct {
 	total  *Counters
 	byName map[string]*Counters
 	names  []string
 }
 
-// New verilen hedef adlari icin sayac kumesi kurar.
+// New builds the counter set for the given target names.
 func New(names []string) *Registry {
 	r := &Registry{
 		total:  &Counters{},
@@ -134,11 +140,11 @@ func New(names []string) *Registry {
 	return r
 }
 
-// Target bir hedefin sayaclarini dondurur.
+// Target returns a target's counters.
 //
-// Tanimsiz ad icin nil doner; Counters metotlari nil'de guvenli oldugu icin
-// cagiran tarafin kontrol etmesi gerekmez (bilinmeyen hedef zaten connect
-// katmaninda reddediliyor).
+// For an unknown name it returns nil; because the Counters methods are
+// nil-safe the caller does not have to check (an unknown target is
+// already refused in the connect layer).
 func (r *Registry) Target(name string) *Counters {
 	if r == nil {
 		return nil
@@ -146,7 +152,7 @@ func (r *Registry) Target(name string) *Counters {
 	return r.byName[name]
 }
 
-// Total toplam sayaclar.
+// Total is the total counters.
 func (r *Registry) Total() Snapshot {
 	if r == nil {
 		return Snapshot{}
@@ -154,7 +160,7 @@ func (r *Registry) Total() Snapshot {
 	return r.total.Snapshot()
 }
 
-// Names hedef adlari (alfabetik).
+// Names are the target names (alphabetical).
 func (r *Registry) Names() []string {
 	if r == nil {
 		return nil
@@ -162,7 +168,7 @@ func (r *Registry) Names() []string {
 	return r.names
 }
 
-// Snapshot hedef basina anlik okuma.
+// Snapshot is the per-target reading.
 func (r *Registry) Snapshot() map[string]Snapshot {
 	if r == nil {
 		return nil

@@ -15,26 +15,27 @@ import (
 	"github.com/aliosmanmho/PeerPages/agent/internal/tunnel"
 )
 
-// Faz 4: abonelik denetimi.
+// Phase 4: supervising the subscription.
 //
-// Daha once Run, abonelik kanali kapandiginda hata donuyordu ve ajan
-// surecinden cikiyordu. Relay'ler dustugunde ya da laptop uyandiginda
-// olmasi gereken sey bu degil: ajan kendi kendine toparlanmali.
+// Run used to return an error when the subscription channel closed and
+// the agent process exited. That is not what should happen when the
+// relays go down or the laptop wakes up: the agent has to recover on its
+// own.
 
-// silentLogger testlerde log gurultusunu keser.
+// silentLogger keeps the log noise out of the tests.
 func silentLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-// scriptedPool Pool (ve istenirse HealthReporter) arayuzunu uygulayan,
-// aboneliklerini test kontrol eden sahte havuz.
+// scriptedPool is a fake pool that implements the Pool interface (and
+// HealthReporter when asked) and whose subscriptions the test drives.
 type scriptedPool struct {
 	mu      sync.Mutex
 	chans   []chan gonostr.RelayEvent
 	filters []gonostr.Filter
 	health  []nostr.RelayHealth
-	// reportHealth false ise havuz saglik bildirmez (HealthReporter
-	// uygulanmamis havuzlarin yolunu da sinamak icin).
+	// With reportHealth false the pool reports no health (so the path for
+	// pools that do not implement HealthReporter gets exercised too).
 	reportHealth bool
 }
 
@@ -78,7 +79,7 @@ func (p *scriptedPool) filterAt(i int) (gonostr.Filter, bool) {
 	return p.filters[i], true
 }
 
-// closeSub i. abonelik kanalini kapatir (relay'in vazgecmesi).
+// closeSub closes subscription channel i (a relay giving up).
 func (p *scriptedPool) closeSub(i int) {
 	p.mu.Lock()
 	ch := p.chans[i]
@@ -93,7 +94,8 @@ func (p *scriptedPool) setHealth(h []nostr.RelayHealth) {
 	p.mu.Unlock()
 }
 
-// superviseAcceptor denetim sureleri kisaltilmis bir acceptor kurar.
+// superviseAcceptor builds an acceptor with shortened supervision
+// durations.
 func superviseAcceptor(t *testing.T, pool *scriptedPool) *Acceptor {
 	t.Helper()
 
@@ -121,7 +123,7 @@ func superviseAcceptor(t *testing.T, pool *scriptedPool) *Acceptor {
 	return a
 }
 
-// waitFor kosul saglanana kadar bekler.
+// waitFor blocks until the condition holds.
 func waitFor(t *testing.T, d time.Duration, msg string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(d)
@@ -131,10 +133,11 @@ func waitFor(t *testing.T, d time.Duration, msg string, cond func() bool) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("zaman asimi: %s", msg)
+	t.Fatalf("timed out: %s", msg)
 }
 
-// Abonelik kanali kapanirsa Run cikmaz, yeniden abone olur.
+// If the subscription channel closes, Run does not exit, it
+// resubscribes.
 func TestResubscribesWhenSubscriptionCloses(t *testing.T) {
 	pool := &scriptedPool{}
 	a := superviseAcceptor(t, pool)
@@ -152,14 +155,14 @@ func TestResubscribesWhenSubscriptionCloses(t *testing.T) {
 
 	select {
 	case err := <-done:
-		t.Fatalf("Run cikmamaliydi: %v", err)
+		t.Fatalf("Run should not have exited: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 }
 
-// Her donemde filtre yeniden kurulmali: ephemeral event'ler saklanmadigi
-// icin eski bir `since` ile abone olmak bosluktaki offer'lari getirmez,
-// yalnizca gecmise bakmis olurduk.
+// The filter has to be rebuilt every epoch: because ephemeral events are
+// not stored, subscribing with an old `since` brings back no offer from
+// the gap, it would only look at the past.
 func TestFilterRefreshedEachEpoch(t *testing.T) {
 	pool := &scriptedPool{}
 	a := superviseAcceptor(t, pool)
@@ -173,27 +176,27 @@ func TestFilterRefreshedEachEpoch(t *testing.T) {
 
 	time.Sleep(1100 * time.Millisecond) // Since saniye hassasiyetinde
 	pool.closeSub(0)
-	waitFor(t, 3*time.Second, "ikinci abonelik", func() bool { return pool.subscribeCount() >= 2 })
+	waitFor(t, 3*time.Second, "the second subscription", func() bool { return pool.subscribeCount() >= 2 })
 
 	second, ok := pool.filterAt(1)
 	if !ok {
-		t.Fatal("ikinci filtre yok")
+		t.Fatal("there is no second filter")
 	}
 	if first.Since == nil || second.Since == nil {
-		t.Fatal("filtrede since yok")
+		t.Fatal("the filter has no since")
 	}
 	if !(*second.Since > *first.Since) {
-		t.Errorf("ikinci since (%d) ilkinden (%d) buyuk olmali", *second.Since, *first.Since)
+		t.Errorf("the second since (%d) has to be larger than the first (%d)", *second.Since, *first.Since)
 	}
 }
 
-// Hicbir relay bagli degilse abonelik bastan kurulur: bu, go-nostr'un
-// kendi geri sayimini (5 dakikaya kadar cikabiliyor) beklemeden yeniden
-// baglanmayi zorlar.
+// With no relay connected the subscription is rebuilt from scratch,
+// which forces a reconnect without waiting for go-nostr's own backoff
+// (which can climb to 5 minutes).
 func TestResubscribesWhenAllRelaysDown(t *testing.T) {
 	pool := &scriptedPool{}
 	pool.setHealth([]nostr.RelayHealth{
-		{URL: "ws://a", Connected: false, Err: "baglanti koptu"},
+		{URL: "ws://a", Connected: false, Err: "the connection broke"},
 		{URL: "ws://b", Connected: false},
 	})
 	a := superviseAcceptor(t, pool)
@@ -202,11 +205,11 @@ func TestResubscribesWhenAllRelaysDown(t *testing.T) {
 	defer cancel()
 	go func() { _ = a.Run(ctx) }()
 
-	waitFor(t, 3*time.Second, "dusen relay'ler icin yeniden abonelik",
+	waitFor(t, 3*time.Second, "a resubscribe for the relays that went down",
 		func() bool { return pool.subscribeCount() >= 2 })
 }
 
-// Relay'ler sagliklıyken abonelik rahat birakilmali.
+// While the relays are healthy the subscription should be left alone.
 func TestNoResubscribeWhileHealthy(t *testing.T) {
 	pool := &scriptedPool{}
 	pool.setHealth([]nostr.RelayHealth{
@@ -223,14 +226,15 @@ func TestNoResubscribeWhileHealthy(t *testing.T) {
 	time.Sleep(500 * time.Millisecond) // ~16 saglik yoklamasi
 
 	if n := pool.subscribeCount(); n != 1 {
-		t.Errorf("abonelik sayisi %d, saglikli havuzda 1 olmali", n)
+		t.Errorf("%d subscriptions, a healthy pool should have 1", n)
 	}
 	if healthy, total := a.RelayStatus(); healthy != 2 || total != 2 {
-		t.Errorf("RelayStatus() = %d/%d, beklenen 2/2", healthy, total)
+		t.Errorf("RelayStatus() = %d/%d, expected 2/2", healthy, total)
 	}
 }
 
-// ctx bitince Run temiz ciksin (ajan kapaniyor).
+// Once ctx ends, Run should exit cleanly (the agent is shutting
+// down).
 func TestRunReturnsOnCancel(t *testing.T) {
 	pool := &scriptedPool{}
 	a := superviseAcceptor(t, pool)
@@ -245,9 +249,9 @@ func TestRunReturnsOnCancel(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Errorf("Run hatasi: %v", err)
+			t.Errorf("Run error: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run ctx iptalinde cikmadi")
+		t.Fatal("Run did not exit when ctx was cancelled")
 	}
 }

@@ -5,29 +5,30 @@ import (
 	"time"
 )
 
-// Ziyaretci guvenilmez (BRIEF bolum 6 ilke 4). Bu dosya signaling'e
-// uygulanan korumalari tutar: replay, saat kaymasi ve hiz limiti.
+// The visitor is untrusted (BRIEF section 6, principle 4). This file
+// holds the guards applied to signaling: replay, clock skew and rate
+// limiting.
 
-// Varsayilan koruma parametreleri (protocol/signaling.md).
+// Default guard parameters (protocol/signaling.md).
 const (
-	// MaxClockSkew event'in `created_at` degeri icin kabul edilen sapma.
-	// Daha eski/yeni event'ler reddedilir: eski event'lerin tekrar
-	// oynatilmasini sinirlar.
+	// MaxClockSkew is the skew accepted for an event's `created_at`.
+	// Older or newer events are rejected, which bounds the replay of old
+	// events.
 	MaxClockSkew = 5 * time.Minute
-	// SeenTTL gorulen event id'lerinin hatirlanma suresi. MaxClockSkew'den
-	// buyuk olmali: aksi halde hatirlamayi biraktigimiz bir event hala
-	// "zamaninda" sayilip tekrar kabul edilirdi.
+	// SeenTTL is how long seen event ids are remembered. It must be
+	// larger than MaxClockSkew: otherwise an event we stopped remembering
+	// would still count as "in time" and be accepted again.
 	SeenTTL = 2 * MaxClockSkew
-	// RateWindow hiz limiti penceresi.
+	// RateWindow is the rate limit window.
 	RateWindow = time.Minute
-	// RateBurst bir ziyaretci pubkey'inin pencere basina event hakki.
+	// RateBurst is a visitor pubkey's event allowance per window.
 	//
-	// Trickle ICE'ta bir oturum onlarca candidate yollayabilir, bu yuzden
-	// comert; amac kotu niyetli selleme karsi ust sinir koymak.
+	// With trickle ICE one session can send dozens of candidates, so it
+	// is generous; the point is to put a ceiling on malicious flooding.
 	RateBurst = 120
 )
 
-// seenSet gorulen event id'lerini sureli olarak hatirlar (replay korumasi).
+// seenSet remembers seen event ids for a while (replay protection).
 type seenSet struct {
 	ttl time.Duration
 	now func() time.Time
@@ -43,7 +44,8 @@ func newSeenSet(ttl time.Duration, now func() time.Time) *seenSet {
 	return &seenSet{ttl: ttl, now: now, items: map[string]time.Time{}}
 }
 
-// seen id daha once gorulduyse true doner; gorulmemisse kaydeder.
+// seen returns true when the id was seen before; otherwise it records
+// it.
 func (s *seenSet) seen(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -73,10 +75,11 @@ func (s *seenSet) size() int {
 	return len(s.items)
 }
 
-// rateLimiter ziyaretci pubkey'i basina sabit pencereli hiz limiti.
+// rateLimiter is a fixed-window rate limit per visitor pubkey.
 //
-// Sabit pencere sectik: kayan pencereye gore daha az bellek ve bu is icin
-// yeterli. Amac adalet degil, selleme karsi ust sinir.
+// We chose a fixed window: it uses less memory than a sliding one and is
+// enough for this job. The goal is not fairness but a ceiling on
+// flooding.
 type rateLimiter struct {
 	window time.Duration
 	burst  int
@@ -103,7 +106,8 @@ func newRateLimiter(window time.Duration, burst int, now func() time.Time) *rate
 	}
 }
 
-// allow key icin bir event hakki tuketir; hak kalmadiysa false doner.
+// allow consumes one event allowance for key; it returns false once none
+// is left.
 func (r *rateLimiter) allow(key string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -131,7 +135,8 @@ func (r *rateLimiter) pruneLocked(now time.Time) {
 	}
 }
 
-// freshEnough event zaman damgasi kabul edilen sapma icinde mi.
+// freshEnough says whether the event timestamp is within the accepted
+// skew.
 func freshEnough(createdAt, now time.Time, skew time.Duration) bool {
 	diff := now.Sub(createdAt)
 	if diff < 0 {

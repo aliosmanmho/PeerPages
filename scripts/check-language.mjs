@@ -50,7 +50,7 @@ const WORDS = [
   "dahil", "degeri", "degil", "degisiklik", "degismedi", "denetim", "deneme",
   "dizin", "dogrulama", "dogru", "dosya", "durum", "disinda", "eksik",
   "elle", "eszamanli", "gecerli", "gecersiz", "gecikme", "gelen", "gerek",
-  "gereksiz", "gercek", "gonderilen", "gorunur", "govde", "guvenlik",
+  "gereksiz", "gercek", "gonderilen", "gorsel", "gorunur", "govde", "guvenlik",
   "hatasi", "hedef", "henuz", "hicbir", "icerik", "icin", "ilke", "istek",
   "izin", "kabul", "kanal", "kapali", "kapsam", "karar", "kaynak", "kimlik",
   "korunuyor", "kullanici", "kullanim", "listesi", "maskeleme", "mesaj",

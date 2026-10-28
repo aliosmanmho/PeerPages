@@ -96,8 +96,8 @@ test.describe("phase 7 — the README images @demo", () => {
       await owner.locator("#panel-connected").screenshot({ path: join(IMG_DIR, "connect.png") });
       await visitor.screenshot({ path: join(IMG_DIR, "site.png") });
 
-      console.log(`GORSEL ${join(IMG_DIR, "connect.png")}`);
-      console.log(`GORSEL ${join(IMG_DIR, "site.png")}`);
+      console.log(`IMAGE ${join(IMG_DIR, "connect.png")}`);
+      console.log(`IMAGE ${join(IMG_DIR, "site.png")}`);
 
       await visitor.close();
       await owner.close();

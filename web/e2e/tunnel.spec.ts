@@ -135,7 +135,7 @@ test.describe("phase 1 acceptance criteria", () => {
       await expect(visitor.locator("body")).toHaveAttribute("data-js-ran", "yes");
     });
 
-    await test.step("gorsel yuklendi", async () => {
+    await test.step("the image loaded", async () => {
       const natural = await visitor
         .locator("#logo")
         .evaluate((img) => (img as HTMLImageElement).naturalWidth);
@@ -145,7 +145,7 @@ test.describe("phase 1 acceptance criteria", () => {
     await test.step("fetch ile JSON geldi", async () => {
       await expect(visitor.locator("body")).toHaveAttribute("data-api-ran", "yes");
       await expect(visitor.locator("#items .api-item")).toHaveCount(3);
-      await expect(visitor.locator("#items .api-item").first()).toHaveText("alfa = 1");
+      await expect(visitor.locator("#items .api-item").first()).toHaveText("alpha = 1");
     });
 
     expect(errors, `there should be no console error on the page: ${errors.join(" | ")}`).toEqual(

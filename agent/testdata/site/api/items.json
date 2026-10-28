@@ -1,8 +1,8 @@
 {
   "items": [
-    { "name": "alfa", "value": 1 },
+    { "name": "alpha", "value": 1 },
     { "name": "beta", "value": 2 },
-    { "name": "gama", "value": 3 }
+    { "name": "gamma", "value": 3 }
   ],
   "total": 3
 }

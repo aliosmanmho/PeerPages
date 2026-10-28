@@ -184,7 +184,7 @@ In the new tab, check these in order:
 |---|---|---|
 | 1 | The page title | "PeerPages test site" is shown |
 | 2 | CSS | The background is dark (`rgb(13,17,23)`) and the heading is blue |
-| 3 | JS | The "API" list shows `alfa = 1`, `beta = 2`, `gama = 3` |
+| 3 | JS | The "API" list shows `alpha = 1`, `beta = 2`, `gamma = 3` |
 | 4 | The image | The 64×64 checkered logo loaded |
 | 5 | fetch/JSON | Item 3 already proves this (`/api/items`) |
 | 6 | The redirect | `…/PeerPages/redirect` comes back to the site and the address bar does **not** jump to `localhost:3000` |

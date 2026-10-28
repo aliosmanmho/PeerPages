@@ -409,7 +409,7 @@ func TestIntegrationTestSiteOverTunnel(t *testing.T) {
 		if err := json.Unmarshal(res.body, &payload); err != nil {
 			t.Fatalf("the JSON could not be decoded: %v (%q)", err, res.body)
 		}
-		if payload.Total != 3 || len(payload.Items) != 3 || payload.Items[0].Name != "alfa" {
+		if payload.Total != 3 || len(payload.Items) != 3 || payload.Items[0].Name != "alpha" {
 			t.Errorf("the JSON content is wrong: %+v", payload)
 		}
 	})
